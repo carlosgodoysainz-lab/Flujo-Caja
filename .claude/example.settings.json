@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash(git commit*)",
+        "hooks": [
+          { "type": "command", "command": ".claude/hooks/pre-commit-validation.sh" },
+          { "type": "command", "command": ".claude/hooks/security-scan.sh" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": ".claude/hooks/auto-format.sh" },
+          { "type": "command", "command": ".claude/hooks/test-runner.sh" }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": ".claude/hooks/cost-tracker.sh" },
+          { "type": "command", "command": ".claude/hooks/log-tool-usage.sh" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": ".claude/hooks/stop-hook.sh" }
+        ]
+      }
+    ]
+  }
+}

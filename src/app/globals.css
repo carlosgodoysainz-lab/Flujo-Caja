@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Personaliza tu tema aquí
+ * Documentación: https://tailwindcss.com/docs/theme
+ *
+ * Nota: el scaffold original de Forge traía `@import 'tailwindcss'`
+ * (sintaxis de Tailwind v4), pero el proyecto tiene instalado Tailwind
+ * v3.4 (ver package.json + postcss.config.js). Corregido a las directivas
+ * v3 — con v4 el build fallaba al intentar bundlear el loader de config
+ * (jiti) en el bundle de cliente ("Module not found: Can't resolve 'v8'").
+ */
