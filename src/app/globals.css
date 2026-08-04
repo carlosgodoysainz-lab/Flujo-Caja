@@ -12,3 +12,23 @@
  * v3 — con v4 el build fallaba al intentar bundlear el loader de config
  * (jiti) en el bundle de cliente ("Module not found: Can't resolve 'v8'").
  */
+
+/*
+ * Marca Maestra — tokens confirmados en los dashboards de referencia
+ * (Minuta GESPRO Comparativo, Carta Gantt Plan de Obras). Ver
+ * BLUEPRINT-flujo-caja-nomina.md → "Sistema de Diseño (Marca Maestra)".
+ */
+:root {
+  --navy: #0a1f3c;
+  --navy-brand: #003865;
+  --fucsia: #db0a5b;
+  --gold: #b89a5a;
+  --ok: #2e7d32;
+  --warn: #b8860b;
+  --err: #c62828;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+}
