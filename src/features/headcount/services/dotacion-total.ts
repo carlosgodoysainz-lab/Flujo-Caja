@@ -1,31 +1,12 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/service";
+import { periodoDeFecha, sumarMesesAPeriodo } from "./periodo";
 
 export interface DotacionTotalPunto {
   /** YYYY-MM-01 */
   periodo: string;
   total: number;
   esReal: boolean;
-}
-
-/**
- * NOTA sobre fechas: acá se trabaja SIEMPRE con el string "YYYY-MM-DD" tal
- * cual viene de Postgres, nunca con `new Date(dateOnlyString).getMonth()`.
- * Ese patrón es un bug real en timezones detrás de UTC (Chile, UTC-3/-4):
- * `new Date("2026-08-01")` es medianoche UTC, que en hora de Chile cae la
- * noche del 31 de julio — `.getMonth()` devuelve julio, no agosto. Todo el
- * cálculo de "mes de avance" acá es aritmética de string, no de Date.
- */
-function periodoDeFecha(fechaStr: string): string {
-  return `${fechaStr.slice(0, 7)}-01`;
-}
-
-function sumarMesesAPeriodo(periodo: string, n: number): string {
-  const [y, m] = periodo.slice(0, 7).split("-").map(Number);
-  const totalMeses = y * 12 + (m - 1) + n;
-  const yy = Math.floor(totalMeses / 12);
-  const mm = (totalMeses % 12) + 1;
-  return `${yy}-${String(mm).padStart(2, "0")}-01`;
 }
 
 /**
