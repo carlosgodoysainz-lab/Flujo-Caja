@@ -10,6 +10,7 @@ import {
 } from "@/features/ingestion/graph/client";
 import { parseSolicitudRequerimiento } from "@/features/ingestion/excel-parser/solicitud-requerimiento-parser";
 import type { PayrollLineItemRaw } from "@/features/ingestion/excel-parser/types";
+import { matchObraByName } from "@/shared/lib/match-obra";
 
 export interface SyncPagosMensualesResult {
   estado: "ok" | "parcial" | "error";
@@ -184,15 +185,7 @@ export async function syncPagosMensuales(
           .from("obras")
           .select("id, nombre");
         for (const division of divisionesUnicas) {
-          const nombreBuscado = division
-            .replace(/^obra\s+/i, "")
-            .trim()
-            .toLowerCase();
-          const match = obras?.find(
-            (o) =>
-              o.nombre.toLowerCase().includes(nombreBuscado) ||
-              nombreBuscado.includes(o.nombre.toLowerCase()),
-          );
+          const match = matchObraByName(division, obras ?? []);
           if (match) obraPorDivision.set(division, match.id);
         }
       }

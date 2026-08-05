@@ -1,13 +1,15 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/service";
-import { fetchBukEmpleadosActivos } from "./client";
+import { fetchBukAreaNombre, fetchBukEmpleadosActivos } from "./client";
 import { agruparDotacion } from "./aggregate";
+import { matchObraByName } from "@/shared/lib/match-obra";
 
 export interface BukSnapshotResult {
   estado: "ok" | "error";
   snapshotDate: string;
   cargosActualizados: number;
   gruposGuardados: number;
+  obrasResueltas: number;
   errores: string[];
 }
 
@@ -52,15 +54,28 @@ export async function runBukSnapshot(
     }
 
     // 2. Resolver obra_id por area_id — best-effort, muchas áreas de Buk
-    // no van a mapear 1:1 a una obra (oficinas centrales, gerencias, etc.)
-    // — eso es normal, no es un error.
+    // NO van a mapear a una obra (oficinas centrales, gerencias, etc.),
+    // eso es normal. Se resuelve el nombre de cada área única (1 llamada
+    // a Buk por área, aceptable en un cron mensual) y se matchea contra
+    // el catálogo de obras con el mismo helper que usa Fase 4.
     const { data: obras } = await supabase.from("obras").select("id, nombre");
+    const areaIdsUnicos = [
+      ...new Set(grupos.map((g) => g.areaId).filter((a): a is string => !!a)),
+    ];
+    const obraIdPorAreaId = new Map<string, string>();
+
+    for (const areaId of areaIdsUnicos) {
+      const nombreArea = await fetchBukAreaNombre(areaId);
+      if (!nombreArea) continue;
+      const match = matchObraByName(nombreArea, obras ?? []);
+      if (match) obraIdPorAreaId.set(areaId, match.id);
+    }
 
     // 3. Snapshots — SIEMPRE insert, nunca upsert.
     const filas = grupos.map((g) => ({
       snapshot_date: snapshotDate,
       cargo_id: idPorNombre.get(g.cargo) ?? null,
-      obra_id: null as string | null, // ver nota: mapeo area_id->obra_id queda para cuando exista esa tabla de correspondencia
+      obra_id: g.areaId ? (obraIdPorAreaId.get(g.areaId) ?? null) : null,
       activos: g.activos,
       altas: g.altas,
       bajas: g.bajas,
@@ -80,7 +95,8 @@ export async function runBukSnapshot(
         snapshotDate,
         grupos: grupos.length,
         cargosNuevos: cargosNuevos.length,
-        obrasDisponibles: obras?.length ?? 0,
+        areasResueltasAObra: obraIdPorAreaId.size,
+        areasTotal: areaIdsUnicos.length,
       },
     });
 
@@ -89,6 +105,7 @@ export async function runBukSnapshot(
       snapshotDate,
       cargosActualizados: cargosNuevos.length,
       gruposGuardados: filas.length,
+      obrasResueltas: obraIdPorAreaId.size,
       errores,
     };
   } catch (error) {
@@ -98,6 +115,7 @@ export async function runBukSnapshot(
       snapshotDate,
       cargosActualizados: 0,
       gruposGuardados: 0,
+      obrasResueltas: 0,
       errores: [...errores, message],
     };
   }

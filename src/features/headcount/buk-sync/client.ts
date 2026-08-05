@@ -93,6 +93,35 @@ export async function fetchBukEmpleadosActivos(): Promise<BukEmpleadoMinimo[]> {
   return empleados;
 }
 
+interface BukApiArea {
+  id: number;
+  name: string;
+  parent_area: { name: string } | null;
+  department: { name: string } | null;
+}
+
+/**
+ * Nombre del área (mismo endpoint que panel-relaciones-laborales) — se usa
+ * para intentar mapear area_id de Buk a una obra por nombre (ver
+ * `matchObraByName`), ya que Buk no expone directamente un obra_id.
+ */
+export async function fetchBukAreaNombre(
+  areaId: string,
+): Promise<string | null> {
+  if (!BUK_KEY) return null;
+  try {
+    const res = await fetch(`${BUK_BASE}/api/v1/areas/${areaId}`, {
+      headers: { auth_token: BUK_KEY, Accept: "application/json" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return null;
+    const { data } = (await res.json()) as { data: BukApiArea };
+    return data.name;
+  } catch {
+    return null;
+  }
+}
+
 export async function bukApiDisponible(): Promise<boolean> {
   if (!BUK_KEY) return false;
   try {
