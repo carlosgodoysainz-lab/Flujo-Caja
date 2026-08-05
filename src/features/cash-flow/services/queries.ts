@@ -1,3 +1,4 @@
+import "server-only";
 import { createServiceClient } from "@/lib/supabase/service";
 
 export interface CashFlowSeriePunto {

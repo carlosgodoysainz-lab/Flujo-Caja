@@ -21,6 +21,11 @@ export default async function FuentesPage() {
   const { count: lineItemsCount } = await supabase
     .from("payroll_line_items")
     .select("*", { count: "exact", head: true });
+  const { data: auditLog } = await supabase
+    .from("audit_log")
+    .select("accion, entidad, metadata, created_at")
+    .order("created_at", { ascending: false })
+    .limit(20);
 
   return (
     <div className="mx-auto max-w-3xl p-8">
@@ -60,6 +65,37 @@ export default async function FuentesPage() {
         </p>
         <div className="mt-4">
           <SyncPagosMensualesForm />
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-lg border border-slate-200 p-5">
+        <h2 className="font-medium text-slate-900">
+          Auditoría — últimas 20 acciones
+        </h2>
+        <p className="mt-1 text-xs text-slate-400">
+          Registro inmutable (solo INSERT) de sincronizaciones, estimaciones y
+          overrides manuales — ver TECH-SPEC §6.4.
+        </p>
+        <div className="mt-3 space-y-1 text-xs">
+          {(auditLog ?? []).length === 0 && (
+            <p className="text-slate-400">Sin actividad registrada todavía.</p>
+          )}
+          {(auditLog ?? []).map((entry, i) => (
+            <div
+              key={i}
+              className="flex items-start justify-between border-b border-slate-100 py-1.5"
+            >
+              <div>
+                <span className="font-medium text-slate-700">
+                  {entry.accion}
+                </span>{" "}
+                <span className="text-slate-400">sobre {entry.entidad}</span>
+              </div>
+              <span className="text-slate-400">
+                {new Date(entry.created_at).toLocaleString("es-CL")}
+              </span>
+            </div>
+          ))}
         </div>
       </section>
     </div>
