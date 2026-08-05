@@ -15,7 +15,10 @@ export default function MainLayout({
 }) {
   return (
     <div className="flex min-h-[100dvh] flex-col bg-white">
-      <nav className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 bg-[var(--navy)]/95 px-6 py-3 backdrop-blur">
+      <nav
+        className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 px-6 py-3"
+        style={{ backgroundColor: "var(--navy)" }}
+      >
         <div className="flex items-center gap-8">
           <MaestraLogo className="h-6 w-auto" />
           <div className="flex gap-1 text-sm">

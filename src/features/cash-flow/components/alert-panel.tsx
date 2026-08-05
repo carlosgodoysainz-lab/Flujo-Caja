@@ -19,7 +19,18 @@ export async function AlertPanel() {
   if (obrasUnicas.length === 0) return null;
 
   return (
-    <div className="rounded-lg border border-[var(--warn)]/30 bg-[var(--warn)]/5 p-4">
+    // Opacidad vía rgba() fijo, NO `bg-[var(--warn)]/NN` — ese patrón
+    // (modificador de opacidad de Tailwind sobre una variable CSS definida
+    // como hex, no como canales RGB separados) falla en silencio y deja el
+    // fondo transparente. Mismo bug real que rompía el nav (ver
+    // Auto-Blindaje) — rgb(184,134,11) = var(--warn) = #b8860b.
+    <div
+      className="rounded-lg border p-4"
+      style={{
+        borderColor: "rgba(184, 134, 11, 0.3)",
+        backgroundColor: "rgba(184, 134, 11, 0.05)",
+      }}
+    >
       <p className="text-sm font-medium text-[var(--warn)]">
         ⚠ {obrasUnicas.length} obra(s) con dotación estimada por el modelo (no
         manual/real)
