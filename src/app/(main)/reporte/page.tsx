@@ -8,6 +8,7 @@ import { TimelineChart } from "@/features/cash-flow/components/timeline-chart";
 import { DetailTable } from "@/features/cash-flow/components/detail-table";
 import { AlertPanel } from "@/features/cash-flow/components/alert-panel";
 import { RefreshReportButton } from "@/features/cash-flow/components/refresh-report-button";
+import { ExportReportButton } from "@/features/report-export/components/export-report-button";
 
 export const dynamic = "force-dynamic";
 
@@ -57,10 +58,16 @@ export default async function ReportePage() {
         </form>
       </div>
 
-      <RefreshReportButton
-        periodoDesde={desde.toISOString().slice(0, 10)}
-        periodoHasta={hasta.toISOString().slice(0, 10)}
-      />
+      <div className="flex flex-wrap gap-3">
+        <RefreshReportButton
+          periodoDesde={desde.toISOString().slice(0, 10)}
+          periodoHasta={hasta.toISOString().slice(0, 10)}
+        />
+        <ExportReportButton
+          periodoDesde={desde.toISOString().slice(0, 10)}
+          periodoHasta={hasta.toISOString().slice(0, 10)}
+        />
+      </div>
 
       <KpiHero kpis={kpis} />
 
