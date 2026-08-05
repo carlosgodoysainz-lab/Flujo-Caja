@@ -189,6 +189,28 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 - **Limitación conocida (no error, bloqueo externo)**: el login con Microsoft requiere consentimiento de administrador en Azure AD que no se resolvió durante esta sesión (columna "Se requiere el consentimiento" mostraba "No" para los 4 permisos pero el login real sí lo pidió). Todo el código de Fases 3, 4, 5, 7 y 8 que depende de `session.graphAccessToken` está escrito y compila, pero **no fue validado contra la API real de Graph ni de Buk** (falta también `BUK_API_KEY`)
 - **Aplicar en**: antes de considerar el MVP "listo para producción", correr un refresh real con Carlos ya logueado y revisar `/fuentes` para confirmar que la ingesta real funciona
 
+### 2026-08-05: `/me/drive/root/search` da 0 resultados — solo busca el OneDrive personal
+
+- **Error real en producción**: con login ya funcionando, "Actualizar reporte" devolvió PARCIAL con 0 documentos ingeridos — TODAS las fuentes (Plan de Obras Gespro, Pagos Mensuales de los 25 meses) fallaron. `searchFiles` usaba `/me/drive/root/search`, que solo indexa el OneDrive personal por defecto del usuario logueado. Las carpetas reales ("Recursos Humanos General", "Plan de Obra") son bibliotecas de SharePoint de equipo, en `/sites/{siteId}/drive` — un drive completamente distinto.
+- **Fix**: reescribir `searchFiles` (graph/client.ts) para usar la API de Microsoft Search (`POST /search/query`, `entityTypes: ["driveItem"]`) — cubre SharePoint + OneDrive + compartido con el usuario en una sola llamada. Es el mismo endpoint que usa el conector MCP de Microsoft 365.
+- **Aplicar en**: cualquier búsqueda de archivos de usuario sobre Graph API — nunca usar los endpoints de `/me/drive` a secas cuando el contenido puede vivir en SharePoint de equipo.
+
+### 2026-08-05: Motor de cálculo tenía Cotización y Finiquito con las fórmulas cruzadas, y SENCE inventaba un valor que no existe
+
+- **Error real, encontrado al revisar el Excel real formula por fórmula** (`scripts/inspect-flujo-caja-formulas.ts`, confirmado estable en 7 meses distintos) contra la metodología que el usuario redefinió explícitamente:
+  - Cotización usaba 24%×Remuneración sola; la fórmula real es 30%×(Anticipo+Remuneración+Reliquidación) — estaba literalmente cambiada por la de Finiquito.
+  - Finiquito usaba 30%×(Remun+Reliq+Anticipo); el usuario pidió promedio de los últimos 6 meses reales (metodología nueva, no la del Excel).
+  - Aporte SENCE se calculaba con 8%×Remuneración+$30M — un valor que el usuario confirmó que NUNCA existió como fórmula, siempre fue manual, y no había ningún punto de la UI para ingresarlo.
+  - Anticipo siempre quedaba en $0 — nunca se había investigado la carpeta real "Pagos Mensuales/anticipos".
+- **Fix**: `formulas.ts`/`engine.ts` reescritos con las reglas confirmadas una por una con el usuario (ver commit `feat(F10)`). Se investigó la carpeta de Anticipo completa vía MCP de Microsoft 365 y se encontró la fuente real correcta (`solicitud requerimientos anticipo <mes> <año>.xlsx`) — se conectó al parser genérico existente. Remuneración pasó a un modelo costo-por-cabeza × dotación (usa el modelo de curvas de obras similares que ya existía en Fase 6). Se agregó una celda editable para SENCE en la tabla de detalle — antes no había forma de cargarlo.
+- **Aplicar en**: cuando el usuario pida "revisa el Excel real y redefine las reglas", no asumir que la metodología documentada en el código coincide con las celdas reales — inspeccionar las fórmulas del archivo con exceljs antes de tocar el motor.
+
+### 2026-08-05: `bg-[var(--x)]/NN` no renderiza — Tailwind no puede aplicar opacidad sobre una variable CSS en hex
+
+- **Error real, visto en pantalla**: el nav quedaba con fondo transparente (logo/texto blanco invisible) pese a tener `bg-[var(--navy)]/95` en el className. Tailwind v3 solo sabe aplicar el modificador de opacidad `/NN` sobre variables CSS definidas como canales RGB separados (`10 20 40`); las variables de marca en `globals.css` están en hex (`#0a1f3c`) — la clase se genera pero el navegador nunca pinta un color, sin ningún error de build.
+- **Fix**: reemplazar por `style={{ backgroundColor: "var(--navy)" }}` (color sólido) o por un `rgba()` fijo precalculado cuando se necesita opacidad real (ver `alert-panel.tsx`). Se hizo un barrido de todo `src/` buscando el mismo patrón (`grep -[a-zA-Z-]+\[var\(--[a-zA-Z-]+\)\]/\d+`) — encontrada y corregida 1 instancia más.
+- **Aplicar en**: nunca usar `/NN` sobre `[var(--x)]` en Tailwind mientras las variables de marca sigan en hex. Si se necesita opacidad, usar `rgba()` fijo o un inline style.
+
 ---
 
 ## Gotchas (Antes de Implementar)
@@ -214,11 +236,11 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 
 ## 🚧 Pendientes en manos del usuario (no se pueden resolver desde el agente)
 
-Las 9 fases tienen código completo, compilan, y pasan 61 tests unitarios. Lo que sigue requiere acción de Carlos:
+10 fases con código completo, 65 tests unitarios pasando, `npx tsc --noEmit` y `npm run build` limpios. ~~Consentimiento de administrador en Azure AD~~ y ~~`BUK_API_KEY`~~ ya resueltos. Lo que sigue requiere acción de Carlos:
 
-1. **Consentimiento de administrador en Azure AD** — el login con Microsoft pidió aprobación de admin al probarlo real. Resolver en Entra ID → App registrations → Flujo Caja Nomina → API permissions → "Grant admin consent", o confirmar con IT si el botón no está disponible.
-2. **`BUK_API_KEY`** — falta en `.env.local` para que Fase 5 (histórico Buk) y Fase 6 (modelo de estimación) tengan datos reales. Pedirla al mismo tenant que usa `panel-relaciones-laborales`.
-3. **Validar el refresh real end-to-end** una vez resuelto (1) y (2): loguearse, ir a `/fuentes`, sincronizar Plan de Obras y Pagos Mensuales de un mes real, y revisar `/reporte`.
+1. **Volver a correr "Actualizar reporte" con los fixes de esta sesión** (buscador de Graph corregido + Anticipo real conectado + modelo de dotación) — la última corrida real fue ANTES del fix del buscador (dio PARCIAL, 0 documentos). Revisar `/fuentes` y `/reporte` después de correrlo.
+2. **Cargar el Aporte SENCE del período actual** — es el único dato manual del modelo; ahora hay una celda editable en la tabla de detalle (columna SENCE, click para ingresar) donde antes no existía ningún punto de entrada.
+3. **Validar la metodología nueva contra un cierre real de nómina** — comparar el Total Nómina que arroja el reporte contra el Excel actual en un mes ya cerrado, antes de confiar en la proyección para meses futuros.
 4. **Deploy a Vercel** — requiere la cuenta Vercel de Carlos (el agente no puede autenticarse ahí). Pasos: `vercel link` → configurar las variables de entorno de `.env.local` en el dashboard de Vercel → `vercel deploy --prod`.
 5. **Actualizar el Redirect URI de Azure AD** con la URL real de producción una vez desplegado (hoy solo tiene `localhost:3000`).
 6. **Piloto en paralelo** — usar la herramienta para el próximo ciclo de nómina junto al Excel actual, comparar resultados antes de descontinuar el proceso manual.
