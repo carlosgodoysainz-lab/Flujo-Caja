@@ -43,22 +43,56 @@ async function graphFetch(
   return res;
 }
 
+interface MicrosoftSearchHit {
+  resource: {
+    id: string;
+    name: string;
+    webUrl: string;
+    lastModifiedDateTime: string;
+    parentReference?: { driveId?: string; path?: string };
+  };
+}
+
+interface MicrosoftSearchResponse {
+  value: { hitsContainers: { hits?: MicrosoftSearchHit[] }[] }[];
+}
+
 /**
- * Búsqueda de archivos por texto libre, en todo lo que el usuario puede
- * ver (propio + compartido con él). El filtrado por carpeta/nombre es
- * client-side (ver `pickLatestMatch`) porque el naming real en SharePoint
- * es inconsistente (confirmado: singular/plural, sufijos, "Nueva carpeta").
+ * Búsqueda de archivos por texto libre — usa la API de Microsoft Search
+ * (`/search/query`), NO `/me/drive/root/search`.
+ *
+ * BUG REAL corregido: `/me/drive/root/search` solo busca en el OneDrive
+ * PERSONAL por defecto del usuario. Las carpetas reales ("Recursos Humanos
+ * General", "Plan de Obra") son bibliotecas de SharePoint de EQUIPO
+ * sincronizadas al explorador de archivos — viven en un drive distinto
+ * (`/sites/{siteId}/drive`), así que `/me/drive/root/search` nunca las
+ * encontraba (0 resultados, confirmado en producción). La API de Microsoft
+ * Search sí cubre SharePoint + OneDrive + lo compartido con el usuario,
+ * en una sola llamada — es el mismo endpoint que usa el conector MCP de
+ * Microsoft 365 (ya validado contra datos reales en esta sesión).
  */
 export async function searchFiles(
   accessToken: string,
   query: string,
 ): Promise<GraphSearchHit[]> {
-  const res = await graphFetch(
-    accessToken,
-    `/me/drive/root/search(q='${encodeURIComponent(query)}')`,
-  );
-  const json = await res.json();
-  return (json.value ?? []) as GraphSearchHit[];
+  const res = await graphFetch(accessToken, "/search/query", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      requests: [
+        {
+          entityTypes: ["driveItem"],
+          query: { queryString: query },
+          from: 0,
+          size: 25,
+        },
+      ],
+    }),
+  });
+
+  const json = (await res.json()) as MicrosoftSearchResponse;
+  const hits = json.value?.[0]?.hitsContainers?.[0]?.hits ?? [];
+  return hits.map((h) => h.resource);
 }
 
 export async function downloadFileContent(
