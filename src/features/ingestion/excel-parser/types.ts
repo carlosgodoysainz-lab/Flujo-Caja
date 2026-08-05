@@ -14,6 +14,8 @@ import { z } from "zod";
  * con el usuario si алguna vez se necesita reportarla separada.
  */
 export const PayrollConceptoSchema = z.enum([
+  "anticipo_rg",
+  "anticipo_rp",
   "remuneracion_rg",
   "remuneracion_rp",
   "reliquidacion",

@@ -7,6 +7,7 @@ import {
   TableRow,
 } from "@/shared/ui/table";
 import type { CashFlowSeriePunto } from "../services/queries";
+import { SenceEditableCell } from "./sence-editable-cell";
 
 const CONCEPTOS_ORDEN = [
   "anticipo",
@@ -74,6 +75,19 @@ export function DetailTable({
               <TableCell>{CONCEPTO_LABEL[concepto]}</TableCell>
               {periodos.map((p) => {
                 const punto = valorPorConceptoYPeriodo.get(`${concepto}::${p}`);
+                if (concepto === "sence") {
+                  // Único concepto siempre manual — celda editable en vez
+                  // de texto plano (ver sence-editable-cell.tsx).
+                  return (
+                    <TableCell key={p} className="text-right">
+                      <SenceEditableCell
+                        periodo={p}
+                        monto={punto?.monto ?? 0}
+                        esReal={punto?.esReal ?? false}
+                      />
+                    </TableCell>
+                  );
+                }
                 return (
                   <TableCell
                     key={p}

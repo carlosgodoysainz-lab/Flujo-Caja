@@ -4,7 +4,12 @@ import {
   type SolicitudRequerimientoParseResult,
 } from "./types";
 
-const HEADER_MARKERS = ["Sociedad", "Concepto de pago", "Monto"] as const;
+const HEADER_MARKERS = ["Sociedad", "Concepto de pago"] as const;
+// Columna del monto: "Monto" en remuneración/reliquidación/finiquito,
+// "Anticipo" en los archivos "solicitud requerimientos anticipo <mes>
+// <año>.xlsx" — mismo layout, encabezado distinto (confirmado contra
+// archivo real).
+const AMOUNT_HEADERS = ["Monto", "Anticipo"] as const;
 
 const MESES_ES: Record<string, number> = {
   enero: 0,
@@ -73,11 +78,20 @@ function clasificarConcepto(
   conceptoTexto: string,
   rgRpDelArchivo: "RG" | "RP" | null,
 ):
-  "remuneracion_rg" | "remuneracion_rp" | "reliquidacion" | "finiquito" | null {
+  | "anticipo_rg"
+  | "anticipo_rp"
+  | "remuneracion_rg"
+  | "remuneracion_rp"
+  | "reliquidacion"
+  | "finiquito"
+  | null {
   const t = conceptoTexto.toLowerCase();
   if (t.includes("finiquito")) return "finiquito";
   if (t.includes("reliquidacion") || t.includes("reliquidación"))
     return "reliquidacion";
+  if (t.includes("anticipo")) {
+    return rgRpDelArchivo === "RP" ? "anticipo_rp" : "anticipo_rg";
+  }
   if (
     t.includes("remuneracion") ||
     t.includes("remuneración") ||
@@ -92,14 +106,28 @@ function clasificarConcepto(
   return null;
 }
 
+/** "anticipo RG" / "anticipo RP" / "Remuneraciones RG" → "RG"/"RP", null si el nombre de hoja no lo indica. */
+function rgRpFromSheetName(nombreHoja: string): "RG" | "RP" | null {
+  const lower = nombreHoja.toLowerCase();
+  const hasRg = /\brg\b/.test(lower);
+  const hasRp = /\brp\b/.test(lower);
+  if (hasRg && !hasRp) return "RG";
+  if (hasRp && !hasRg) return "RP";
+  return null;
+}
+
 /**
  * Parsea un archivo "Solicitud de Requerimiento [remuneracion|reliquidacion]
- * <mes> <año> [RG|RP].xlsx". Genérico por CONTENIDO de encabezado (no por
- * nombre de hoja fijo) — confirmado que el nombre de hoja varía ("RP",
- * "RG - RP", "retencion judicial", "finiquito RP cuota", etc.) pero la
- * estructura de columnas es siempre la misma.
+ * <mes> <año> [RG|RP].xlsx" o "solicitud requerimientos anticipo <mes>
+ * <año>.xlsx" (este último trae RG y RP como 2 hojas del MISMO libro, no 2
+ * archivos separados — de ahí la detección de RG/RP por nombre de HOJA
+ * además de por nombre de archivo). Genérico por CONTENIDO de encabezado
+ * (no por nombre de hoja fijo) — confirmado que el nombre de hoja varía
+ * ("RP", "RG - RP", "retencion judicial", "finiquito RP cuota", "anticipo
+ * RG", etc.) pero la estructura de columnas es siempre la misma (columna
+ * de monto llamada "Monto" o, en Anticipo, "Anticipo").
  *
- * @param rgRpDelArchivo "RG"/"RP" si el nombre de archivo lo indica claramente, null si es ambiguo (ej. "RG - RP")
+ * @param rgRpDelArchivo "RG"/"RP" si el nombre de archivo lo indica claramente, null si es ambiguo (ej. "RG - RP", o el archivo de Anticipo que trae ambos)
  */
 export async function parseSolicitudRequerimiento(
   buffer: Buffer | ArrayBuffer,
@@ -122,7 +150,8 @@ export async function parseSolicitudRequerimiento(
         const text = toTrimmedString(cell.value);
         if (text) map.set(text, colNumber);
       });
-      if (HEADER_MARKERS.every((h) => map.has(h))) {
+      const tieneMonto = AMOUNT_HEADERS.some((h) => map.has(h));
+      if (HEADER_MARKERS.every((h) => map.has(h)) && tieneMonto) {
         headerRowNumber = rowNumber;
         columnByHeader = map;
       }
@@ -137,8 +166,13 @@ export async function parseSolicitudRequerimiento(
     const colDivision =
       columnByHeader.get("Division") ?? columnByHeader.get("División");
     const colConcepto = col("Concepto de pago");
-    const colMonto = col("Monto");
+    const colMonto =
+      columnByHeader.get("Monto") ?? columnByHeader.get("Anticipo")!;
     const colFechaPago = columnByHeader.get("Fecha Pago");
+    // El nombre de hoja manda por sobre el nombre de archivo cuando ambos
+    // están presentes (el archivo de Anticipo trae RG y RP en 2 hojas del
+    // mismo libro — el nombre de archivo por sí solo es ambiguo ahí).
+    const rgRpDeEstaHoja = rgRpFromSheetName(sheet.name) ?? rgRpDelArchivo;
 
     for (
       let rowNumber = headerRowNumber + 1;
@@ -160,7 +194,7 @@ export async function parseSolicitudRequerimiento(
       const montoRaw = resolveCellValue(row.getCell(colMonto));
       const monto = typeof montoRaw === "number" ? montoRaw : null;
 
-      const concepto = clasificarConcepto(conceptoTexto, rgRpDelArchivo);
+      const concepto = clasificarConcepto(conceptoTexto, rgRpDeEstaHoja);
       const periodo =
         extractPeriodoFromConcepto(conceptoTexto) ??
         periodoFromFechaPago(

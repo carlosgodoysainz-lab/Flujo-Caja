@@ -1,8 +1,8 @@
 import {
+  calcularAnticipoProyectado,
   calcularCotizacion,
-  calcularFiniquitoProyectado,
   calcularReliquidacionProyectada,
-  calcularSence,
+  calcularRemuneracionProyectada,
 } from "./formulas";
 
 export interface CashFlowInputs {
@@ -10,16 +10,37 @@ export interface CashFlowInputs {
   remuneracionReal: number | null;
   reliquidacionReal: number | null;
   finiquitoReal: number | null;
-  /** Anticipos reales — sin fuente automatizada en el MVP (Fase 10, post-MVP), normalmente null. */
+  /** Real cuando existe archivo en "Pagos Mensuales/Anticipo" para el mes (ver sync-pagos-mensuales.ts). */
   anticipoReal: number | null;
   /**
-   * Base para proyectar Remuneraciones cuando no hay dato real (mes futuro).
-   * Simplificación del MVP: normalmente el promedio de los últimos meses
-   * reales, provisto por el caller. El modelo de proyección basado en
-   * headcount (como en el Excel original) se incorpora cuando la Fase 6
-   * (motor de estimación de dotación) esté disponible — ver Auto-Blindaje.
+   * Aporte SENCE — dato SIEMPRE manual (nunca fórmula), específico del
+   * período. Viene de un override manual ya guardado en `cash_flow_monthly`
+   * (ver `override.ts`) o `null` si nadie lo ha ingresado todavía para ese
+   * mes.
    */
-  remuneracionBaseParaProyeccion: number;
+  senceManual: number | null;
+  /**
+   * Costo promedio por cabeza del MES ANTERIOR (Remuneración$ ÷ dotación),
+   * para proyectar Remuneración como precio×cantidad. `null` si no hay
+   * dotación real/estimada disponible para el mes anterior — ver
+   * `dotacion-total.ts`.
+   */
+  costoPromedioPorCabezaMesAnterior: number | null;
+  /** Dotación total estimada/real del mes ACTUAL — la "cantidad" del modelo. */
+  dotacionActual: number | null;
+  /**
+   * Fallback si no hay dato de dotación (obra nueva sin histórico, Buk
+   * histórico insuficiente): promedio de los últimos meses reales,
+   * provisto por el caller.
+   */
+  remuneracionFallbackPromedioHistorico: number;
+  /**
+   * Promedio de los ÚLTIMOS 6 MESES con Finiquito REAL ingerido — la
+   * metodología que el usuario pidió explícitamente para proyectar este
+   * concepto (reemplaza la fórmula del Excel real, que era 7%×Remuneración).
+   * 0 si todavía no hay 6 meses reales de historial.
+   */
+  finiquitoFallbackPromedio6m: number;
 }
 
 export interface CashFlowConceptoCalculado {
@@ -40,8 +61,9 @@ export interface CashFlowMesCalculado {
 
 /**
  * Calcula el Total Nómina de un mes, priorizando siempre datos reales
- * ingeridos sobre proyección por fórmula — ver TECH-SPEC §3.3 (Cash-Flow
- * Engine) y §7 (fórmulas confirmadas contra el Excel original).
+ * ingeridos (o overrides manuales) sobre proyección por fórmula — ver
+ * TECH-SPEC §3.3 (Cash-Flow Engine) y §7 (metodología redefinida,
+ * confirmada punto por punto con el usuario tras revisar el Excel real).
  */
 export function calcularMesCashFlow(
   inputs: CashFlowInputs,
@@ -53,11 +75,16 @@ export function calcularMesCashFlow(
           esReal: true,
           metodoCalculo: "ingesta_real",
         }
-      : {
-          monto: inputs.remuneracionBaseParaProyeccion,
-          esReal: false,
-          metodoCalculo: "proyeccion_base_promedio_historico",
-        };
+      : (() => {
+          const { monto, metodoCalculo } = calcularRemuneracionProyectada({
+            costoPromedioPorCabezaMesAnterior:
+              inputs.costoPromedioPorCabezaMesAnterior,
+            dotacionActual: inputs.dotacionActual,
+            fallbackPromedioHistorico:
+              inputs.remuneracionFallbackPromedioHistorico,
+          });
+          return { monto, esReal: false, metodoCalculo };
+        })();
 
   const anticipo: CashFlowConceptoCalculado =
     inputs.anticipoReal !== null
@@ -67,9 +94,9 @@ export function calcularMesCashFlow(
           metodoCalculo: "ingesta_real",
         }
       : {
-          monto: 0,
+          monto: calcularAnticipoProyectado(remuneracion.monto),
           esReal: false,
-          metodoCalculo: "sin_fuente_automatizada_fase10",
+          metodoCalculo: "formula_24pct_remuneracion",
         };
 
   const reliquidacion: CashFlowConceptoCalculado =
@@ -93,27 +120,38 @@ export function calcularMesCashFlow(
           metodoCalculo: "ingesta_real",
         }
       : {
-          monto: calcularFiniquitoProyectado(
-            remuneracion.monto,
-            reliquidacion.monto,
-            anticipo.monto,
-          ),
+          monto: inputs.finiquitoFallbackPromedio6m,
           esReal: false,
-          metodoCalculo: "formula_30pct_remun_mas_reliq_mas_anticipo",
+          metodoCalculo: "promedio_ultimos_6_meses_reales",
         };
 
-  // Cotizaciones y SENCE siempre son fórmula — no existe fuente real
-  // automatizada para estos 2 conceptos (ver TECH-SPEC §2.3).
+  // Cotizaciones siempre son fórmula — no existe fuente real automatizada
+  // para este concepto (% legal estable sobre la suma de los otros 3).
   const cotizacion: CashFlowConceptoCalculado = {
-    monto: calcularCotizacion(remuneracion.monto),
+    monto: calcularCotizacion(
+      anticipo.monto,
+      remuneracion.monto,
+      reliquidacion.monto,
+    ),
     esReal: false,
-    metodoCalculo: "formula_24pct_remuneracion",
+    metodoCalculo: "formula_30pct_anticipo_mas_remun_mas_reliq",
   };
-  const sence: CashFlowConceptoCalculado = {
-    monto: calcularSence(remuneracion.monto),
-    esReal: false,
-    metodoCalculo: "formula_8pct_remuneracion_mas_30M",
-  };
+
+  // Aporte SENCE: SIEMPRE manual, nunca fórmula. Si nadie lo ha cargado
+  // todavía para este período, queda en 0 marcado como pendiente — jamás
+  // se inventa un valor.
+  const sence: CashFlowConceptoCalculado =
+    inputs.senceManual !== null
+      ? {
+          monto: inputs.senceManual,
+          esReal: true,
+          metodoCalculo: "manual_override",
+        }
+      : {
+          monto: 0,
+          esReal: false,
+          metodoCalculo: "pendiente_ingreso_manual",
+        };
 
   const totalNomina =
     anticipo.monto +

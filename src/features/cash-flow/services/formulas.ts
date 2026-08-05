@@ -1,44 +1,86 @@
 /**
- * Fórmulas de proyección migradas del Excel "Flujo de Caja" (hoja Detalle).
- * Confirmadas contra el archivo real durante la investigación inicial —
- * ver TECH-SPEC-flujo-caja-nomina.md §2.2 y §7.
+ * Fórmulas de proyección del modelo de flujo de caja de nómina —
+ * REDEFINIDAS a partir de (a) las fórmulas reales confirmadas en el Excel
+ * "Flujo de Caja" (`scripts/inspect-flujo-caja-formulas.ts`, estables en 7
+ * meses distintos) y (b) la corrección explícita del usuario sobre la
+ * metodología deseada, que en 2 conceptos difiere a propósito de lo que
+ * hacía el Excel (ver TECH-SPEC §7 y Auto-Blindaje):
+ *
+ *   Concepto        | Excel real          | Metodología redefinida (usada acá)
+ *   ----------------|----------------------|-------------------------------------
+ *   Anticipo        | 24% × Remun. (RG)    | 24% × Remuneración (igual, confirmado)
+ *   Remuneración     | (prevMonto/prevHC)×HC | Igual — modelo costo-por-cabeza × dotación (ver dotacion-total.ts)
+ *   Finiquito        | 7% × Remuneración    | Promedio de los ÚLTIMOS 6 MESES REALES (decisión explícita del usuario)
+ *   Reliquidación    | 1% × Remuneración    | Igual (el usuario confirmó mantener la fórmula del Excel)
+ *   Cotización       | 30% × (Rem+Reliq+Ant)| Igual, confirmado
+ *   Aporte SENCE     | siempre manual       | Igual — NUNCA fórmula, ver override.ts
  *
  * IMPORTANTE: estas son fórmulas de RESPALDO — se usan solo cuando no hay
  * dato real ingerido para el concepto/mes correspondiente (ver `engine.ts`).
- * Cuando existe un archivo real de SharePoint para ese mes, ese valor real
- * siempre tiene prioridad.
+ * Cuando existe un archivo real de SharePoint (o un override manual) para
+ * ese mes, ese valor real siempre tiene prioridad.
  */
 
-export const COTIZACION_PCT = 0.24;
-export const SENCE_PCT = 0.08;
-export const SENCE_FIJO = 30_000_000;
+export const ANTICIPO_PCT = 0.24;
+export const COTIZACION_PCT = 0.3;
 export const RELIQUIDACION_PCT = 0.01;
-export const FINIQUITO_PCT = 0.3;
 
 function round(value: number): number {
   return Math.round(value);
 }
 
-/** Cotizaciones ≈ 24% de Remuneraciones. Siempre fórmula — no hay fuente real automatizada para este concepto. */
-export function calcularCotizacion(remuneracion: number): number {
-  return round(remuneracion * COTIZACION_PCT);
+/** Anticipo proyectado ≈ 24% de Remuneración del mismo mes (fallback cuando no hay dato real ingerido de la carpeta "Pagos Mensuales/Anticipo"). */
+export function calcularAnticipoProyectado(remuneracion: number): number {
+  return round(remuneracion * ANTICIPO_PCT);
 }
 
-/** Aporte SENCE ≈ 8% de Remuneraciones + $30.000.000 fijo. Siempre fórmula. */
-export function calcularSence(remuneracion: number): number {
-  return round(remuneracion * SENCE_PCT + SENCE_FIJO);
-}
-
-/** Reliquidaciones proyectadas ≈ 1% de Remuneraciones (fallback cuando no hay dato real ingerido). */
+/** Reliquidaciones proyectadas ≈ 1% de Remuneraciones del mismo mes (fallback). Fórmula del Excel, confirmada por el usuario. */
 export function calcularReliquidacionProyectada(remuneracion: number): number {
   return round(remuneracion * RELIQUIDACION_PCT);
 }
 
-/** Finiquitos proyectados ≈ 30% × (Remuneraciones + Reliquidaciones + Anticipo) (fallback). */
-export function calcularFiniquitoProyectado(
+/**
+ * Cotizaciones ≈ 30% × (Anticipo + Remuneración + Reliquidación) del mismo
+ * mes. Siempre fórmula — no hay fuente real automatizada para este
+ * concepto (es un porcentaje legal relativamente estable, no requiere
+ * ingesta de archivo).
+ */
+export function calcularCotizacion(
+  anticipo: number,
   remuneracion: number,
   reliquidacion: number,
-  anticipo: number,
 ): number {
-  return round((remuneracion + reliquidacion + anticipo) * FINIQUITO_PCT);
+  return round((anticipo + remuneracion + reliquidacion) * COTIZACION_PCT);
+}
+
+/**
+ * Remuneración proyectada = costo promedio por cabeza del mes anterior ×
+ * dotación del mes actual — el modelo "precio × cantidad" pedido
+ * explícitamente por el usuario. `costoPromedioPorCabezaMesAnterior` viene
+ * de dividir la Remuneración real (o ya proyectada) del mes anterior por
+ * la dotación total de ese mismo mes anterior (ver `dotacion-total.ts`).
+ * Si no hay dato de dotación disponible todavía (Buk histórico insuficiente
+ * o la obra nueva no tiene curva de referencia), cae al fallback de
+ * promedio histórico simple — degradación explícita, nunca un error duro.
+ */
+export function calcularRemuneracionProyectada(params: {
+  costoPromedioPorCabezaMesAnterior: number | null;
+  dotacionActual: number | null;
+  fallbackPromedioHistorico: number;
+}): { monto: number; metodoCalculo: string } {
+  const {
+    costoPromedioPorCabezaMesAnterior,
+    dotacionActual,
+    fallbackPromedioHistorico,
+  } = params;
+  if (costoPromedioPorCabezaMesAnterior != null && dotacionActual != null) {
+    return {
+      monto: round(costoPromedioPorCabezaMesAnterior * dotacionActual),
+      metodoCalculo: "costo_por_cabeza_x_dotacion",
+    };
+  }
+  return {
+    monto: fallbackPromedioHistorico,
+    metodoCalculo: "proyeccion_base_promedio_historico",
+  };
 }

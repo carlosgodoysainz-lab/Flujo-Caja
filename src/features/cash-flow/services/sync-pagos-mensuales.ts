@@ -97,12 +97,22 @@ async function descargarYParsear(
 }
 
 /**
- * Ingiere Remuneraciones + Reliquidaciones de SharePoint para un mes
- * específico y agrega los montos a `payroll_line_items`. NO calcula
+ * Ingiere Anticipos + Remuneraciones + Reliquidaciones de SharePoint para
+ * un mes específico y agrega los montos a `payroll_line_items`. NO calcula
  * `cash_flow_monthly` directamente — eso lo hace el refresh completo
  * (Fase 7) combinando esto con `calcularMesCashFlow` (engine.ts).
  *
- * Anticipos y Finiquitos vía PDF quedan fuera del MVP (Fase 10, ver
+ * Anticipo: fuente confirmada tras revisar TODOS los archivos de la
+ * carpeta "Pagos Mensuales/anticipos/anticipo <mes> <año>" — el archivo
+ * correcto es "solicitud requerimientos anticipo <mes> <año>.xlsx" (mismo
+ * layout que Remuneración/Reliquidación: Sociedad/RUT-sociedad/Division/
+ * Concepto de pago/monto, columna de monto llamada "Anticipo"; trae RG y
+ * RP como 2 hojas del mismo libro). El otro archivo de esa carpeta
+ * ("...Anticipos_Sueldos_Casa Matriz...") es el export crudo de Buk con
+ * RUT y nombre POR PERSONA — deliberadamente NO se ingiere (viola la
+ * regla de nunca persistir dato personal, ver TECH-SPEC §2.2).
+ *
+ * Finiquitos vía PDF (Winper legado) quedan fuera del MVP (Fase 10, ver
  * TECH-SPEC §2.3) — los finiquitos que SÍ vienen estructurados dentro de
  * los archivos de remuneración (ej. "Finiquito RP cuota X/Y") sí se
  * ingieren aquí, vía el parser genérico.
@@ -129,7 +139,12 @@ export async function syncPagosMensuales(
   let totalLineItems = 0;
 
   try {
-    const [remuneraciones, reliquidaciones] = await Promise.all([
+    const [anticipos, remuneraciones, reliquidaciones] = await Promise.all([
+      descargarYParsear(
+        session.graphAccessToken,
+        "solicitud requerimientos anticipo",
+        periodo,
+      ),
       descargarYParsear(
         session.graphAccessToken,
         "Solicitud de Requerimiento remuneracion",
@@ -142,16 +157,19 @@ export async function syncPagosMensuales(
       ),
     ]);
 
-    for (const grupo of [...remuneraciones, ...reliquidaciones]) {
+    for (const grupo of [...anticipos, ...remuneraciones, ...reliquidaciones]) {
       errores.push(...grupo.errores);
       if (grupo.lineItems.length === 0) continue;
 
+      const nombreLower = grupo.archivo.name.toLowerCase();
       const { data: sourceDoc, error: sourceDocError } = await supabase
         .from("payroll_source_documents")
         .insert({
-          tipo: grupo.archivo.name.toLowerCase().includes("reliquidacion")
-            ? "reliquidacion"
-            : "remuneracion",
+          tipo: nombreLower.includes("anticipo")
+            ? "anticipo"
+            : nombreLower.includes("reliquidacion")
+              ? "reliquidacion"
+              : "remuneracion",
           periodo: periodo.toISOString().slice(0, 10),
           nombre_archivo: grupo.archivo.name,
           graph_item_id: grupo.archivo.id,
