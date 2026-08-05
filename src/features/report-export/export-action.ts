@@ -5,6 +5,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import {
   getCashFlowSeries,
   getResumenKpis,
+  getUfPorPeriodo,
 } from "@/features/cash-flow/services/queries";
 import { renderReportHtml } from "./render";
 
@@ -34,11 +35,15 @@ export async function exportReportAsHtml(
       getCashFlowSeries(periodoDesde, periodoHasta),
       getResumenKpis(periodoDesde, periodoHasta),
     ]);
+    const ufPorPeriodo = await getUfPorPeriodo([
+      ...new Set(serie.map((p) => p.periodo)),
+    ]);
 
     const generadoEn = new Date();
     const html = renderReportHtml({
       serie,
       kpis,
+      ufPorPeriodo,
       periodoDesde: periodoDesde.toISOString().slice(0, 10),
       periodoHasta: periodoHasta.toISOString().slice(0, 10),
       generadoEn,

@@ -6,6 +6,9 @@ const KPIS: ResumenKpis = {
   totalMesActual: 100_000_000,
   totalMesAnterior: 90_000_000,
   variacionPct: 11.1,
+  totalProximosTresMeses: 300_000_000,
+  totalProximosDoceMeses: 1_200_000_000,
+  mesPico: { periodo: "2026-12-01", monto: 150_000_000 },
   obrasConEstimacion: 3,
   mesesProyectadosEnRango: 5,
 };

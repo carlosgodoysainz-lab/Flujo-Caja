@@ -57,11 +57,14 @@ function escapeHtml(s: string): string {
 export function renderReportHtml(params: {
   serie: CashFlowSeriePunto[];
   kpis: ResumenKpis;
+  /** Valor UF por período — ver uf-sync.ts. Fila "Total Nómina (UF)" solo aparece si hay dato. */
+  ufPorPeriodo?: Map<string, number>;
   periodoDesde: string;
   periodoHasta: string;
   generadoEn: Date;
 }): string {
-  const { serie, kpis, periodoDesde, periodoHasta, generadoEn } = params;
+  const { serie, kpis, ufPorPeriodo, periodoDesde, periodoHasta, generadoEn } =
+    params;
 
   const periodos = [...new Set(serie.map((p) => p.periodo))].sort();
   const valorPorConceptoYPeriodo = new Map<string, CashFlowSeriePunto>();
@@ -79,6 +82,21 @@ export function renderReportHtml(params: {
     const claseFila = concepto === "total_nomina" ? ' class="total"' : "";
     return `<tr${claseFila}><td>${CONCEPTO_LABEL[concepto]}</td>${celdas}</tr>`;
   }).join("\n");
+
+  const filaUf =
+    ufPorPeriodo && ufPorPeriodo.size > 0
+      ? `<tr class="uf"><td>Total Nómina (UF)</td>${periodos
+          .map((p) => {
+            const totalNomina = valorPorConceptoYPeriodo.get(
+              `total_nomina::${p}`,
+            );
+            const valorUf = ufPorPeriodo.get(p);
+            const enUf =
+              totalNomina && valorUf ? totalNomina.monto / valorUf : null;
+            return `<td>${enUf !== null ? `${new Intl.NumberFormat("es-CL", { maximumFractionDigits: 1 }).format(enUf)} UF` : "—"}</td>`;
+          })
+          .join("")}</tr>`
+      : "";
 
   const encabezadosPeriodo = periodos
     .map((p) => `<th>${p.slice(0, 7)}</th>`)
@@ -110,7 +128,7 @@ export function renderReportHtml(params: {
   }
   nav .fecha { font-size: 13px; opacity: 0.8; }
   main { max-width: 1000px; margin: 0 auto; padding: 24px; }
-  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+  .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 8px; }
   .kpi { border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; }
   .kpi .label { font-size: 12px; color: #64748b; }
   .kpi .valor { font-size: 20px; font-weight: 600; margin-top: 4px; }
@@ -118,6 +136,7 @@ export function renderReportHtml(params: {
   th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid #eef2f6; }
   th:first-child, td:first-child { text-align: left; }
   tr.total { font-weight: 600; border-top: 2px solid var(--navy-brand); }
+  tr.uf { color: var(--navy-brand); font-weight: 500; }
   td.proyectado { color: #94a3b8; font-style: italic; }
   footer {
     text-align: center; padding: 12px; font-size: 11px; color: #fff;
@@ -134,11 +153,17 @@ export function renderReportHtml(params: {
 <main>
   <h1>Flujo de Caja Nómina</h1>
   <div class="kpis">
-    <div class="kpi"><div class="label">Total nómina (mes actual)</div><div class="valor">${formatCLP(kpis.totalMesActual)}</div></div>
+    <div class="kpi"><div class="label">Este mes</div><div class="valor">${formatCLP(kpis.totalMesActual)}</div></div>
+    <div class="kpi"><div class="label">Próximos 3 meses</div><div class="valor">${formatCLP(kpis.totalProximosTresMeses)}</div></div>
+    <div class="kpi"><div class="label">Próximos 12 meses</div><div class="valor">${formatCLP(kpis.totalProximosDoceMeses)}</div></div>
     <div class="kpi"><div class="label">Variación vs. mes anterior</div><div class="valor">${escapeHtml(variacionTexto)}</div></div>
     <div class="kpi"><div class="label">Obras con dotación estimada</div><div class="valor">${kpis.obrasConEstimacion}</div></div>
-    <div class="kpi"><div class="label">Meses proyectados en el rango</div><div class="valor">${kpis.mesesProyectadosEnRango}</div></div>
   </div>
+  ${
+    kpis.mesPico
+      ? `<p style="font-size:12px;color:#64748b;margin:8px 0 16px;">📈 Mes de mayor requerimiento proyectado: <strong>${kpis.mesPico.periodo.slice(0, 7)}</strong> (${formatCLP(kpis.mesPico.monto)}) — ${kpis.mesesProyectadosEnRango} meses del rango son proyección.</p>`
+      : ""
+  }
 
   <table>
     <thead><tr><th>Concepto</th>${encabezadosPeriodo}</tr></thead>

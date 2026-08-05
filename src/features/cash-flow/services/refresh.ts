@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { createServiceClient } from "@/lib/supabase/service";
 import { syncObrasFromGespro } from "@/features/obras/services/sync";
 import { syncPagosMensuales } from "./sync-pagos-mensuales";
+import { syncUfSeries } from "./uf-sync";
 import { calcularMesCashFlow } from "./engine";
 
 export interface RefreshReportResult {
@@ -72,6 +73,14 @@ export async function refreshCashFlowReport(
     documentosIngeridos += 1;
   }
 
+  const ufResult = await syncUfSeries(periodoDesde, periodoHasta);
+  if (ufResult.estado === "error") {
+    errores.push({
+      fuente: "Serie UF (mindicador.cl)",
+      mensaje: ufResult.errores.join("; "),
+    });
+  }
+
   const meses: Date[] = [];
   const cursor = new Date(
     periodoDesde.getFullYear(),
@@ -126,9 +135,15 @@ export async function refreshCashFlowReport(
       { concepto: "cotizacion", ...calculado.cotizacion },
       { concepto: "sence", ...calculado.sence },
       {
+        // "Real" a nivel de mes = el mes ya ocurrió (hay remuneración real
+        // ingerida), aunque cotización/SENCE sigan siendo fórmula (nunca
+        // tienen fuente real en este MVP — ver TECH-SPEC §2.3). Antes esto
+        // quedaba SIEMPRE en false, lo que rompía el KPI de "meses
+        // proyectados", el corte real/proyectado del gráfico de área, y el
+        // estilo de la tabla de detalle.
         concepto: "total_nomina",
         monto: calculado.totalNomina,
-        esReal: false,
+        esReal: calculado.remuneracion.esReal,
         metodoCalculo: "suma_conceptos",
       },
     ];

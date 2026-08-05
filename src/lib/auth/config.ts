@@ -64,6 +64,11 @@ async function refreshGraphAccessToken(refreshToken: string) {
 }
 
 export const authConfig: NextAuthConfig = {
+  // Sin esto, NextAuth v5 puede fallar a resolver el host correcto entre
+  // el redirect inicial y el callback (visto en real: "InvalidCheck:
+  // pkceCodeVerifier value could not be parsed") — seguro en nuestro caso
+  // porque controlamos el dominio (self-hosted, no multi-tenant público).
+  trustHost: true,
   providers: [
     AzureAD({
       clientId: process.env.AZURE_AD_CLIENT_ID,

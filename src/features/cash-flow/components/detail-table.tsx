@@ -33,7 +33,18 @@ function formatCLP(monto: number): string {
   );
 }
 
-export function DetailTable({ serie }: { serie: CashFlowSeriePunto[] }) {
+function formatUF(monto: number): string {
+  return `${new Intl.NumberFormat("es-CL", { maximumFractionDigits: 1 }).format(monto)} UF`;
+}
+
+export function DetailTable({
+  serie,
+  ufPorPeriodo,
+}: {
+  serie: CashFlowSeriePunto[];
+  /** Valor UF por período (mismo formato YYYY-MM-DD que `periodo`) — ver uf-sync.ts. Fila "Total Nómina (UF)" solo aparece si hay dato. */
+  ufPorPeriodo: Map<string, number>;
+}) {
   const periodos = [...new Set(serie.map((p) => p.periodo))].sort();
   const valorPorConceptoYPeriodo = new Map<string, CashFlowSeriePunto>();
   for (const punto of serie)
@@ -74,8 +85,32 @@ export function DetailTable({ serie }: { serie: CashFlowSeriePunto[] }) {
               })}
             </TableRow>
           ))}
+          {ufPorPeriodo.size > 0 && (
+            <TableRow className="border-t-2 border-[var(--navy-brand)] text-[var(--navy-brand)]">
+              <TableCell className="font-medium">Total Nómina (UF)</TableCell>
+              {periodos.map((p) => {
+                const totalNomina = valorPorConceptoYPeriodo.get(
+                  `total_nomina::${p}`,
+                );
+                const valorUf = ufPorPeriodo.get(p);
+                const enUf =
+                  totalNomina && valorUf ? totalNomina.monto / valorUf : null;
+                return (
+                  <TableCell key={p} className="text-right">
+                    {enUf !== null ? formatUF(enUf) : "—"}
+                  </TableCell>
+                );
+              })}
+            </TableRow>
+          )}
         </TableBody>
       </Table>
+      {ufPorPeriodo.size === 0 && (
+        <p className="mt-2 text-xs text-slate-400">
+          Serie UF no sincronizada todavía — se actualiza junto con "Actualizar
+          reporte".
+        </p>
+      )}
     </div>
   );
 }

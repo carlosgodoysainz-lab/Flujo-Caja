@@ -28,12 +28,43 @@ export async function getCashFlowSeries(
   }));
 }
 
+/**
+ * Valor de UF para el día exacto de cada período (siempre el 1° del mes,
+ * mismo formato que `cash_flow_monthly.periodo`). Usado para la fila
+ * "Total Nómina (UF)" de la tabla de detalle — ver `uf-sync.ts`.
+ */
+export async function getUfPorPeriodo(
+  periodos: string[],
+): Promise<Map<string, number>> {
+  if (periodos.length === 0) return new Map();
+  const supabase = createServiceClient();
+  const { data } = await supabase
+    .from("uf_series")
+    .select("fecha, valor_uf")
+    .in("fecha", periodos);
+
+  return new Map((data ?? []).map((d) => [d.fecha, Number(d.valor_uf)]));
+}
+
 export interface ResumenKpis {
+  /** Mes CALENDARIO actual (hoy) — no el último del rango, que puede ser futuro. */
   totalMesActual: number;
   totalMesAnterior: number;
   variacionPct: number | null;
+  /** La pregunta real de un flujo de caja de nómina: ¿cuánto necesito los próximos N meses? */
+  totalProximosTresMeses: number;
+  totalProximosDoceMeses: number;
+  /** Mes de mayor requerimiento hacia adelante — para anticipar picos (aguinaldos, finiquitos masivos, etc.) */
+  mesPico: { periodo: string; monto: number } | null;
   obrasConEstimacion: number;
   mesesProyectadosEnRango: number;
+}
+
+function primerDiaMesActual(): string {
+  const hoy = new Date();
+  return new Date(hoy.getFullYear(), hoy.getMonth(), 1)
+    .toISOString()
+    .slice(0, 10);
 }
 
 export async function getResumenKpis(
@@ -53,17 +84,39 @@ export async function getResumenKpis(
   }
 
   const periodosOrdenados = [...totalesPorMes.keys()].sort();
-  const ultimoPeriodo = periodosOrdenados[periodosOrdenados.length - 1];
-  const penultimoPeriodo = periodosOrdenados[periodosOrdenados.length - 2];
+  const mesActualStr = primerDiaMesActual();
+  const idxMesActual = periodosOrdenados.indexOf(mesActualStr);
 
-  const totalMesActual = ultimoPeriodo ? totalesPorMes.get(ultimoPeriodo)! : 0;
-  const totalMesAnterior = penultimoPeriodo
-    ? totalesPorMes.get(penultimoPeriodo)!
+  const totalMesActual = totalesPorMes.get(mesActualStr) ?? 0;
+  const periodoAnterior =
+    idxMesActual > 0 ? periodosOrdenados[idxMesActual - 1] : null;
+  const totalMesAnterior = periodoAnterior
+    ? totalesPorMes.get(periodoAnterior)!
     : 0;
   const variacionPct =
     totalMesAnterior > 0
       ? ((totalMesActual - totalMesAnterior) / totalMesAnterior) * 100
       : null;
+
+  // "Próximos N meses" = desde el mes actual (inclusive) hacia adelante —
+  // la métrica que de verdad responde "cuánta caja necesito reservar".
+  const mesesFuturos =
+    idxMesActual >= 0
+      ? periodosOrdenados.slice(idxMesActual)
+      : periodosOrdenados;
+  const sumaRango = (n: number) =>
+    mesesFuturos
+      .slice(0, n)
+      .reduce((acc, p) => acc + (totalesPorMes.get(p) ?? 0), 0);
+
+  const totalProximosTresMeses = sumaRango(3);
+  const totalProximosDoceMeses = sumaRango(12);
+
+  let mesPico: ResumenKpis["mesPico"] = null;
+  for (const p of mesesFuturos) {
+    const monto = totalesPorMes.get(p) ?? 0;
+    if (!mesPico || monto > mesPico.monto) mesPico = { periodo: p, monto };
+  }
 
   const mesesProyectadosEnRango = [...esRealPorMes.values()].filter(
     (esReal) => !esReal,
@@ -78,6 +131,9 @@ export async function getResumenKpis(
     totalMesActual,
     totalMesAnterior,
     variacionPct,
+    totalProximosTresMeses,
+    totalProximosDoceMeses,
+    mesPico,
     obrasConEstimacion: obrasConEstimacion ?? 0,
     mesesProyectadosEnRango,
   };
