@@ -94,7 +94,10 @@ export async function syncObrasFromGespro(): Promise<SyncObrasResult> {
         fuente_archivo: match.name,
         fuente_actualizado_at: new Date().toISOString(),
       })),
-      { onConflict: "codigo_gespro" },
+      // NUNCA "codigo_gespro" — confirmado contra el archivo real que ese
+      // código se repite entre obras distintas (ver migración
+      // 20260805000002). `nombre` es la clave 100% única real.
+      { onConflict: "nombre" },
     );
 
     if (upsertError) {
