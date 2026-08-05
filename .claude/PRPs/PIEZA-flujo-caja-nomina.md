@@ -129,12 +129,12 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 **Objetivo**: Sistema funcionando end-to-end en producción
 **Validación**:
 
-- [ ] `npm run typecheck` → 0 errores
-- [ ] `npm run build` → exitoso
-- [ ] Playwright screenshot confirma UI renderiza
-- [ ] Todos los criterios de éxito de "Qué" cumplidos
-- [ ] RLS verificado con `get_advisors(type: "security")`
-- [ ] Deploy en Vercel con redirect URI de Azure AD actualizado
+- [x] `npm run typecheck` → 0 errores
+- [x] `npm run build` → exitoso
+- [ ] Playwright screenshot confirma UI renderiza — no configurado (sin Playwright instalado, login bloqueado por consentimiento admin igual impediría el flujo E2E completo)
+- [ ] Todos los criterios de éxito de "Qué" cumplidos — pendiente validación real de Carlos (login no probado end-to-end)
+- [x] RLS verificado — MCP `get_advisors` no disponible esta sesión, sustituido por revisión manual + prueba en vivo (INSERT con anon key → 42501, confirmado)
+- [ ] Deploy en Vercel — **pendiente, requiere cuenta Vercel del usuario** (ver sección "Pendientes en manos del usuario" abajo)
 
 ---
 
@@ -142,7 +142,52 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 
 > Esta sección crece durante la implementación — se documenta cada error encontrado y su fix.
 
-_(vacío — se llena durante la ejecución de El Yunque)_
+### 2026-08-04: Tailwind v4 vs v3 en el scaffold de Forge
+
+- **Error**: `globals.css` traía `@import 'tailwindcss'` (sintaxis v4) pero el proyecto instala Tailwind v3.4 → build fallaba con "Module not found: Can't resolve 'v8'" (jiti intentando bundlearse en el cliente)
+- **Fix**: usar las directivas v3 (`@tailwind base/components/utilities`)
+- **Aplicar en**: cualquier proyecto Forge nuevo con este mismo scaffold — revisar versión de Tailwind ANTES de tocar globals.css
+
+### 2026-08-04: Next.js 16 renombró "middleware" a "proxy"
+
+- **Error**: `middleware.ts` genera warning de deprecación en Next 16
+- **Fix**: renombrar a `src/proxy.ts` (mismo contenido, sin cambios de API)
+- **Aplicar en**: todo proyecto Next.js 16+
+
+### 2026-08-04: `shadcn add` sin `shadcn init` previo no inyecta el setup base
+
+- **Error**: se instalaron 7 componentes shadcn (Fase 2) sin nunca correr `shadcn init` — faltaban las variables CSS (`--primary`, `--background`, `--border`, etc.) y el plugin `tailwindcss-animate`. Los componentes habrían renderizado sin estilos
+- **Fix**: agregar manualmente el bloque de variables CSS "new-york" a `globals.css` + extender `tailwind.config.ts` + instalar `tailwindcss-animate`
+- **Aplicar en**: cualquier proyecto donde se use `shadcn add` directo sin `init` — verificar SIEMPRE que existan las variables base antes de asumir que los componentes se ven bien
+
+### 2026-08-04: `profiles` diseñado para Supabase Auth, pero la identidad real es NextAuth
+
+- **Error**: migración inicial puso `profiles.id REFERENCES auth.users(id)` + trigger `on_auth_user_created` — pero como la app usa NextAuth (no Supabase Auth) para login, nada inserta en `auth.users`, así que `profiles` nunca se poblaría
+- **Fix**: migración 002 quita el trigger y el FK; `profiles.id` pasa a ser el Microsoft OID, poblado desde el callback `signIn` de NextAuth
+- **Aplicar en**: cualquier proyecto que use un proveedor de auth externo a Supabase junto con Supabase solo como DB
+
+### 2026-08-04: Access token de Graph API expira y no se refrescaba
+
+- **Error**: el JWT callback de NextAuth guardaba el access_token de Graph solo en el primer login — como el refresh del reporte es manual (puede pasar horas/días entre usos), el token quedaría stale y todo Graph API call fallaría con 401
+- **Fix**: agregar lógica de refresh automático (POST al endpoint de token de Azure AD con el refresh_token) dentro del mismo jwt callback, chequeando expiración en cada request
+- **Aplicar en**: cualquier integración OAuth donde el uso real es esporádico, no continuo
+
+### 2026-08-04: matchObraByName — substring crudo confunde "Lira I" con "Lira II"
+
+- **Error**: el primer test escrito para el matcher de nombres de obra reveló que `"lira ii".includes("lira i")` es `true` — un bug real que habría asignado mal el `obra_id` en producción para obras con numeración romana/secuencial (confirmado que existen: Lira I/II/III reales)
+- **Fix**: exact-match primero, luego fallback con límites de palabra (`\b`) en vez de `.includes()` crudo
+- **Aplicar en**: cualquier matching de texto libre contra nombres con sufijos numéricos/romanos
+
+### 2026-08-04: 6 de 12 tablas sin RLS desde la migración inicial
+
+- **Error**: al auditar (Fase 9), `headcount_forecast_runs`, `buk_cargo_catalog`, `buk_dotacion_snapshots`, `payroll_source_documents`, `uf_series` y `report_snapshots` nunca tuvieron `ENABLE ROW LEVEL SECURITY` — con la anon key pública, cualquiera podría haber leído/escrito esas tablas directo vía REST
+- **Fix**: migración 004 habilita RLS sin políticas permisivas (deny-all, coherente con que la app solo usa service role). Verificado en vivo: INSERT con anon key → error 42501
+- **Aplicar en**: SIEMPRE hacer un `grep "CREATE TABLE"` vs `grep "ENABLE ROW LEVEL SECURITY"` al cerrar cualquier fase con migraciones nuevas — no asumir que "puse RLS en la mayoría" es suficiente
+
+### 2026-08-04: Server actions dependientes de Graph API no se pudieron probar end-to-end
+
+- **Limitación conocida (no error, bloqueo externo)**: el login con Microsoft requiere consentimiento de administrador en Azure AD que no se resolvió durante esta sesión (columna "Se requiere el consentimiento" mostraba "No" para los 4 permisos pero el login real sí lo pidió). Todo el código de Fases 3, 4, 5, 7 y 8 que depende de `session.graphAccessToken` está escrito y compila, pero **no fue validado contra la API real de Graph ni de Buk** (falta también `BUK_API_KEY`)
+- **Aplicar en**: antes de considerar el MVP "listo para producción", correr un refresh real con Carlos ya logueado y revisar `/fuentes` para confirmar que la ingesta real funciona
 
 ---
 
@@ -167,4 +212,17 @@ _(vacío — se llena durante la ejecución de El Yunque)_
 
 ---
 
-_La Pieza pendiente aprobación. Ninguna línea de código ha sido modificada._
+## 🚧 Pendientes en manos del usuario (no se pueden resolver desde el agente)
+
+Las 9 fases tienen código completo, compilan, y pasan 61 tests unitarios. Lo que sigue requiere acción de Carlos:
+
+1. **Consentimiento de administrador en Azure AD** — el login con Microsoft pidió aprobación de admin al probarlo real. Resolver en Entra ID → App registrations → Flujo Caja Nomina → API permissions → "Grant admin consent", o confirmar con IT si el botón no está disponible.
+2. **`BUK_API_KEY`** — falta en `.env.local` para que Fase 5 (histórico Buk) y Fase 6 (modelo de estimación) tengan datos reales. Pedirla al mismo tenant que usa `panel-relaciones-laborales`.
+3. **Validar el refresh real end-to-end** una vez resuelto (1) y (2): loguearse, ir a `/fuentes`, sincronizar Plan de Obras y Pagos Mensuales de un mes real, y revisar `/reporte`.
+4. **Deploy a Vercel** — requiere la cuenta Vercel de Carlos (el agente no puede autenticarse ahí). Pasos: `vercel link` → configurar las variables de entorno de `.env.local` en el dashboard de Vercel → `vercel deploy --prod`.
+5. **Actualizar el Redirect URI de Azure AD** con la URL real de producción una vez desplegado (hoy solo tiene `localhost:3000`).
+6. **Piloto en paralelo** — usar la herramienta para el próximo ciclo de nómina junto al Excel actual, comparar resultados antes de descontinuar el proceso manual.
+
+---
+
+_La Pieza — 9 fases con código completo. Pendiente validación end-to-end del usuario (login real) y deploy._
