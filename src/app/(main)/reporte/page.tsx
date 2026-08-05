@@ -1,15 +1,47 @@
 import { auth, signOut } from "@/lib/auth";
+import {
+  getCashFlowSeries,
+  getResumenKpis,
+} from "@/features/cash-flow/services/queries";
+import { KpiHero } from "@/features/cash-flow/components/kpi-hero";
+import { TimelineChart } from "@/features/cash-flow/components/timeline-chart";
+import { DetailTable } from "@/features/cash-flow/components/detail-table";
+import { AlertPanel } from "@/features/cash-flow/components/alert-panel";
+import { RefreshReportButton } from "@/features/cash-flow/components/refresh-report-button";
 
-// Placeholder de Fase 1 — solo valida que el login delegado funciona
-// end-to-end. El dashboard real (KPIs, línea de tiempo, tabla de detalle)
-// se construye en Fase 7, sobre los datos de Fases 3-6.
+export const dynamic = "force-dynamic";
+
+// Rango del dashboard: 12 meses atrás -> 12 meses adelante desde hoy.
+// El histórico completo (2022+) queda disponible ampliando el rango en
+// una fase futura (filtros de UI) — para el MVP este rango cubre el caso
+// de uso principal (¿cuánta caja necesito los próximos meses?).
+function rangoDefault() {
+  const hoy = new Date();
+  const desde = new Date(hoy.getFullYear(), hoy.getMonth() - 12, 1);
+  const hasta = new Date(hoy.getFullYear(), hoy.getMonth() + 12, 1);
+  return { desde, hasta };
+}
+
 export default async function ReportePage() {
   const session = await auth();
+  const { desde, hasta } = rangoDefault();
+
+  const [serie, kpis] = await Promise.all([
+    getCashFlowSeries(desde, hasta),
+    getResumenKpis(desde, hasta),
+  ]);
 
   return (
-    <div className="min-h-[100dvh] p-8">
+    <div className="mx-auto max-w-6xl space-y-6 p-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Flujo de Caja Nómina</h1>
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900">
+            Flujo de Caja Nómina
+          </h1>
+          <p className="text-sm text-slate-500">
+            Sesión: {session?.user?.email}
+          </p>
+        </div>
         <form
           action={async () => {
             "use server";
@@ -24,13 +56,35 @@ export default async function ReportePage() {
           </button>
         </form>
       </div>
-      <p className="mt-4 text-slate-600">
-        Sesión activa: <strong>{session?.user?.email}</strong>
-      </p>
-      <p className="mt-2 text-sm text-slate-400">
-        Login delegado con Microsoft OK — token de Graph disponible:{" "}
-        {session?.graphAccessToken ? "sí" : "no"}
-      </p>
+
+      <RefreshReportButton
+        periodoDesde={desde.toISOString().slice(0, 10)}
+        periodoHasta={hasta.toISOString().slice(0, 10)}
+      />
+
+      <KpiHero kpis={kpis} />
+
+      <AlertPanel />
+
+      <section>
+        <h2 className="mb-2 text-sm font-medium text-slate-700">
+          Línea de tiempo — Total Nómina mensual
+        </h2>
+        <TimelineChart serie={serie} />
+        <p className="mt-1 text-xs text-slate-400">
+          <span className="inline-block h-2 w-2 rounded-sm bg-[var(--navy-brand)]" />{" "}
+          Real ·{" "}
+          <span className="inline-block h-2 w-2 rounded-sm border border-dashed border-[var(--gold)] bg-[var(--gold)]/20" />{" "}
+          Proyectado
+        </p>
+      </section>
+
+      <section>
+        <h2 className="mb-2 text-sm font-medium text-slate-700">
+          Detalle por concepto
+        </h2>
+        <DetailTable serie={serie} />
+      </section>
     </div>
   );
 }
