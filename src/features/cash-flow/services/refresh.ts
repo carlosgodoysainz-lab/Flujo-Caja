@@ -165,7 +165,16 @@ export async function refreshCashFlowReport(
     cursor.setMonth(cursor.getMonth() + 1);
   }
 
+  // Un mes FUTURO (después del mes calendario actual) todavía no tiene
+  // archivo de pago real — no existe, no es un error. Antes se buscaba
+  // igual y cada mes futuro del rango (hasta 12 meses adelante) aparecía
+  // como "error" en la UI, alarmando sin motivo — el motor ya proyecta
+  // esos meses por fórmula (ver engine.ts). Se saltan directamente, sin
+  // gastar una búsqueda de Graph que sabemos que no puede encontrar nada.
+  const hoy = new Date();
+  const mesActual = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
   for (const mes of meses) {
+    if (mes > mesActual) continue;
     const pagosResult = await syncPagosMensuales(mes);
     documentosIngeridos += pagosResult.archivosProcesados.length;
     if (pagosResult.estado === "error") {

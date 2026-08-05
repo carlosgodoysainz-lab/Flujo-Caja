@@ -68,7 +68,19 @@ async function descargarYParsear(
     errores: string[];
   }[]
 > {
-  const hits = await searchFiles(accessToken, query);
+  // BUG REAL encontrado en producción: buscar con un texto genérico (sin
+  // mes/año) devuelve, para conceptos con 1 archivo por mes desde 2021,
+  // MÁS de 25 resultados totales — y la API de Microsoft Search rankea por
+  // relevancia, no por fecha. El archivo del mes pedido puede quedar fuera
+  // de los primeros 25 y `filterByPeriod` (client-side) nunca lo ve, aunque
+  // el archivo exista (confirmado: "Solicitud de Requerimiento remuneracion
+  // agosto 2025 RG.xlsx" existe en SharePoint pero la búsqueda genérica no
+  // lo trajo). Fix: acotar la búsqueda por mes/año en el propio texto de
+  // búsqueda (server-side), no solo filtrar después de recibir la
+  // respuesta — `filterByPeriod` se mantiene como red de seguridad extra.
+  const mesNombre = MESES_ES[periodo.getMonth()];
+  const anio = String(periodo.getFullYear());
+  const hits = await searchFiles(accessToken, `${query} ${mesNombre} ${anio}`);
   const candidatos = filterByPeriod(hits, periodo).filter(
     (h) => h.name.toLowerCase().endsWith(".xlsx") && h.parentReference?.driveId,
   );

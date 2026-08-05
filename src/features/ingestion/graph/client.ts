@@ -84,7 +84,27 @@ export async function searchFiles(
           entityTypes: ["driveItem"],
           query: { queryString: query },
           from: 0,
-          size: 25,
+          // 50, no 25: con texto de búsqueda genérico (sin mes/año) hay
+          // carpetas con 1 archivo por mes desde 2021+ — más de 25 en
+          // total — y la API rankea por relevancia, no por fecha, así que
+          // el archivo más reciente puede no estar en los primeros 25
+          // (bug real confirmado en producción). El caller (ver
+          // sync-pagos-mensuales.ts) además acota la búsqueda por mes/año
+          // en el propio texto — este tamaño es una segunda red de
+          // seguridad, no la única defensa.
+          size: 50,
+          // SIN esto, `resource.parentReference` viene vacío en algunas
+          // respuestas — y sin `parentReference.path`/`driveId` no se
+          // puede filtrar por carpeta ni descargar el archivo (bug real
+          // confirmado: la sync de Plan de Obras Gespro fallaba SIEMPRE
+          // porque el filtro por carpeta nunca encontraba `path`).
+          fields: [
+            "id",
+            "name",
+            "webUrl",
+            "lastModifiedDateTime",
+            "parentReference",
+          ],
         },
       ],
     }),
