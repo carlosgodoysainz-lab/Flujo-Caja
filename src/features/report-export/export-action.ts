@@ -8,20 +8,28 @@ import {
   getUfPorPeriodo,
 } from "@/features/cash-flow/services/queries";
 import { renderReportHtml } from "./render";
+import { renderReportExcel } from "./render-excel";
 
 export interface ExportReportResult {
   estado: "ok" | "error";
   html?: string;
-  nombreArchivo?: string;
+  /** Excel en base64 — Server Actions no serializan Buffer/Uint8Array directo al cliente. */
+  excelBase64?: string;
+  nombreArchivoHtml?: string;
+  nombreArchivoExcel?: string;
   errores: string[];
 }
 
 /**
- * Congela el estado actual del reporte en un .html autocontenido — ver
- * TECH-SPEC §3.3 (Report Export) y BLUEPRINT Fase 8. Se guarda en el
- * bucket `report-exports` para historial, y se retorna también el HTML
- * crudo para que el cliente dispare la descarga inmediata sin un
- * segundo round-trip a Storage.
+ * Congela el estado actual del reporte en un .html autocontenido Y su
+ * respaldo en .xlsx — ambos generados en la MISMA llamada, desde los
+ * MISMOS datos (`cash_flow_monthly` vía queries.ts), para que nunca queden
+ * desincronizados (pedido explícito del usuario: "ambos archivos deben
+ * conversar"). Ver TECH-SPEC §3.3 y BLUEPRINT Fase 8.
+ *
+ * Ambos se guardan en el bucket `report-exports` para historial, y se
+ * retornan también al cliente para descarga inmediata sin un segundo
+ * round-trip a Storage.
  */
 export async function exportReportAsHtml(
   periodoDesde: Date,
@@ -40,41 +48,67 @@ export async function exportReportAsHtml(
     ]);
 
     const generadoEn = new Date();
-    const html = renderReportHtml({
+    const paramsComunes = {
       serie,
       kpis,
       ufPorPeriodo,
       periodoDesde: periodoDesde.toISOString().slice(0, 10),
       periodoHasta: periodoHasta.toISOString().slice(0, 10),
       generadoEn,
-    });
+    };
 
-    const nombreArchivo = `flujo-caja-nomina-${generadoEn.toISOString().slice(0, 10)}.html`;
-    const storagePath = `${generadoEn.getFullYear()}/${nombreArchivo}`;
+    const html = renderReportHtml(paramsComunes);
+    const excelBuffer = await renderReportExcel(paramsComunes);
 
-    const { error: uploadError } = await supabase.storage
+    const fechaSlug = generadoEn.toISOString().slice(0, 10);
+    const nombreArchivoHtml = `flujo-caja-nomina-${fechaSlug}.html`;
+    const nombreArchivoExcel = `flujo-caja-nomina-${fechaSlug}.xlsx`;
+    const carpeta = `${generadoEn.getFullYear()}`;
+
+    const errores: string[] = [];
+
+    const { error: uploadHtmlError } = await supabase.storage
       .from("report-exports")
-      .upload(storagePath, html, {
+      .upload(`${carpeta}/${nombreArchivoHtml}`, html, {
         contentType: "text/html; charset=utf-8",
         upsert: true,
       });
-
-    const errores: string[] = [];
-    if (uploadError)
+    if (uploadHtmlError)
       errores.push(
-        `No se pudo guardar el historial en Storage: ${uploadError.message}`,
+        `No se pudo guardar el HTML en Storage: ${uploadHtmlError.message}`,
+      );
+
+    const { error: uploadExcelError } = await supabase.storage
+      .from("report-exports")
+      .upload(`${carpeta}/${nombreArchivoExcel}`, excelBuffer, {
+        contentType:
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        upsert: true,
+      });
+    if (uploadExcelError)
+      errores.push(
+        `No se pudo guardar el Excel en Storage: ${uploadExcelError.message}`,
       );
 
     await supabase.from("report_snapshots").insert({
       generated_by: session?.user?.id ?? null,
       periodo_desde: periodoDesde.toISOString().slice(0, 10),
       periodo_hasta: periodoHasta.toISOString().slice(0, 10),
-      estado: "ok",
-      export_storage_path: uploadError ? null : storagePath,
+      estado: errores.length > 0 ? "parcial" : "ok",
+      export_storage_path: uploadHtmlError
+        ? null
+        : `${carpeta}/${nombreArchivoHtml}`,
       exported_at: generadoEn.toISOString(),
     });
 
-    return { estado: "ok", html, nombreArchivo, errores };
+    return {
+      estado: "ok",
+      html,
+      excelBase64: excelBuffer.toString("base64"),
+      nombreArchivoHtml,
+      nombreArchivoExcel,
+      errores,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { estado: "error", errores: [message] };
