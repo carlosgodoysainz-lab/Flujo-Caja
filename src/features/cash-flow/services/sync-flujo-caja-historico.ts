@@ -255,8 +255,16 @@ export async function syncFlujoCajaHistorico(): Promise<SyncFlujoCajaHistoricoRe
       },
     });
 
+    // BUG REAL corregido: antes esto era `errores.length > 0 &&
+    // filasCashFlow.length === 0` — como `filasCashFlow` se construye
+    // ANTES del upsert (no es un indicador de éxito), un error real de
+    // la base (ej. violación de un CHECK constraint) quedaba reportado
+    // como "ok" en silencio, porque el array de filas intentadas nunca
+    // estaba vacío. Ahora se marca error si el upsert de
+    // cash_flow_monthly falló, punto — es la única escritura que le
+    // importa al resto del refresh.
     return {
-      estado: errores.length > 0 && filasCashFlow.length === 0 ? "error" : "ok",
+      estado: cashFlowError ? "error" : "ok",
       archivoUsado: archivo.name,
       mesesImportados: periodos.length,
       errores,

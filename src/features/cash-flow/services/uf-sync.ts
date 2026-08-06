@@ -36,13 +36,14 @@ export async function syncUfSeries(
     serie: MindicadorPunto[] | null;
     error: string | null;
   }> {
-    // 1 reintento con timeout más largo — visto en producción: los 3 años
-    // del rango dieron timeout SEGUIDOS (secuencial, ~15s cada uno = 45s
-    // total) contra la API pública de mindicador.cl, que puede estar lenta
-    // o momentáneamente caída. Correr los años en PARALELO (ver abajo) ya
-    // reduce el tiempo total de espera; el reintento cubre una lentitud
-    // puntual de un solo año sin fallar el refresh completo por eso.
-    for (const timeoutMs of [15_000, 25_000]) {
+    // mindicador.cl confirmado real: a veces responde en ~7s, a veces no
+    // responde NADA por 15s+ (verificado con curl -v: conexión TLS
+    // establecida, request enviado, 0 bytes recibidos) — no es una caída
+    // dura, es un servicio público lento/inconsistente bajo carga. 3
+    // intentos con timeout creciente antes de rendirse; correr los años
+    // en PARALELO (ver abajo) además de esto.
+    const TIMEOUTS_MS = [15_000, 30_000, 45_000];
+    for (const [i, timeoutMs] of TIMEOUTS_MS.entries()) {
       try {
         const res = await fetch(`https://mindicador.cl/api/uf/${anio}`, {
           signal: AbortSignal.timeout(timeoutMs),
@@ -53,14 +54,14 @@ export async function syncUfSeries(
         const json = (await res.json()) as { serie: MindicadorPunto[] };
         return { anio, serie: json.serie, error: null };
       } catch (e) {
-        if (timeoutMs === 25_000) {
+        if (i === TIMEOUTS_MS.length - 1) {
           return {
             anio,
             serie: null,
             error: e instanceof Error ? e.message : String(e),
           };
         }
-        // primer intento falló, se reintenta con timeout más largo
+        // intento fallido, se reintenta con timeout más largo
       }
     }
     return { anio, serie: null, error: "no se pudo completar la solicitud" };
