@@ -7,12 +7,14 @@ import { syncPagosMensuales } from "./sync-pagos-mensuales";
 import { syncUfSeries } from "./uf-sync";
 import { calcularMesCashFlow, type CashFlowConceptoCalculado } from "./engine";
 import { getDotacionTotalPorPeriodo } from "@/features/headcount/services/dotacion-total";
+import { runForecastModel } from "@/features/headcount/forecast-model/run";
 
 export interface RefreshReportResult {
   reportSnapshotId: string | null;
   estado: "ok" | "parcial" | "error";
   documentosIngeridos: number;
   mesesRecalculados: number;
+  obrasEstimadas: number;
   errores: { fuente: string; mensaje: string }[];
 }
 
@@ -101,6 +103,42 @@ async function promedioRemuneracionReal(
   return data.reduce((acc, row) => acc + Number(row.monto), 0) / data.length;
 }
 
+/**
+ * Corre el modelo de estimación de dotación (curva por obra similar, ver
+ * forecast-model/run.ts) para toda obra que TODAVÍA no tenga ningún dato
+ * de dotación (manual/real/estimado). Antes esto era un botón manual por
+ * obra en /dotacion — con 33 obras nunca se corría, y el KPI "Obras con
+ * dotación estimada" quedaba en 0 siempre (bug real: confirmado
+ * `headcount_by_obra` con 0 filas pese a tener 524 snapshots reales de Buk
+ * disponibles para comparar). Best-effort: una obra sin obras similares
+ * con histórico real todavía (normal si es reciente) no cuenta como error
+ * del refresh — se ve reflejado como "Sin dato" en /dotacion.
+ */
+async function estimarDotacionFaltante(
+  supabase: ReturnType<typeof createServiceClient>,
+): Promise<{ obrasEstimadas: number; obrasSinDatoAun: number }> {
+  const { data: obras } = await supabase
+    .from("obras")
+    .select("id")
+    .not("inicio_obra", "is", null)
+    .not("dur_obra_meses", "is", null);
+
+  const { data: yaConDato } = await supabase
+    .from("headcount_by_obra")
+    .select("obra_id");
+  const idsConDato = new Set((yaConDato ?? []).map((r) => r.obra_id));
+
+  const faltantes = (obras ?? []).filter((o) => !idsConDato.has(o.id));
+  let obrasEstimadas = 0;
+  let obrasSinDatoAun = 0;
+  for (const obra of faltantes) {
+    const resultado = await runForecastModel(obra.id);
+    if (resultado.estado === "ok") obrasEstimadas++;
+    else obrasSinDatoAun++;
+  }
+  return { obrasEstimadas, obrasSinDatoAun };
+}
+
 /** Promedio de los últimos 6 meses con Finiquito REAL ingerido — metodología pedida explícitamente por el usuario (reemplaza la fórmula del Excel real, que era 7%×Remuneración). 0 si no hay 6 meses reales todavía. */
 async function promedioFiniquitoReal6m(
   supabase: ReturnType<typeof createServiceClient>,
@@ -153,6 +191,8 @@ export async function refreshCashFlowReport(
       mensaje: ufResult.errores.join("; "),
     });
   }
+
+  const { obrasEstimadas } = await estimarDotacionFaltante(supabase);
 
   const meses: Date[] = [];
   const cursor = new Date(
@@ -342,6 +382,7 @@ export async function refreshCashFlowReport(
       errores.length === 0 ? "ok" : mesesRecalculados > 0 ? "parcial" : "error",
     documentosIngeridos,
     mesesRecalculados,
+    obrasEstimadas,
     errores,
   };
 }

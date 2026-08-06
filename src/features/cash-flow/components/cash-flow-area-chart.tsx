@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { CashFlowSeriePunto } from "../services/queries";
 
 /**
@@ -35,6 +35,7 @@ function formatMesCorto(periodo: string): string {
 
 export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
 
   const puntos = useMemo(() => {
     const porMes = new Map<string, { monto: number; esReal: boolean }>();
@@ -88,13 +89,30 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
   // Labels X — cada 3 meses aprox, para no saturar (24 meses en el rango default).
   const pasoLabelX = Math.max(1, Math.round(puntos.length / 8));
 
+  // Sigue el mouse de forma CONTINUA a lo largo del gráfico (no solo
+  // celdas discretas por mes) y ajusta al punto más cercano — mismo
+  // comportamiento que el gráfico "Escala de Obras" del Carta Gantt de
+  // referencia (mover el mouse por el área revela el valor en cada punto).
+  function moverMouse(e: React.MouseEvent<SVGSVGElement>) {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const xEnPixelesReales = e.clientX - rect.left;
+    const xEnViewBox = (xEnPixelesReales / rect.width) * WIDTH;
+    const fraccion = (xEnViewBox - PADDING.left) / innerW;
+    const idx = Math.round(fraccion * Math.max(puntos.length - 1, 1));
+    setHoverIdx(Math.min(Math.max(idx, 0), puntos.length - 1));
+  }
+
   return (
     <div className="relative">
       <svg
+        ref={svgRef}
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        className="h-auto w-full"
+        className="h-auto w-full cursor-crosshair"
         role="img"
         aria-label="Gráfico de área: Total Nómina mensual requerido, real y proyectado"
+        onMouseMove={moverMouse}
         onMouseLeave={() => setHoverIdx(null)}
       >
         {/* Gridlines Y — hairline, recesivas */}
@@ -189,7 +207,8 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
             ),
         )}
 
-        {/* Hit areas + crosshair */}
+        {/* Overlay de foco por teclado — accesibilidad, no reemplaza el
+            mousemove continuo del <svg> (ver moverMouse arriba). */}
         {puntos.map((p, i) => (
           <rect
             key={p.periodo}
@@ -198,29 +217,43 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
             width={innerW / puntos.length}
             height={HEIGHT}
             fill="transparent"
-            onMouseEnter={() => setHoverIdx(i)}
             onFocus={() => setHoverIdx(i)}
             tabIndex={0}
             aria-label={`${formatMesCorto(p.periodo)}: ${formatCLPCompacto(p.monto)}`}
           />
         ))}
         {hoverIdx !== null && (
-          <line
-            x1={x(hoverIdx)}
-            x2={x(hoverIdx)}
-            y1={PADDING.top}
-            y2={HEIGHT - PADDING.bottom}
-            stroke="#64748b"
-            strokeWidth={1}
-            strokeDasharray="2 2"
-          />
+          <g>
+            <line
+              x1={x(hoverIdx)}
+              x2={x(hoverIdx)}
+              y1={PADDING.top}
+              y2={HEIGHT - PADDING.bottom}
+              stroke="#64748b"
+              strokeWidth={1}
+              strokeDasharray="2 2"
+            />
+            {/* Punto marcador — mismo lenguaje visual que el punto
+                destacado del gráfico "Escala de Obras" de referencia. */}
+            <circle
+              cx={x(hoverIdx)}
+              cy={y(puntos[hoverIdx].monto)}
+              r={4}
+              fill="var(--gold)"
+              stroke="var(--navy)"
+              strokeWidth={1.5}
+            />
+          </g>
         )}
       </svg>
 
       {hoverIdx !== null && (
         <div
-          className="pointer-events-none absolute top-0 -translate-x-1/2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs shadow-md"
-          style={{ left: `${(x(hoverIdx) / WIDTH) * 100}%` }}
+          className="pointer-events-none absolute top-0 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs shadow-md"
+          style={{
+            left: `${Math.min(Math.max((x(hoverIdx) / WIDTH) * 100, 8), 92)}%`,
+            transform: "translateX(-50%)",
+          }}
         >
           <p className="font-semibold text-slate-900">
             {formatCLPCompacto(puntos[hoverIdx].monto)}

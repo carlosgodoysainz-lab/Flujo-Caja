@@ -36,47 +36,47 @@ export default async function ReportePage() {
   const ufPorPeriodo = await getUfPorPeriodo(periodosDelDetalle);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 p-8">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-500">Sesión: {session?.user?.email}</p>
-        <form
-          action={async () => {
-            "use server";
-            await signOut({ redirectTo: "/login" });
-          }}
-        >
-          <button
-            type="submit"
-            className="text-sm text-slate-500 hover:underline"
-          >
-            Cerrar sesión
-          </button>
-        </form>
+    // El hero navy va FULL-BLEED (ancho completo de la página, igual que
+    // la banda navy del Carta Gantt de referencia) — a propósito FUERA del
+    // contenedor centrado de abajo, que sigue acotado a max-w-6xl. Bug de
+    // diseño real reportado: antes todo (incluido el hero) vivía dentro
+    // de un único `mx-auto max-w-6xl`, así que en pantallas anchas el azul
+    // quedaba como una caja angosta con blanco a los lados en vez de
+    // ocupar todo el ancho como en la referencia.
+    <div>
+      <HeroConsolidado
+        kpis={kpis}
+        serie={serie}
+        sesionEmail={session?.user?.email ?? null}
+        onCerrarSesion={async () => {
+          "use server";
+          await signOut({ redirectTo: "/login" });
+        }}
+      />
+
+      <div className="mx-auto max-w-6xl space-y-6 p-8">
+        <div className="flex flex-wrap gap-3">
+          <RefreshReportButton
+            periodoDesde={desde.toISOString().slice(0, 10)}
+            periodoHasta={hasta.toISOString().slice(0, 10)}
+          />
+          <ExportReportButton
+            periodoDesde={desde.toISOString().slice(0, 10)}
+            periodoHasta={hasta.toISOString().slice(0, 10)}
+          />
+        </div>
+
+        <AlertPanel />
+
+        <section>
+          <h2 className="mb-2 text-sm font-medium text-slate-700">
+            Detalle por concepto
+          </h2>
+          <DetailTable serie={serie} ufPorPeriodo={ufPorPeriodo} />
+        </section>
+
+        <MetodologiaCalculo />
       </div>
-
-      <div className="flex flex-wrap gap-3">
-        <RefreshReportButton
-          periodoDesde={desde.toISOString().slice(0, 10)}
-          periodoHasta={hasta.toISOString().slice(0, 10)}
-        />
-        <ExportReportButton
-          periodoDesde={desde.toISOString().slice(0, 10)}
-          periodoHasta={hasta.toISOString().slice(0, 10)}
-        />
-      </div>
-
-      <HeroConsolidado kpis={kpis} serie={serie} />
-
-      <AlertPanel />
-
-      <section>
-        <h2 className="mb-2 text-sm font-medium text-slate-700">
-          Detalle por concepto
-        </h2>
-        <DetailTable serie={serie} ufPorPeriodo={ufPorPeriodo} />
-      </section>
-
-      <MetodologiaCalculo />
     </div>
   );
 }
