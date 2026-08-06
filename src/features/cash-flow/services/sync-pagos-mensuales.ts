@@ -184,6 +184,28 @@ export async function syncPagosMensuales(
       if (grupo.lineItems.length === 0) continue;
 
       const nombreLower = grupo.archivo.name.toLowerCase();
+
+      // BUG REAL corregido: re-ingerir el mismo archivo (ej. al correr
+      // "Actualizar reporte" varias veces) insertaba un
+      // `payroll_source_documents` NUEVO cada vez, sin borrar el
+      // anterior — los montos de `payroll_line_items` se iban ACUMULANDO
+      // sin límite (confirmado en producción: remuneración de un mes
+      // ingerido 8 veces = 8x el monto real, un salto de $839M a $6.858MM
+      // que parecía un dato corrupto pero era pura duplicación). Antes de
+      // insertar la versión nueva, se borra cualquier ingesta anterior
+      // del MISMO archivo para el MISMO período — `payroll_line_items`
+      // cae en cascada por la FK. Reemplaza, nunca acumula.
+      const { error: deleteError } = await supabase
+        .from("payroll_source_documents")
+        .delete()
+        .eq("periodo", periodo.toISOString().slice(0, 10))
+        .eq("nombre_archivo", grupo.archivo.name);
+      if (deleteError) {
+        errores.push(
+          `No se pudo limpiar la ingesta anterior de ${grupo.archivo.name}: ${deleteError.message}`,
+        );
+      }
+
       const { data: sourceDoc, error: sourceDocError } = await supabase
         .from("payroll_source_documents")
         .insert({
