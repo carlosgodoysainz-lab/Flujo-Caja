@@ -211,6 +211,30 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 - **Fix**: reemplazar por `style={{ backgroundColor: "var(--navy)" }}` (color sólido) o por un `rgba()` fijo precalculado cuando se necesita opacidad real (ver `alert-panel.tsx`). Se hizo un barrido de todo `src/` buscando el mismo patrón (`grep -[a-zA-Z-]+\[var\(--[a-zA-Z-]+\)\]/\d+`) — encontrada y corregida 1 instancia más.
 - **Aplicar en**: nunca usar `/NN` sobre `[var(--x)]` en Tailwind mientras las variables de marca sigan en hex. Si se necesita opacidad, usar `rgba()` fijo o un inline style.
 
+### 2026-08-06: búsqueda de Graph seguía sin encontrar archivos reales que existen (2 causas más)
+
+- **Error real, confirmado en vivo con 2 screenshots sucesivos**: después del primer fix del endpoint de búsqueda, Plan de Obras Gespro seguía fallando y varios meses de Pagos Mensuales daban 409 al descargar. Causas: (1) `parentReference` puede venir vacío en `/search/query` incluso pidiéndolo en `fields` — no es un campo confiable de esa API; (2) 409 "resourceModified" en `/content` es transitorio (SharePoint todavía procesando el eTag de un archivo recién indexado).
+- **Fix**: `resolveDriveItemFromWebUrl()`/`ensureDriveId()` en `graph/client.ts` — resuelve driveId/path desde el `webUrl` (que la API SÍ devuelve siempre) vía `GET /shares/{shareId}/driveItem`, el método documentado por Microsoft para esto. `graphFetch` reintenta hasta 2 veces con backoff corto ante un 409.
+- **Aplicar en**: nunca asumir que un campo "opcional pero pedido" de una API de búsqueda de Microsoft viene poblado — verificar con datos reales. Reintentar 409/429 en descargas de SharePoint recién indexadas antes de fallar.
+
+### 2026-08-06: `headcount_by_obra` con 0 filas pese a tener 524 snapshots reales de Buk para comparar
+
+- **Error real, encontrado con una consulta directa a la base**: el KPI "Obras con dotación estimada" mostraba 0 en pantalla. El modelo de estimación (Fase 6, curva por obra similar) existía y funcionaba, pero requería un click manual POR OBRA en `/dotacion` — con 33 obras, nadie lo corrió nunca.
+- **Fix**: `refresh.ts` ahora corre el modelo automáticamente para toda obra sin ningún dato, como parte de "Actualizar reporte" (best-effort — una obra sin similares con histórico real aún no es un error).
+- **Aplicar en**: un modelo "que ya existe" no sirve si el único punto de entrada es manual y hay decenas de instancias — evaluar si conviene automatizarlo como parte del flujo principal.
+
+### 2026-08-06: El Excel histórico real del Excel maestro nunca se ingería — la tabla de detalle salía incompleta
+
+- **Error real reportado por el usuario** (captura de la tabla de detalle con ago/sep/nov-2025 en $0): la ingesta granular de "Pagos Mensuales" (1 archivo por concepto/mes en SharePoint) venía incompleta para varios meses de 2025, aunque los archivos sí existían (confirmado). El Excel MAESTRO de Flujo de Caja (carpeta "Flujo de Caja", que Finanzas mantiene cerrado mes a mes) sí tenía esos meses completos — pero nunca se había construido un importador para su hoja "Detalle", solo se habían inspeccionado sus fórmulas.
+- **Fix**: nuevo parser (`flujo-caja-historico-parser.ts`) + sync (`sync-flujo-caja-historico.ts`) que lee las columnas agrupadas ($ + N° por mes, real vs. proyectado por COLOR DE RELLENO amarillo, no por fórmula) y las importa con prioridad sobre la ingesta suelta de SharePoint (protegidas igual que un override manual). De paso resolvió 2 pedidos más del usuario: desglose RG/RP de Remuneración/Anticipo (el Excel ya los separa) y la fila de dotación real histórica (columna "N°" de Remuneraciones RG/RP).
+- **Aplicar en**: cuando existe un registro maestro/autoritativo mantenido por otra área (Finanzas, en este caso) y una ingesta granular propia, el maestro debería tener prioridad para el histórico ya cerrado — la ingesta granular es para rellenar lo que el maestro todavía no cubre, no al revés.
+
+### 2026-08-06: migración SQL nueva no se pudo aplicar — sin acceso a la base desde este entorno
+
+- **Limitación real, no error de código**: la migración `20260806000001_remuneracion_rg_rp_y_dotacion_mensual.sql` quedó escrita y committeada, pero no se pudo ejecutar contra la base real. El proyecto está linkeado (`supabase/.temp/project-ref` existe) pero el CLI de Supabase no tiene un access token disponible en este entorno no-interactivo (`supabase login` requiere navegador), y no hay `DATABASE_URL`/password de Postgres en `.env.local` para conectar directo. El cliente de Supabase JS (`service.ts`) usa `service_role key` vía PostgREST — no puede ejecutar DDL (`ALTER TABLE`/`CREATE TABLE`).
+- **Cómo se aplicaron las migraciones anteriores entonces**: probablemente por una sesión previa con `supabase login` ya hecho, o manualmente por el usuario — no quedó un mecanismo repetible documentado.
+- **Aplicar en**: si se necesita aplicar una migración nueva y no hay `SUPABASE_ACCESS_TOKEN`/`DATABASE_URL` a mano, no asumir que se puede — avisar explícitamente al usuario y darle el SQL exacto para pegar en el SQL Editor del dashboard. Considerar agregar `SUPABASE_ACCESS_TOKEN` a `.env.local` (o documentar dónde vive) para que las próximas migraciones sí se puedan aplicar solas.
+
 ---
 
 ## Gotchas (Antes de Implementar)
@@ -236,14 +260,15 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 
 ## 🚧 Pendientes en manos del usuario (no se pueden resolver desde el agente)
 
-10 fases con código completo, 65 tests unitarios pasando, `npx tsc --noEmit` y `npm run build` limpios. ~~Consentimiento de administrador en Azure AD~~ y ~~`BUK_API_KEY`~~ ya resueltos. Lo que sigue requiere acción de Carlos:
+11 fases con código completo, 75 tests unitarios pasando, `npx tsc --noEmit` y `npm run build` limpios. ~~Consentimiento de administrador en Azure AD~~ y ~~`BUK_API_KEY`~~ ya resueltos. Lo que sigue requiere acción de Carlos:
 
-1. **Volver a correr "Actualizar reporte" con los fixes de esta sesión** (buscador de Graph corregido + Anticipo real conectado + modelo de dotación) — la última corrida real fue ANTES del fix del buscador (dio PARCIAL, 0 documentos). Revisar `/fuentes` y `/reporte` después de correrlo.
-2. **Cargar el Aporte SENCE del período actual** — es el único dato manual del modelo; ahora hay una celda editable en la tabla de detalle (columna SENCE, click para ingresar) donde antes no existía ningún punto de entrada.
-3. **Validar la metodología nueva contra un cierre real de nómina** — comparar el Total Nómina que arroja el reporte contra el Excel actual en un mes ya cerrado, antes de confiar en la proyección para meses futuros.
-4. **Deploy a Vercel** — requiere la cuenta Vercel de Carlos (el agente no puede autenticarse ahí). Pasos: `vercel link` → configurar las variables de entorno de `.env.local` en el dashboard de Vercel → `vercel deploy --prod`.
-5. **Actualizar el Redirect URI de Azure AD** con la URL real de producción una vez desplegado (hoy solo tiene `localhost:3000`).
-6. **Piloto en paralelo** — usar la herramienta para el próximo ciclo de nómina junto al Excel actual, comparar resultados antes de descontinuar el proceso manual.
+1. **🔴 BLOQUEANTE — aplicar la migración `20260806000001_remuneracion_rg_rp_y_dotacion_mensual.sql` manualmente.** El agente no tiene acceso a la base para correr DDL en este entorno (sin `SUPABASE_ACCESS_TOKEN`/`DATABASE_URL`, ver Auto-Blindaje). Sin esto, el desglose RG/RP y la fila de dotación quedan sin efecto (el código no falla, pero `remuneracion_rg`/`remuneracion_rp`/`dotacion_mensual` no existen todavía). Pasos: Supabase Dashboard → SQL Editor → pegar el contenido completo de ese archivo → Run.
+2. **Volver a correr "Actualizar reporte"** después de (1) — esta corrida importa además el Excel maestro histórico (llena los meses de 2025 que quedaban incompletos) y corre el modelo de dotación para las obras que todavía no tengan dato.
+3. **Cargar el Aporte SENCE del período actual** — es el único dato manual del modelo; hay una celda editable en la tabla de detalle (columna SENCE, click para ingresar).
+4. **Validar la metodología nueva contra un cierre real de nómina** — comparar el Total Nómina que arroja el reporte contra el Excel actual en un mes ya cerrado, antes de confiar en la proyección para meses futuros.
+5. **Deploy a Vercel** — requiere la cuenta Vercel de Carlos (el agente no puede autenticarse ahí). Pasos: `vercel link` → configurar las variables de entorno de `.env.local` en el dashboard de Vercel → `vercel deploy --prod`.
+6. **Actualizar el Redirect URI de Azure AD** con la URL real de producción una vez desplegado (hoy solo tiene `localhost:3000`).
+7. **Piloto en paralelo** — usar la herramienta para el próximo ciclo de nómina junto al Excel actual, comparar resultados antes de descontinuar el proceso manual.
 
 ---
 
