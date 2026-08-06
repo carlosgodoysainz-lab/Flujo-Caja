@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { useRouter } from "next/navigation";
 import {
   refreshCashFlowReport,
   type RefreshReportResult,
@@ -14,14 +15,27 @@ export function RefreshReportButton({
   periodoDesde: string;
   periodoHasta: string;
 }) {
+  const router = useRouter();
   const [result, formAction, isPending] = useActionState<
     RefreshReportResult | null,
     FormData
-  >(
-    async () =>
-      refreshCashFlowReport(new Date(periodoDesde), new Date(periodoHasta)),
-    null,
-  );
+  >(async () => {
+    const resultado = await refreshCashFlowReport(
+      new Date(periodoDesde),
+      new Date(periodoHasta),
+    );
+    // BUG REAL reportado: la base quedaba actualizada (confirmado
+    // directo en la BD) pero la página seguía mostrando los datos
+    // VIEJOS — este botón es un Server Action llamado desde un Client
+    // Component; actualiza la base, pero el resto de la página (KPIs,
+    // gráfico, tabla de detalle) es un Server Component que ya se
+    // renderizó UNA vez al cargar — sin esto, nunca se vuelve a pedir al
+    // servidor. `router.refresh()` re-ejecuta los Server Components de
+    // la página con los datos frescos, sin perder el estado de este
+    // botón (el resultado sigue mostrándose abajo).
+    router.refresh();
+    return resultado;
+  }, null);
 
   return (
     <div className="space-y-2">
