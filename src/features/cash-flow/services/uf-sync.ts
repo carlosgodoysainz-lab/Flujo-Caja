@@ -28,36 +28,68 @@ export async function syncUfSeries(
 
   const anioDesde = periodoDesde.getFullYear();
   const anioHasta = periodoHasta.getFullYear();
+  const anios: number[] = [];
+  for (let anio = anioDesde; anio <= anioHasta; anio++) anios.push(anio);
 
-  for (let anio = anioDesde; anio <= anioHasta; anio++) {
-    try {
-      const res = await fetch(`https://mindicador.cl/api/uf/${anio}`, {
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!res.ok) {
-        errores.push(`mindicador.cl ${anio}: HTTP ${res.status}`);
-        continue;
+  async function fetchAnioConReintento(anio: number): Promise<{
+    anio: number;
+    serie: MindicadorPunto[] | null;
+    error: string | null;
+  }> {
+    // 1 reintento con timeout más largo — visto en producción: los 3 años
+    // del rango dieron timeout SEGUIDOS (secuencial, ~15s cada uno = 45s
+    // total) contra la API pública de mindicador.cl, que puede estar lenta
+    // o momentáneamente caída. Correr los años en PARALELO (ver abajo) ya
+    // reduce el tiempo total de espera; el reintento cubre una lentitud
+    // puntual de un solo año sin fallar el refresh completo por eso.
+    for (const timeoutMs of [15_000, 25_000]) {
+      try {
+        const res = await fetch(`https://mindicador.cl/api/uf/${anio}`, {
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        if (!res.ok) {
+          return { anio, serie: null, error: `HTTP ${res.status}` };
+        }
+        const json = (await res.json()) as { serie: MindicadorPunto[] };
+        return { anio, serie: json.serie, error: null };
+      } catch (e) {
+        if (timeoutMs === 25_000) {
+          return {
+            anio,
+            serie: null,
+            error: e instanceof Error ? e.message : String(e),
+          };
+        }
+        // primer intento falló, se reintenta con timeout más largo
       }
-      const json = (await res.json()) as { serie: MindicadorPunto[] };
-      const filas = json.serie.map((p) => ({
-        fecha: p.fecha.slice(0, 10),
-        valor_uf: p.valor,
-        es_real: true,
-        fuente: "sii" as const,
-      }));
+    }
+    return { anio, serie: null, error: "no se pudo completar la solicitud" };
+  }
 
-      const { error } = await supabase
-        .from("uf_series")
-        .upsert(filas, { onConflict: "fecha" });
-      if (error) {
-        errores.push(`Error guardando UF ${anio}: ${error.message}`);
-      } else {
-        puntosGuardados += filas.length;
-      }
-    } catch (e) {
-      errores.push(
-        `mindicador.cl ${anio}: ${e instanceof Error ? e.message : String(e)}`,
-      );
+  // En paralelo, no secuencial — antes 3 años con timeout = 45s de espera
+  // acumulada; el fallo de un año no debe demorar la comprobación de los
+  // otros.
+  const resultados = await Promise.all(anios.map(fetchAnioConReintento));
+
+  for (const { anio, serie, error } of resultados) {
+    if (error || !serie) {
+      errores.push(`mindicador.cl ${anio}: ${error ?? "sin datos"}`);
+      continue;
+    }
+    const filas = serie.map((p) => ({
+      fecha: p.fecha.slice(0, 10),
+      valor_uf: p.valor,
+      es_real: true,
+      fuente: "sii" as const,
+    }));
+
+    const { error: dbError } = await supabase
+      .from("uf_series")
+      .upsert(filas, { onConflict: "fecha" });
+    if (dbError) {
+      errores.push(`Error guardando UF ${anio}: ${dbError.message}`);
+    } else {
+      puntosGuardados += filas.length;
     }
   }
 
