@@ -10,7 +10,17 @@ import type { CashFlowSeriePunto } from "../services/queries";
  * vs. proyectado se distingue por trazo (sólido/punteado) y opacidad del
  * relleno, NO por un segundo color (ver skill dataviz: "color sigue a la
  * entidad, nunca a su certeza/rango").
+ *
+ * Paleta pensada para fondo NAVY (vive dentro del hero oscuro, no sobre
+ * blanco) — bug real reportado: con `--navy-brand` (#003865, casi el mismo
+ * tono que el fondo `--navy` #0a1f3c) la línea/área quedaban invisibles.
+ * Se usa `--gold` (mismo hue que "Escala de Obras" de referencia) para la
+ * serie, y grises translúcidos en vez de los grises pensados para blanco
+ * (#94a3b8, #e2e8f0) para grillas/ejes.
  */
+const LINEA = "var(--gold)";
+const GRID = "rgba(255,255,255,0.12)";
+const EJE_TEXTO = "rgba(255,255,255,0.55)";
 
 const WIDTH = 900;
 const HEIGHT = 220;
@@ -123,7 +133,7 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
               x2={WIDTH - PADDING.right}
               y1={y(valor)}
               y2={y(valor)}
-              stroke="#e2e8f0"
+              stroke={GRID}
               strokeWidth={1}
             />
             <text
@@ -132,7 +142,7 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
               textAnchor="end"
               dominantBaseline="middle"
               fontSize={10}
-              fill="#94a3b8"
+              fill={EJE_TEXTO}
             >
               {formatCLPCompacto(valor)}
             </text>
@@ -148,14 +158,14 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
         </clipPath>
         <path
           d={areaPath}
-          fill="var(--navy-brand)"
-          opacity={0.12}
+          fill={LINEA}
+          opacity={0.25}
           clipPath="url(#clipReal)"
         />
         <path
           d={areaPath}
-          fill="var(--navy-brand)"
-          opacity={0.05}
+          fill={LINEA}
+          opacity={0.1}
           clipPath="url(#clipProyectado)"
         />
 
@@ -163,7 +173,7 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
         <path
           d={lineaReal}
           fill="none"
-          stroke="var(--navy-brand)"
+          stroke={LINEA}
           strokeWidth={2}
           strokeLinejoin="round"
         />
@@ -171,7 +181,7 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
           <path
             d={lineaProyectada}
             fill="none"
-            stroke="var(--navy-brand)"
+            stroke={LINEA}
             strokeWidth={2}
             strokeDasharray="4 4"
             strokeLinejoin="round"
@@ -200,7 +210,7 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
                 y={HEIGHT - 8}
                 textAnchor="middle"
                 fontSize={10}
-                fill="#94a3b8"
+                fill={EJE_TEXTO}
               >
                 {formatMesCorto(p.periodo)}
               </text>
@@ -229,7 +239,7 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
               x2={x(hoverIdx)}
               y1={PADDING.top}
               y2={HEIGHT - PADDING.bottom}
-              stroke="#64748b"
+              stroke="rgba(255,255,255,0.4)"
               strokeWidth={1}
               strokeDasharray="2 2"
             />
@@ -239,7 +249,7 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
               cx={x(hoverIdx)}
               cy={y(puntos[hoverIdx].monto)}
               r={4}
-              fill="var(--gold)"
+              fill={LINEA}
               stroke="var(--navy)"
               strokeWidth={1.5}
             />
@@ -265,13 +275,13 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
         </div>
       )}
 
-      <div className="mt-1 flex gap-4 text-xs text-slate-400">
+      <div className="mt-1 flex gap-4 text-xs text-white/50">
         <span>
-          <span className="mr-1 inline-block h-0.5 w-3 bg-[var(--navy-brand)] align-middle" />{" "}
+          <span className="mr-1 inline-block h-0.5 w-3 bg-[var(--gold)] align-middle" />{" "}
           Real
         </span>
         <span>
-          <span className="mr-1 inline-block h-0.5 w-3 border-t border-dashed border-[var(--navy-brand)] align-middle" />{" "}
+          <span className="mr-1 inline-block h-0.5 w-3 border-t border-dashed border-[var(--gold)] align-middle" />{" "}
           Proyectado
         </span>
         <span>
