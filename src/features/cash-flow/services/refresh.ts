@@ -282,7 +282,18 @@ export async function refreshCashFlowReport(
     if (mes > mesActual) continue;
     const pagosResult = await syncPagosMensuales(mes);
     documentosIngeridos += pagosResult.archivosProcesados.length;
-    if (pagosResult.estado === "error") {
+    // El mes CALENDARIO ACTUAL (ej. agosto recién empezando) es normal que
+    // todavía no tenga ningún archivo real — Pagos Mensuales se sube a
+    // mediados de mes. Antes esto se reportaba como "error" en rojo cada
+    // vez, alarmando sin motivo: el motor YA calcula la proyección por
+    // fórmula para ese mes de todas formas (ver engine.ts), no es un dato
+    // faltante que rompa nada. Solo se marca error si es un problema
+    // real (ej. Graph, permisos) o si es un mes YA PASADO que debería
+    // tener archivo y no lo tiene.
+    const esMesActualSinArchivosAun =
+      mes.getTime() === mesActual.getTime() &&
+      pagosResult.archivosProcesados.length === 0;
+    if (pagosResult.estado === "error" && !esMesActualSinArchivosAun) {
       errores.push({
         fuente: `Pagos Mensuales ${pagosResult.periodo}`,
         mensaje: pagosResult.errores.join("; "),
