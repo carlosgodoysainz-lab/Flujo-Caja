@@ -3,25 +3,38 @@ import type {
   CashFlowSeriePunto,
   ResumenKpis,
 } from "@/features/cash-flow/services/queries";
+import type { DotacionTotalPunto } from "@/features/headcount/services/dotacion-total";
 
-const CONCEPTOS_ORDEN = [
-  "anticipo",
-  "remuneracion",
-  "finiquito",
-  "reliquidacion",
-  "cotizacion",
-  "sence",
-  "total_nomina",
-] as const;
-const CONCEPTO_LABEL: Record<string, string> = {
-  anticipo: "Anticipo",
-  remuneracion: "Remuneración",
-  finiquito: "Finiquito",
-  reliquidacion: "Reliquidación",
-  cotizacion: "Cotización",
-  sence: "Aporte SENCE",
-  total_nomina: "Total Nómina",
-};
+// Cada fila principal puede traer sub-filas RG/RP (aperturadas — mismo
+// desglose que el Excel real, pedido explícito del usuario) indentadas
+// justo debajo, de menor jerarquía visual.
+const FILAS: {
+  concepto: string;
+  label: string;
+  sub?: { concepto: string; label: string }[];
+}[] = [
+  {
+    concepto: "anticipo",
+    label: "Anticipo",
+    sub: [
+      { concepto: "anticipo_rg", label: "  RG" },
+      { concepto: "anticipo_rp", label: "  RP" },
+    ],
+  },
+  {
+    concepto: "remuneracion",
+    label: "Remuneración",
+    sub: [
+      { concepto: "remuneracion_rg", label: "  RG" },
+      { concepto: "remuneracion_rp", label: "  RP" },
+    ],
+  },
+  { concepto: "finiquito", label: "Finiquito" },
+  { concepto: "reliquidacion", label: "Reliquidación" },
+  { concepto: "cotizacion", label: "Cotización" },
+  { concepto: "sence", label: "Aporte SENCE" },
+  { concepto: "total_nomina", label: "Total Nómina" },
+];
 
 // Mismo amarillo que el Excel ORIGINAL usaba para marcar proyección — ver
 // el hallazgo inicial ("lo que está en amarillo es lo que falta
@@ -48,12 +61,21 @@ export async function renderReportExcel(params: {
   serie: CashFlowSeriePunto[];
   kpis: ResumenKpis;
   ufPorPeriodo: Map<string, number>;
+  /** Dotación total (N°) por período — ver dotacion-total.ts. Fila "Dotación" solo aparece si hay dato. */
+  dotacionPorPeriodo?: Map<string, DotacionTotalPunto>;
   periodoDesde: string;
   periodoHasta: string;
   generadoEn: Date;
 }): Promise<Buffer> {
-  const { serie, kpis, ufPorPeriodo, periodoDesde, periodoHasta, generadoEn } =
-    params;
+  const {
+    serie,
+    kpis,
+    ufPorPeriodo,
+    dotacionPorPeriodo,
+    periodoDesde,
+    periodoHasta,
+    generadoEn,
+  } = params;
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Flujo de Caja Nómina — Grupo Maestra";
@@ -107,8 +129,31 @@ export async function renderReportExcel(params: {
     cell.fill = FILL_HEADER;
   });
 
-  for (const concepto of CONCEPTOS_ORDEN) {
-    const fila: (string | number)[] = [CONCEPTO_LABEL[concepto]];
+  // Dotación (N°) — misma fila que el "N°" del Excel original, antes de
+  // los conceptos monetarios.
+  if (dotacionPorPeriodo && dotacionPorPeriodo.size > 0) {
+    const filaDotacion: (string | number)[] = ["Dotación (N°)"];
+    const celdasProyectadas: number[] = [];
+    periodos.forEach((p, i) => {
+      const punto = dotacionPorPeriodo.get(p);
+      filaDotacion.push(punto ? punto.total : "");
+      if (punto && !punto.esReal) celdasProyectadas.push(i + 2);
+    });
+    const row = detalle.addRow(filaDotacion);
+    row.font = { color: { argb: "FF475569" } };
+    for (const colNum of celdasProyectadas)
+      row.getCell(colNum).fill = FILL_PROYECTADO;
+    row.eachCell((cell, colNumber) => {
+      if (colNumber > 1) cell.numFmt = "#,##0";
+    });
+  }
+
+  function agregarFilaConcepto(
+    concepto: string,
+    label: string,
+    negrita: boolean,
+  ) {
+    const fila: (string | number)[] = [label];
     const celdasProyectadas: number[] = [];
     periodos.forEach((p, i) => {
       const punto = valorPorConceptoYPeriodo.get(`${concepto}::${p}`);
@@ -116,13 +161,24 @@ export async function renderReportExcel(params: {
       if (punto && !punto.esReal) celdasProyectadas.push(i + 2); // +2: col 1 es "Concepto", 1-indexed
     });
     const row = detalle.addRow(fila);
-    if (concepto === "total_nomina") row.font = { bold: true };
+    if (negrita) row.font = { bold: true };
     for (const colNum of celdasProyectadas) {
       row.getCell(colNum).fill = FILL_PROYECTADO;
     }
     row.eachCell((cell, colNumber) => {
       if (colNumber > 1) cell.numFmt = "#,##0";
     });
+  }
+
+  for (const fila of FILAS) {
+    agregarFilaConcepto(
+      fila.concepto,
+      fila.label,
+      fila.concepto === "total_nomina",
+    );
+    for (const sub of fila.sub ?? []) {
+      agregarFilaConcepto(sub.concepto, sub.label, false);
+    }
   }
 
   // Fila UF, igual que en el HTML/dashboard

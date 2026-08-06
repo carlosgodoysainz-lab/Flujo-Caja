@@ -15,16 +15,21 @@ export interface DotacionTotalPunto {
  * `formulas.ts`). Reconstruye la curva de "crece al inicio de cada obra,
  * decrece por desvinculaciones hacia el cierre" a nivel agregado:
  *
- * - Meses REALES: suma directa de `buk_dotacion_snapshots.activos` de TODOS
- *   los cargos/obras de ese mes (snapshot real del cron mensual de Buk) —
- *   es la altas−bajas neta que YA ocurrió, no hay que modelarla.
- * - Meses futuros (sin snapshot todavía): se parte del último total REAL
- *   conocido y se acumula, mes a mes, la `variacion_neta` (altas−bajas)
- *   de `headcount_by_obra` sumada a través de TODAS las obras — origen
- *   'manual' (dato cargado a mano), 'buk_real' o 'modelo_estimado' (curva
- *   de obras similares, ver `headcount/forecast-model/run.ts`, que YA
- *   modela el ciclo completo de una obra: sube en el arranque, se estabiliza
- *   en régimen, baja al cierre).
+ * - Meses REALES: preferentemente `dotacion_mensual` (la columna "N°" del
+ *   Excel maestro de Flujo de Caja — cubre Nov-2022 en adelante, es el
+ *   registro histórico más completo, ver `sync-flujo-caja-historico.ts`);
+ *   para meses que esa tabla todavía no cubre (recientes, el Excel
+ *   maestro no cerrado aún), se usa la suma de
+ *   `buk_dotacion_snapshots.activos` de ese mes (snapshot real del cron
+ *   mensual de Buk).
+ * - Meses futuros (sin dato real todavía): se parte del último total REAL
+ *   conocido (de cualquiera de las 2 fuentes anteriores) y se acumula,
+ *   mes a mes, la `variacion_neta` (altas−bajas) de `headcount_by_obra`
+ *   sumada a través de TODAS las obras — origen 'manual', 'buk_real' o
+ *   'modelo_estimado' (curva de obras similares, ver
+ *   `headcount/forecast-model/run.ts`, que YA modela el ciclo completo de
+ *   una obra: sube en el arranque, se estabiliza en régimen, baja al
+ *   cierre).
  */
 export async function getDotacionTotalPorPeriodo(
   periodoDesde: Date,
@@ -33,18 +38,28 @@ export async function getDotacionTotalPorPeriodo(
   const supabase = createServiceClient();
   const resultado = new Map<string, DotacionTotalPunto>();
 
+  const totalPorSnapshot = new Map<string, number>();
+
   const { data: snapshots } = await supabase
     .from("buk_dotacion_snapshots")
     .select("snapshot_date, activos")
     .order("snapshot_date");
-
-  const totalPorSnapshot = new Map<string, number>();
   for (const s of snapshots ?? []) {
     const periodo = periodoDeFecha(s.snapshot_date);
     totalPorSnapshot.set(
       periodo,
       (totalPorSnapshot.get(periodo) ?? 0) + s.activos,
     );
+  }
+
+  // `dotacion_mensual` manda por sobre el derivado de Buk cuando ambos
+  // cubren el mismo mes — es la fuente más completa históricamente.
+  const { data: dotacionMensual } = await supabase
+    .from("dotacion_mensual")
+    .select("periodo, total")
+    .order("periodo");
+  for (const d of dotacionMensual ?? []) {
+    totalPorSnapshot.set(periodoDeFecha(d.periodo), d.total);
   }
 
   const periodosReales = [...totalPorSnapshot.keys()].sort();

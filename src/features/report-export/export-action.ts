@@ -7,6 +7,7 @@ import {
   getResumenKpis,
   getUfPorPeriodo,
 } from "@/features/cash-flow/services/queries";
+import { getDotacionTotalPorPeriodo } from "@/features/headcount/services/dotacion-total";
 import { renderReportHtml } from "./render";
 import { renderReportExcel } from "./render-excel";
 
@@ -46,12 +47,17 @@ export async function exportReportAsHtml(
     const ufPorPeriodo = await getUfPorPeriodo([
       ...new Set(serie.map((p) => p.periodo)),
     ]);
+    const dotacionPorPeriodo = await getDotacionTotalPorPeriodo(
+      periodoDesde,
+      periodoHasta,
+    );
 
     const generadoEn = new Date();
     const paramsComunes = {
       serie,
       kpis,
       ufPorPeriodo,
+      dotacionPorPeriodo,
       periodoDesde: periodoDesde.toISOString().slice(0, 10),
       periodoHasta: periodoHasta.toISOString().slice(0, 10),
       generadoEn,

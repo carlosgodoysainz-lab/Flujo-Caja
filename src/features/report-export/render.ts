@@ -5,6 +5,7 @@ import type {
   CashFlowSeriePunto,
   ResumenKpis,
 } from "@/features/cash-flow/services/queries";
+import type { DotacionTotalPunto } from "@/features/headcount/services/dotacion-total";
 
 const MAESTRA_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 275 50" height="24">
   <path fill="#db0a5b" d="M30.87,48.94,24,42.06a2.64,2.64,0,0,1,0-3.73L44.83,17.48a2.64,2.64,0,0,1,3.73,0l6.88,6.88a2.67,2.67,0,0,1,0,3.74L34.61,48.94a2.65,2.65,0,0,1-3.74,0"/>
@@ -12,24 +13,36 @@ const MAESTRA_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2
   <path fill="#ffffff" d="M51.53,3.86l-2.8-2.79a2.8,2.8,0,0,0-3.86,0L34.61,11.18a2.63,2.63,0,0,1-3.76.06L23.48,3.86h0L20.68,1.07a2.65,2.65,0,0,0-3.74,0L0,18l2.94,2.94A2.66,2.66,0,0,0,6.69,21L16.94,10.76a2.65,2.65,0,0,1,3.74,0l2.77,2.79h0L30.85,21a2.64,2.64,0,0,0,3.32.32,2.61,2.61,0,0,0,.44-.38L44.87,10.76a2.8,2.8,0,0,1,3.86,0L58.88,20.93a2.63,2.63,0,0,0,3.72,0l3-3Z"/>
 </svg>`;
 
-const CONCEPTOS_ORDEN = [
-  "anticipo",
-  "remuneracion",
-  "finiquito",
-  "reliquidacion",
-  "cotizacion",
-  "sence",
-  "total_nomina",
-] as const;
-const CONCEPTO_LABEL: Record<string, string> = {
-  anticipo: "Anticipo",
-  remuneracion: "Remuneración",
-  finiquito: "Finiquito",
-  reliquidacion: "Reliquidación",
-  cotizacion: "Cotización",
-  sence: "Aporte SENCE",
-  total_nomina: "Total Nómina",
-};
+// Cada fila principal puede traer sub-filas RG/RP (aperturadas — mismo
+// desglose que el Excel real, pedido explícito del usuario) indentadas
+// justo debajo, de menor jerarquía visual.
+const FILAS: {
+  concepto: string;
+  label: string;
+  sub?: { concepto: string; label: string }[];
+}[] = [
+  {
+    concepto: "anticipo",
+    label: "Anticipo",
+    sub: [
+      { concepto: "anticipo_rg", label: "RG" },
+      { concepto: "anticipo_rp", label: "RP" },
+    ],
+  },
+  {
+    concepto: "remuneracion",
+    label: "Remuneración",
+    sub: [
+      { concepto: "remuneracion_rg", label: "RG" },
+      { concepto: "remuneracion_rp", label: "RP" },
+    ],
+  },
+  { concepto: "finiquito", label: "Finiquito" },
+  { concepto: "reliquidacion", label: "Reliquidación" },
+  { concepto: "cotizacion", label: "Cotización" },
+  { concepto: "sence", label: "Aporte SENCE" },
+  { concepto: "total_nomina", label: "Total Nómina" },
+];
 
 function formatCLP(monto: number): string {
   return new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(
@@ -59,28 +72,61 @@ export function renderReportHtml(params: {
   kpis: ResumenKpis;
   /** Valor UF por período — ver uf-sync.ts. Fila "Total Nómina (UF)" solo aparece si hay dato. */
   ufPorPeriodo?: Map<string, number>;
+  /** Dotación total (N°) por período — ver dotacion-total.ts. Fila "Dotación" solo aparece si hay dato. */
+  dotacionPorPeriodo?: Map<string, DotacionTotalPunto>;
   periodoDesde: string;
   periodoHasta: string;
   generadoEn: Date;
 }): string {
-  const { serie, kpis, ufPorPeriodo, periodoDesde, periodoHasta, generadoEn } =
-    params;
+  const {
+    serie,
+    kpis,
+    ufPorPeriodo,
+    dotacionPorPeriodo,
+    periodoDesde,
+    periodoHasta,
+    generadoEn,
+  } = params;
 
   const periodos = [...new Set(serie.map((p) => p.periodo))].sort();
   const valorPorConceptoYPeriodo = new Map<string, CashFlowSeriePunto>();
   for (const punto of serie)
     valorPorConceptoYPeriodo.set(`${punto.concepto}::${punto.periodo}`, punto);
 
-  const filasTabla = CONCEPTOS_ORDEN.map((concepto) => {
+  const filaDotacion =
+    dotacionPorPeriodo && dotacionPorPeriodo.size > 0
+      ? `<tr class="dotacion"><td>Dotación (N°)</td>${periodos
+          .map((p) => {
+            const punto = dotacionPorPeriodo.get(p);
+            const clase = punto && !punto.esReal ? ' class="proyectado"' : "";
+            return `<td${clase}>${punto ? new Intl.NumberFormat("es-CL").format(punto.total) : "—"}</td>`;
+          })
+          .join("")}</tr>`
+      : "";
+
+  const filasTabla = FILAS.map((fila) => {
     const celdas = periodos
       .map((p) => {
-        const punto = valorPorConceptoYPeriodo.get(`${concepto}::${p}`);
+        const punto = valorPorConceptoYPeriodo.get(`${fila.concepto}::${p}`);
         const clase = punto && !punto.esReal ? ' class="proyectado"' : "";
         return `<td${clase}>${punto ? formatCLP(punto.monto) : "—"}</td>`;
       })
       .join("");
-    const claseFila = concepto === "total_nomina" ? ' class="total"' : "";
-    return `<tr${claseFila}><td>${CONCEPTO_LABEL[concepto]}</td>${celdas}</tr>`;
+    const claseFila = fila.concepto === "total_nomina" ? ' class="total"' : "";
+    const filaPrincipal = `<tr${claseFila}><td>${fila.label}</td>${celdas}</tr>`;
+    const filasSub = (fila.sub ?? [])
+      .map((sub) => {
+        const celdasSub = periodos
+          .map((p) => {
+            const punto = valorPorConceptoYPeriodo.get(`${sub.concepto}::${p}`);
+            const clase = punto && !punto.esReal ? ' class="proyectado"' : "";
+            return `<td${clase}>${punto ? formatCLP(punto.monto) : "—"}</td>`;
+          })
+          .join("");
+        return `<tr class="sub"><td>${sub.label}</td>${celdasSub}</tr>`;
+      })
+      .join("\n");
+    return `${filaPrincipal}\n${filasSub}`;
   }).join("\n");
 
   const filaUf =
@@ -137,6 +183,9 @@ export function renderReportHtml(params: {
   th:first-child, td:first-child { text-align: left; }
   tr.total { font-weight: 600; border-top: 2px solid var(--navy-brand); }
   tr.uf { color: var(--navy-brand); font-weight: 500; }
+  tr.dotacion { color: #475569; font-weight: 500; border-bottom: 2px solid #e2e8f0; }
+  tr.sub td { color: #94a3b8; font-size: 11px; }
+  tr.sub td:first-child { padding-left: 22px; }
   td.proyectado { color: #94a3b8; font-style: italic; }
   footer {
     text-align: center; padding: 12px; font-size: 11px; color: #fff;
@@ -167,7 +216,7 @@ export function renderReportHtml(params: {
 
   <table>
     <thead><tr><th>Concepto</th>${encabezadosPeriodo}</tr></thead>
-    <tbody>${filasTabla}</tbody>
+    <tbody>${filaDotacion}${filasTabla}</tbody>
   </table>
   <p style="font-size:11px;color:#94a3b8;margin-top:8px;"><i>Cursiva</i> = proyectado, no dato real ingerido.</p>
 </main>

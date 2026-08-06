@@ -77,7 +77,12 @@ interface MicrosoftSearchHit {
 }
 
 interface MicrosoftSearchResponse {
-  value: { hitsContainers: { hits?: MicrosoftSearchHit[] }[] }[];
+  value: {
+    hitsContainers: {
+      hits?: MicrosoftSearchHit[];
+      moreResultsAvailable?: boolean;
+    }[];
+  }[];
 }
 
 /**
@@ -97,45 +102,57 @@ interface MicrosoftSearchResponse {
 export async function searchFiles(
   accessToken: string,
   query: string,
+  opts?: { maxResultados?: number },
 ): Promise<GraphSearchHit[]> {
-  const res = await graphFetch(accessToken, "/search/query", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      requests: [
-        {
-          entityTypes: ["driveItem"],
-          query: { queryString: query },
-          from: 0,
-          // 50, no 25: con texto de búsqueda genérico (sin mes/año) hay
-          // carpetas con 1 archivo por mes desde 2021+ — más de 25 en
-          // total — y la API rankea por relevancia, no por fecha, así que
-          // el archivo más reciente puede no estar en los primeros 25
-          // (bug real confirmado en producción). El caller (ver
-          // sync-pagos-mensuales.ts) además acota la búsqueda por mes/año
-          // en el propio texto — este tamaño es una segunda red de
-          // seguridad, no la única defensa.
-          size: 50,
-          // SIN esto, `resource.parentReference` viene vacío en algunas
-          // respuestas — y sin `parentReference.path`/`driveId` no se
-          // puede filtrar por carpeta ni descargar el archivo (bug real
-          // confirmado: la sync de Plan de Obras Gespro fallaba SIEMPRE
-          // porque el filtro por carpeta nunca encontraba `path`).
-          fields: [
-            "id",
-            "name",
-            "webUrl",
-            "lastModifiedDateTime",
-            "parentReference",
-          ],
-        },
-      ],
-    }),
-  });
+  const PAGE_SIZE = 50;
+  // 50, no 25: con texto de búsqueda genérico (sin mes/año) hay carpetas
+  // con 1 archivo por mes desde 2021+ — más de 25 en total — y la API
+  // rankea por relevancia, no por fecha, así que el archivo más reciente
+  // puede no estar en los primeros 25 (bug real confirmado en
+  // producción). Para búsquedas SIN mes/año en el texto (ej. el Excel
+  // maestro de Flujo de Caja, con 178+ archivos históricos coincidiendo)
+  // el caller puede pedir `maxResultados` más alto — se pagina hasta
+  // llegar ahí o hasta que la API no tenga más resultados.
+  const maxResultados = opts?.maxResultados ?? PAGE_SIZE;
+  const hits: GraphSearchHit[] = [];
 
-  const json = (await res.json()) as MicrosoftSearchResponse;
-  const hits = json.value?.[0]?.hitsContainers?.[0]?.hits ?? [];
-  return hits.map((h) => h.resource);
+  for (let from = 0; from < maxResultados; from += PAGE_SIZE) {
+    const res = await graphFetch(accessToken, "/search/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requests: [
+          {
+            entityTypes: ["driveItem"],
+            query: { queryString: query },
+            from,
+            size: Math.min(PAGE_SIZE, maxResultados - from),
+            // SIN esto, `resource.parentReference` viene vacío en algunas
+            // respuestas — y sin `parentReference.path`/`driveId` no se
+            // puede filtrar por carpeta ni descargar el archivo (bug real
+            // confirmado: la sync de Plan de Obras Gespro fallaba SIEMPRE
+            // porque el filtro por carpeta nunca encontraba `path`).
+            fields: [
+              "id",
+              "name",
+              "webUrl",
+              "lastModifiedDateTime",
+              "parentReference",
+            ],
+          },
+        ],
+      }),
+    });
+
+    const json = (await res.json()) as MicrosoftSearchResponse;
+    const contenedor = json.value?.[0]?.hitsContainers?.[0];
+    const paginaHits = contenedor?.hits ?? [];
+    hits.push(...paginaHits.map((h) => h.resource));
+
+    if (paginaHits.length === 0 || !contenedor?.moreResultsAvailable) break;
+  }
+
+  return hits;
 }
 
 export async function downloadFileContent(

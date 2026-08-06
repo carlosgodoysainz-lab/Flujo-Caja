@@ -4,6 +4,7 @@ import {
   getResumenKpis,
   getUfPorPeriodo,
 } from "@/features/cash-flow/services/queries";
+import { getDotacionTotalPorPeriodo } from "@/features/headcount/services/dotacion-total";
 import { HeroConsolidado } from "@/features/cash-flow/components/hero-consolidado";
 import { DetailTable } from "@/features/cash-flow/components/detail-table";
 import { AlertPanel } from "@/features/cash-flow/components/alert-panel";
@@ -34,6 +35,7 @@ export default async function ReportePage() {
   ]);
   const periodosDelDetalle = [...new Set(serie.map((p) => p.periodo))];
   const ufPorPeriodo = await getUfPorPeriodo(periodosDelDetalle);
+  const dotacionPorPeriodo = await getDotacionTotalPorPeriodo(desde, hasta);
 
   return (
     // El hero navy va FULL-BLEED (ancho completo de la página, igual que
@@ -72,7 +74,11 @@ export default async function ReportePage() {
           <h2 className="mb-2 text-sm font-medium text-slate-700">
             Detalle por concepto
           </h2>
-          <DetailTable serie={serie} ufPorPeriodo={ufPorPeriodo} />
+          <DetailTable
+            serie={serie}
+            ufPorPeriodo={ufPorPeriodo}
+            dotacionPorPeriodo={dotacionPorPeriodo}
+          />
         </section>
 
         <MetodologiaCalculo />

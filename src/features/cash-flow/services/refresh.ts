@@ -5,9 +5,20 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { syncObrasFromGespro } from "@/features/obras/services/sync";
 import { syncPagosMensuales } from "./sync-pagos-mensuales";
 import { syncUfSeries } from "./uf-sync";
+import { syncFlujoCajaHistorico } from "./sync-flujo-caja-historico";
 import { calcularMesCashFlow, type CashFlowConceptoCalculado } from "./engine";
+import { ANTICIPO_PCT } from "./formulas";
 import { getDotacionTotalPorPeriodo } from "@/features/headcount/services/dotacion-total";
 import { runForecastModel } from "@/features/headcount/forecast-model/run";
+
+/**
+ * Métodos de cálculo que NUNCA se pisan en un refresh — ya sea porque un
+ * humano lo cargó a mano (`manual_override`, ver override.ts) o porque
+ * viene del Excel maestro de Flujo de Caja, el registro autoritativo que
+ * Finanzas cierra mes a mes (`ingesta_excel_historico`, ver
+ * sync-flujo-caja-historico.ts).
+ */
+const METODOS_PRESERVADOS = ["manual_override", "ingesta_excel_historico"];
 
 export interface RefreshReportResult {
   reportSnapshotId: string | null;
@@ -104,6 +115,44 @@ async function promedioRemuneracionReal(
 }
 
 /**
+ * Razón real Remuneración RG / Remuneración total, promediada de los
+ * últimos N meses reales — para "aperturar" el desglose RG/RP también en
+ * los meses PROYECTADOS (pedido explícito del usuario, "como en el
+ * Excel"), ya que el modelo costo-por-cabeza solo proyecta el total
+ * combinado. `null` si no hay ningún mes real con el desglose todavía.
+ */
+async function proporcionRgHistorica(
+  supabase: ReturnType<typeof createServiceClient>,
+  antesDe: Date,
+  n = 3,
+): Promise<number | null> {
+  const { data } = await supabase
+    .from("cash_flow_monthly")
+    .select("periodo, monto")
+    .eq("concepto", "remuneracion_rg")
+    .eq("es_real", true)
+    .lt("periodo", antesDe.toISOString().slice(0, 10))
+    .order("periodo", { ascending: false })
+    .limit(n);
+
+  if (!data || data.length === 0) return null;
+
+  let sumaRg = 0;
+  let sumaTotal = 0;
+  for (const fila of data) {
+    const total = await montoCashFlow(
+      supabase,
+      new Date(fila.periodo),
+      "remuneracion",
+    );
+    if (!total) continue;
+    sumaRg += Number(fila.monto);
+    sumaTotal += total;
+  }
+  return sumaTotal > 0 ? sumaRg / sumaTotal : null;
+}
+
+/**
  * Corre el modelo de estimación de dotación (curva por obra similar, ver
  * forecast-model/run.ts) para toda obra que TODAVÍA no tenga ningún dato
  * de dotación (manual/real/estimado). Antes esto era un botón manual por
@@ -190,6 +239,22 @@ export async function refreshCashFlowReport(
       fuente: "Serie UF (mindicador.cl)",
       mensaje: ufResult.errores.join("; "),
     });
+  }
+
+  // El Excel maestro de Flujo de Caja (Finanzas, cerrado mes a mes) ANTES
+  // del recálculo mes a mes — establece la base "real" autoritativa para
+  // todo el histórico que cubre (corrige meses de 2025 que la ingesta
+  // suelta de Pagos Mensuales traía incompletos, reportado por el
+  // usuario). Sus valores quedan con metodo_calculo='ingesta_excel_historico',
+  // preservados igual que un override manual (ver METODOS_PRESERVADOS).
+  const flujoCajaHistoricoResult = await syncFlujoCajaHistorico();
+  if (flujoCajaHistoricoResult.estado === "error") {
+    errores.push({
+      fuente: "Excel histórico Flujo de Caja",
+      mensaje: flujoCajaHistoricoResult.errores.join("; "),
+    });
+  } else {
+    documentosIngeridos += 1;
   }
 
   const { obrasEstimadas } = await estimarDotacionFaltante(supabase);
@@ -301,12 +366,16 @@ export async function refreshCashFlowReport(
       sence: calculado.sence,
     };
 
-    // Ningún override manual (`metodo_calculo === 'manual_override'`, ver
-    // override.ts) se pisa en el refresh — se preserva el valor cargado a
-    // mano y el total se recalcula sobre esos valores finales.
+    // Ningún método preservado (`manual_override` o
+    // `ingesta_excel_historico` — ver METODOS_PRESERVADOS) se pisa en el
+    // refresh: se preserva el valor cargado a mano o desde el Excel
+    // maestro, y el total se recalcula sobre esos valores finales.
     for (const concepto of CONCEPTOS_CALCULADOS) {
       const existente = await filaExistente(supabase, mes, concepto);
-      if (existente?.metodoCalculo === "manual_override") {
+      if (
+        existente?.metodoCalculo &&
+        METODOS_PRESERVADOS.includes(existente.metodoCalculo)
+      ) {
         calculadoPorConcepto[concepto] = {
           monto: existente.monto,
           esReal: existente.esReal,
@@ -320,6 +389,146 @@ export async function refreshCashFlowReport(
       0,
     );
 
+    // Desglose Remuneración/Anticipo en RG/RP — filas SOLO informativas
+    // (nunca se suman aparte al Total Nómina, ya están dentro de
+    // calculadoPorConcepto.remuneracion/anticipo). Real cuando hay dato
+    // real ingerido (SharePoint o Excel histórico, vía el preserve-check
+    // de abajo); si no, split proporcional usando la razón real de los
+    // últimos meses — pedido explícito del usuario, "como en el Excel".
+    const remuneracionRgReal = await sumaLineItems(supabase, mes, [
+      "remuneracion_rg",
+    ]);
+    const remuneracionRpReal = await sumaLineItems(supabase, mes, [
+      "remuneracion_rp",
+    ]);
+    const anticipoRgReal = await sumaLineItems(supabase, mes, ["anticipo_rg"]);
+    const anticipoRpReal = await sumaLineItems(supabase, mes, ["anticipo_rp"]);
+
+    let remuneracionRgFila: CashFlowConceptoCalculado | null = null;
+    let remuneracionRpFila: CashFlowConceptoCalculado | null = null;
+    if (calculadoPorConcepto.remuneracion.esReal) {
+      remuneracionRgFila = {
+        monto: remuneracionRgReal ?? 0,
+        esReal: true,
+        metodoCalculo: "ingesta_real",
+      };
+      remuneracionRpFila = {
+        monto: remuneracionRpReal ?? 0,
+        esReal: true,
+        metodoCalculo: "ingesta_real",
+      };
+    } else {
+      const proporcionRg = await proporcionRgHistorica(supabase, mes);
+      if (proporcionRg != null) {
+        const rg = Math.round(
+          calculadoPorConcepto.remuneracion.monto * proporcionRg,
+        );
+        remuneracionRgFila = {
+          monto: rg,
+          esReal: false,
+          metodoCalculo: "split_proporcional_historico",
+        };
+        remuneracionRpFila = {
+          monto: calculadoPorConcepto.remuneracion.monto - rg,
+          esReal: false,
+          metodoCalculo: "split_proporcional_historico",
+        };
+      }
+    }
+
+    let anticipoRgFila: CashFlowConceptoCalculado | null = null;
+    let anticipoRpFila: CashFlowConceptoCalculado | null = null;
+    if (calculadoPorConcepto.anticipo.esReal) {
+      anticipoRgFila = {
+        monto: anticipoRgReal ?? 0,
+        esReal: true,
+        metodoCalculo: "ingesta_real",
+      };
+      anticipoRpFila = {
+        monto: anticipoRpReal ?? 0,
+        esReal: true,
+        metodoCalculo: "ingesta_real",
+      };
+    } else if (remuneracionRgFila) {
+      // Misma fórmula que calcularAnticipoProyectado, pero aplicada solo
+      // a la porción RG de Remuneración — el residual va a RP para que
+      // RG+RP siga sumando exacto el Anticipo total ya calculado.
+      const rg = Math.round(remuneracionRgFila.monto * ANTICIPO_PCT);
+      anticipoRgFila = {
+        monto: rg,
+        esReal: false,
+        metodoCalculo: "formula_24pct_remuneracion_rg",
+      };
+      anticipoRpFila = {
+        monto: calculadoPorConcepto.anticipo.monto - rg,
+        esReal: false,
+        metodoCalculo: "residual_anticipo_total_menos_rg",
+      };
+    }
+
+    // Preservar RG/RP también si ya vienen de un método protegido (Excel
+    // histórico / override) — igual que los conceptos principales arriba.
+    const existenteRemuneracionRg = await filaExistente(
+      supabase,
+      mes,
+      "remuneracion_rg",
+    );
+    if (
+      existenteRemuneracionRg?.metodoCalculo &&
+      METODOS_PRESERVADOS.includes(existenteRemuneracionRg.metodoCalculo)
+    ) {
+      remuneracionRgFila = {
+        monto: existenteRemuneracionRg.monto,
+        esReal: existenteRemuneracionRg.esReal,
+        metodoCalculo: existenteRemuneracionRg.metodoCalculo,
+      };
+    }
+    const existenteRemuneracionRp = await filaExistente(
+      supabase,
+      mes,
+      "remuneracion_rp",
+    );
+    if (
+      existenteRemuneracionRp?.metodoCalculo &&
+      METODOS_PRESERVADOS.includes(existenteRemuneracionRp.metodoCalculo)
+    ) {
+      remuneracionRpFila = {
+        monto: existenteRemuneracionRp.monto,
+        esReal: existenteRemuneracionRp.esReal,
+        metodoCalculo: existenteRemuneracionRp.metodoCalculo,
+      };
+    }
+    const existenteAnticipoRg = await filaExistente(
+      supabase,
+      mes,
+      "anticipo_rg",
+    );
+    if (
+      existenteAnticipoRg?.metodoCalculo &&
+      METODOS_PRESERVADOS.includes(existenteAnticipoRg.metodoCalculo)
+    ) {
+      anticipoRgFila = {
+        monto: existenteAnticipoRg.monto,
+        esReal: existenteAnticipoRg.esReal,
+        metodoCalculo: existenteAnticipoRg.metodoCalculo,
+      };
+    }
+    const existenteAnticipoRp = await filaExistente(
+      supabase,
+      mes,
+      "anticipo_rp",
+    );
+    if (
+      existenteAnticipoRp?.metodoCalculo &&
+      METODOS_PRESERVADOS.includes(existenteAnticipoRp.metodoCalculo)
+    ) {
+      anticipoRpFila = {
+        monto: existenteAnticipoRp.monto,
+        esReal: existenteAnticipoRp.esReal,
+        metodoCalculo: existenteAnticipoRp.metodoCalculo,
+      };
+    }
+
     const conceptos = [
       { concepto: "anticipo", ...calculadoPorConcepto.anticipo },
       { concepto: "remuneracion", ...calculadoPorConcepto.remuneracion },
@@ -327,6 +536,18 @@ export async function refreshCashFlowReport(
       { concepto: "finiquito", ...calculadoPorConcepto.finiquito },
       { concepto: "cotizacion", ...calculadoPorConcepto.cotizacion },
       { concepto: "sence", ...calculadoPorConcepto.sence },
+      ...(remuneracionRgFila
+        ? [{ concepto: "remuneracion_rg", ...remuneracionRgFila }]
+        : []),
+      ...(remuneracionRpFila
+        ? [{ concepto: "remuneracion_rp", ...remuneracionRpFila }]
+        : []),
+      ...(anticipoRgFila
+        ? [{ concepto: "anticipo_rg", ...anticipoRgFila }]
+        : []),
+      ...(anticipoRpFila
+        ? [{ concepto: "anticipo_rp", ...anticipoRpFila }]
+        : []),
       {
         // "Real" a nivel de mes = el mes ya ocurrió (hay remuneración real
         // ingerida), aunque cotización siga siendo fórmula (nunca tiene

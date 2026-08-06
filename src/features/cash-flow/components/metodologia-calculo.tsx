@@ -1,17 +1,18 @@
 const CONCEPTOS_METODOLOGIA = [
   {
-    concepto: "Anticipo",
+    concepto: "Anticipo (RG/RP)",
     fuenteReal:
-      'Real cuando existe "solicitud requerimientos anticipo <mes> <año>.xlsx" ingerido para ese mes (hojas "anticipo RG"/"anticipo RP", sin RUT ni nombre de persona — el archivo crudo de Buk que sí trae RUT personal se descarta a propósito).',
-    formula: "Si no hay dato real: 24% × Remuneración del mismo mes.",
+      'Real desde 2 fuentes, en orden de prioridad: (1) el Excel MAESTRO de Flujo de Caja (carpeta "Flujo de Caja", Finanzas) para meses ya cerrados — la más completa históricamente; (2) "solicitud requerimientos anticipo <mes> <año>.xlsx" ingerido de SharePoint para meses recientes que el Excel maestro todavía no cierra. Ambas ya traen RG/RP separado, sin RUT ni nombre de persona.',
+    formula:
+      "Si no hay dato real: 24% × Remuneración del mismo mes (total); el desglose RG/RP proyectado aplica esa misma fórmula solo a la porción RG de Remuneración, y el residual va a RP.",
     color: "var(--ok)",
   },
   {
-    concepto: "Remuneración",
+    concepto: "Remuneración (RG/RP)",
     fuenteReal:
-      'Real cuando existe el archivo "Solicitud de Requerimiento remuneración" ingerido para ese mes (suma RG + RP, sin RUT ni nombre de persona).',
+      'Real desde las mismas 2 fuentes que Anticipo: el Excel maestro (histórico, ya separa RG/RP con su dotación real en la columna "N°") o el archivo "Solicitud de Requerimiento remuneración" de SharePoint para meses recientes.',
     formula:
-      "Si no hay dato real: costo promedio por cabeza del mes anterior (Remuneración$ mes anterior ÷ dotación mes anterior) × dotación del mes actual. La dotación es real (Buk) cuando existe el snapshot mensual, o proyectada acumulando altas−bajas por obra (curva de obras similares — ver /dotacion). Si tampoco hay dato de dotación: promedio de los últimos 3 meses reales.",
+      "Si no hay dato real: costo promedio por cabeza del mes anterior (Remuneración$ mes anterior ÷ dotación mes anterior) × dotación del mes actual — el total. El desglose RG/RP proyectado usa la razón real RG/(RG+RP) promedio de los últimos 3 meses reales. La dotación es real (Excel histórico o snapshot de Buk) o proyectada acumulando altas−bajas por obra (curva de obras similares — ver /dotacion). Si tampoco hay dato de dotación: promedio de los últimos 3 meses reales.",
     color: "var(--ok)",
   },
   {
@@ -106,10 +107,11 @@ export function MetodologiaCalculo() {
           </table>
         </div>
         <p className="text-xs text-slate-400">
-          Modelo de dotación (variable "Q" de Remuneración): la curva de
-          altas−bajas por obra se estima comparando contra obras similares ya
-          terminadas (mismo tipo, tamaño ±30%) — sube en el arranque, se
-          estabiliza en régimen y baja por desvinculaciones hacia el cierre. Ver
+          Fila "Dotación (N°)" de la tabla de detalle: real desde el Excel
+          maestro de Flujo de Caja o snapshots de Buk; proyectada acumulando
+          altas−bajas por obra hacia adelante — sube en el arranque, se
+          estabiliza en régimen y baja por desvinculaciones hacia el cierre
+          (curva de obras similares ya terminadas, mismo tipo, tamaño ±30%). Ver
           /dotacion para el detalle por obra.
         </p>
       </div>
