@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
   downloadFileContent,
+  ensureDriveId,
   pickLatestMatch,
   searchFiles,
   type GraphSearchHit,
@@ -81,9 +82,18 @@ async function descargarYParsear(
   const mesNombre = MESES_ES[periodo.getMonth()];
   const anio = String(periodo.getFullYear());
   const hits = await searchFiles(accessToken, `${query} ${mesNombre} ${anio}`);
-  const candidatos = filterByPeriod(hits, periodo).filter(
-    (h) => h.name.toLowerCase().endsWith(".xlsx") && h.parentReference?.driveId,
+  const candidatosSinResolver = filterByPeriod(hits, periodo).filter((h) =>
+    h.name.toLowerCase().endsWith(".xlsx"),
   );
+  // No asumir que `parentReference.driveId` vino en la búsqueda (bug real
+  // confirmado — ver ensureDriveId en graph/client.ts): resolverlo por
+  // archivo antes de intentar descargar, en vez de descartarlo antes de
+  // intentarlo.
+  const candidatos = (
+    await Promise.all(
+      candidatosSinResolver.map((h) => ensureDriveId(accessToken, h)),
+    )
+  ).filter((h) => h.parentReference?.driveId);
 
   const resultados = [];
   for (const archivo of candidatos) {

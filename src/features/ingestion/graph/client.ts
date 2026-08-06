@@ -19,28 +19,51 @@ export interface GraphSearchHit {
   parentReference?: { driveId?: string; path?: string };
 }
 
+function esperar(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function graphFetch(
   accessToken: string,
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
-  const res = await fetch(`${GRAPH_BASE}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      ...(init?.headers ?? {}),
-    },
-    signal: AbortSignal.timeout(30_000),
-  });
+  const REINTENTOS_409 = [400, 1200]; // ms — backoff corto, ver nota abajo
+  let intento = 0;
 
-  if (res.status === 401) {
-    throw new GraphAuthExpiredError();
+  while (true) {
+    const res = await fetch(`${GRAPH_BASE}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(init?.headers ?? {}),
+      },
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (res.status === 401) {
+      throw new GraphAuthExpiredError();
+    }
+
+    // 409 "resourceModified" (eTag mismatch) en /content: error REAL visto
+    // en producción al descargar archivos que la búsqueda acababa de
+    // indexar — típicamente transitorio (SharePoint todavía procesando el
+    // eTag de un archivo recién tocado). Reintentar con una request nueva
+    // (nuevo eTag) antes de rendirse, en vez de fallar al primer golpe.
+    if (res.status === 409 && intento < REINTENTOS_409.length) {
+      await esperar(REINTENTOS_409[intento]);
+      intento++;
+      continue;
+    }
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(
+        `Graph API ${path} → ${res.status}: ${body.slice(0, 300)}`,
+      );
+    }
+    return res;
   }
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Graph API ${path} → ${res.status}: ${body.slice(0, 300)}`);
-  }
-  return res;
 }
 
 interface MicrosoftSearchHit {
@@ -129,20 +152,108 @@ export async function downloadFileContent(
 }
 
 /**
+ * "u!" + base64url(webUrl) — algoritmo documentado por Microsoft para
+ * convertir cualquier URL de compartir/abrir en un "shareId" resoluble
+ * con `GET /shares/{shareId}/driveItem`. Ver
+ * https://learn.microsoft.com/graph/api/shares-get
+ */
+function encodeShareUrl(webUrl: string): string {
+  const base64 = Buffer.from(webUrl, "utf-8").toString("base64");
+  const base64Url = base64
+    .replace(/=+$/, "")
+    .replace(/\//g, "_")
+    .replace(/\+/g, "-");
+  return `u!${base64Url}`;
+}
+
+/**
+ * Resuelve un `driveItem` completo (con `parentReference.driveId`/`path`)
+ * a partir de SOLO su `webUrl` — que la API de Microsoft Search SIEMPRE
+ * devuelve, a diferencia de `parentReference` (bug real confirmado en
+ * producción: `parentReference` puede venir vacío en la respuesta de
+ * `/search/query` incluso pidiéndolo explícito en `fields`). Fallback
+ * robusto para cuando eso pasa — nunca falla por depender de un campo que
+ * la API no garantiza.
+ */
+export async function resolveDriveItemFromWebUrl(
+  accessToken: string,
+  webUrl: string,
+): Promise<{
+  id: string;
+  parentReference: { driveId: string; path?: string };
+} | null> {
+  try {
+    const shareId = encodeShareUrl(webUrl);
+    const res = await graphFetch(
+      accessToken,
+      `/shares/${shareId}/driveItem?$select=id,parentReference`,
+    );
+    const json = (await res.json()) as {
+      id: string;
+      parentReference?: { driveId?: string; path?: string };
+    };
+    if (!json.parentReference?.driveId) return null;
+    return {
+      id: json.id,
+      parentReference: {
+        driveId: json.parentReference.driveId,
+        path: json.parentReference.path,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Garantiza que un hit tenga `parentReference.driveId` — lo resuelve vía
+ * `resolveDriveItemFromWebUrl` si la búsqueda no lo trajo. Usar SIEMPRE
+ * antes de descargar un archivo elegido por `pickLatestMatch`.
+ */
+export async function ensureDriveId(
+  accessToken: string,
+  hit: GraphSearchHit,
+): Promise<GraphSearchHit> {
+  if (hit.parentReference?.driveId) return hit;
+  const resuelto = await resolveDriveItemFromWebUrl(accessToken, hit.webUrl);
+  if (!resuelto) return hit;
+  return {
+    ...hit,
+    id: resuelto.id,
+    parentReference: {
+      driveId: resuelto.parentReference.driveId,
+      path: resuelto.parentReference.path ?? hit.parentReference?.path,
+    },
+  };
+}
+
+/**
  * De una lista de resultados de búsqueda, elige el más reciente
  * (`lastModifiedDateTime` real, NUNCA por nombre) cuya ruta de carpeta
  * padre y nombre matcheen los patrones dados.
+ *
+ * `folderIncludes` se compara contra `parentReference.path` cuando existe
+ * y, si no, contra el `webUrl` decodificado (bug real: `parentReference`
+ * puede venir vacío desde `/search/query` — ver `ensureDriveId` — pero
+ * `webUrl` SIEMPRE viene, y contiene la misma ruta URL-encoded).
  */
 export function pickLatestMatch(
   hits: GraphSearchHit[],
   opts: { folderIncludes?: string; nameExtension?: string },
 ): GraphSearchHit | null {
+  const rutaDe = (hit: GraphSearchHit): string => {
+    if (hit.parentReference?.path) return hit.parentReference.path;
+    try {
+      return decodeURIComponent(hit.webUrl);
+    } catch {
+      return hit.webUrl;
+    }
+  };
+
   const filtered = hits.filter((hit) => {
     if (
       opts.folderIncludes &&
-      !hit.parentReference?.path
-        ?.toLowerCase()
-        .includes(opts.folderIncludes.toLowerCase())
+      !rutaDe(hit).toLowerCase().includes(opts.folderIncludes.toLowerCase())
     ) {
       return false;
     }

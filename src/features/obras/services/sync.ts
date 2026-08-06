@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
   downloadFileContent,
+  ensureDriveId,
   pickLatestMatch,
   searchFiles,
 } from "@/features/ingestion/graph/client";
@@ -54,17 +55,31 @@ export async function syncObrasFromGespro(): Promise<SyncObrasResult> {
     // archivo (que incluye la fecha del corte, ej. "20260803 Plan de Obras
     // Nuevo Gespro.xlsx" — cambia cada semana).
     const hits = await searchFiles(session.graphAccessToken, "Gespro");
-    const match = pickLatestMatch(hits, {
+    const encontrado = pickLatestMatch(hits, {
       folderIncludes: "Plan de Obra",
       nameExtension: ".xlsx",
     });
 
-    if (!match || !match.parentReference?.driveId) {
+    if (!encontrado) {
       return {
         estado: "error",
         obrasSincronizadas: 0,
         errores: [
           "No se encontró ningún Excel de Plan de Obras Gespro en SharePoint (carpeta 'Plan de Obra').",
+        ],
+      };
+    }
+
+    // La búsqueda puede no traer `parentReference.driveId` (bug real
+    // confirmado — ver ensureDriveId) — resolverlo vía webUrl antes de
+    // intentar descargar, no asumir que ya viene.
+    const match = await ensureDriveId(session.graphAccessToken, encontrado);
+    if (!match.parentReference?.driveId) {
+      return {
+        estado: "error",
+        obrasSincronizadas: 0,
+        errores: [
+          `Se encontró "${match.name}" pero no se pudo resolver su ubicación exacta en SharePoint (driveId) — puede ser un problema temporal de permisos o indexación.`,
         ],
       };
     }
