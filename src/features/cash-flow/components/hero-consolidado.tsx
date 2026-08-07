@@ -47,22 +47,24 @@ export function HeroConsolidado({
     // banda del Carta Gantt de referencia); el contenido interno sí se
     // acota a max-w-6xl y se centra, para alinear con el resto de la
     // página de abajo.
-    <section className="w-full bg-[var(--navy)] text-white">
+    <section className="relative w-full bg-[var(--navy)] text-white">
+      {/* Posicionado respecto al hero completo (full-bleed), no al
+          contenedor centrado max-w-6xl de abajo — pedido explícito
+          ("quede en la esquina superior derecha"): dentro del div
+          centrado quedaba en la esquina de ESE bloque, no de la página. */}
+      {onCerrarSesion && (
+        <form action={onCerrarSesion} className="absolute top-4 right-6 z-10">
+          <button
+            type="submit"
+            className="text-xs text-white/50 hover:text-white hover:underline"
+          >
+            Cerrar sesión
+          </button>
+        </form>
+      )}
       <div className="mx-auto max-w-6xl px-6 py-6">
-        {(sesionEmail || onCerrarSesion) && (
-          <div className="mb-4 flex items-center justify-between text-xs text-white/50">
-            <span>Sesión: {sesionEmail}</span>
-            {onCerrarSesion && (
-              <form action={onCerrarSesion}>
-                <button
-                  type="submit"
-                  className="hover:text-white hover:underline"
-                >
-                  Cerrar sesión
-                </button>
-              </form>
-            )}
-          </div>
+        {sesionEmail && (
+          <p className="mb-4 text-xs text-white/50">Sesión: {sesionEmail}</p>
         )}
 
         <h1 className="text-2xl font-semibold">
