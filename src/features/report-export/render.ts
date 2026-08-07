@@ -6,6 +6,7 @@ import type {
   ResumenKpis,
 } from "@/features/cash-flow/services/queries";
 import type { DotacionTotalPunto } from "@/features/headcount/services/dotacion-total";
+import { pathSuavizado } from "../cash-flow/lib/smooth-path";
 
 const MAESTRA_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 275 50" height="24">
   <path fill="#db0a5b" d="M30.87,48.94,24,42.06a2.64,2.64,0,0,1,0-3.73L44.83,17.48a2.64,2.64,0,0,1,3.73,0l6.88,6.88a2.67,2.67,0,0,1,0,3.74L34.61,48.94a2.65,2.65,0,0,1-3.74,0"/>
@@ -52,6 +53,115 @@ function formatCLP(monto: number): string {
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function formatCompacto(monto: number): string {
+  if (Math.abs(monto) >= 1_000_000_000)
+    return `$${(monto / 1_000_000_000).toFixed(1)}MM`;
+  if (Math.abs(monto) >= 1_000_000)
+    return `$${(monto / 1_000_000).toFixed(0)}M`;
+  return `$${new Intl.NumberFormat("es-CL").format(monto)}`;
+}
+
+function formatMesCorto(periodo: string): string {
+  const [anio, mes] = periodo.split("-");
+  const nombre = new Date(Number(anio), Number(mes) - 1, 1).toLocaleDateString(
+    "es-CL",
+    { month: "short" },
+  );
+  return `${nombre.replace(".", "")} '${anio.slice(2)}`;
+}
+
+/**
+ * El MISMO gráfico de "Total Nómina mensual" del hero de /reporte
+ * (cash-flow-area-chart.tsx), pero como SVG estático (sin hover — no
+ * tiene sentido en un archivo que se abre suelto o se adjunta por
+ * correo) — pedido explícito del usuario: "en el informe descargable
+ * quiero que coloque el mismo gráfico, abajo del cuadro con los datos".
+ * Comparte el mismo módulo de suavizado (`pathSuavizado`) para que la
+ * curva se vea idéntica a la de la app.
+ */
+function renderChartSvg(serie: CashFlowSeriePunto[]): string {
+  const WIDTH = 900;
+  const HEIGHT = 160;
+  const PADDING = { top: 12, right: 16, bottom: 28, left: 64 };
+
+  const porMes = new Map<string, { monto: number; esReal: boolean }>();
+  for (const p of serie) {
+    if (p.concepto === "total_nomina")
+      porMes.set(p.periodo, { monto: p.monto, esReal: p.esReal });
+  }
+  const puntos = [...porMes.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([periodo, v]) => ({ periodo, ...v }));
+
+  if (puntos.length === 0) return "";
+
+  const maxMonto = Math.max(...puntos.map((p) => p.monto), 1);
+  const innerW = WIDTH - PADDING.left - PADDING.right;
+  const innerH = HEIGHT - PADDING.top - PADDING.bottom;
+  const x = (i: number) =>
+    PADDING.left + (i / Math.max(puntos.length - 1, 1)) * innerW;
+  const y = (monto: number) =>
+    PADDING.top + innerH - (monto / maxMonto) * innerH;
+
+  const idxCorte = puntos.findIndex((p) => !p.esReal);
+  const corte = idxCorte === -1 ? puntos.length - 1 : idxCorte;
+
+  const xy = puntos.map((p, i) => ({ x: x(i), y: y(p.monto) }));
+  const lineaCompleta = pathSuavizado(xy, 0, xy.length - 1);
+  const lineaReal = pathSuavizado(xy, 0, corte);
+  const lineaProyectada = pathSuavizado(xy, corte, xy.length - 1);
+  const areaPath = `${lineaCompleta} L ${x(puntos.length - 1)} ${y(0)} L ${x(0)} ${y(0)} Z`;
+
+  const pasosY = [0, 0.25, 0.5, 0.75, 1].map((f) => f * maxMonto);
+  const pasoLabelX = Math.max(1, Math.round(puntos.length / 8));
+
+  const gridlines = pasosY
+    .map(
+      (v) =>
+        `<line x1="${PADDING.left}" x2="${WIDTH - PADDING.right}" y1="${y(v)}" y2="${y(v)}" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>` +
+        `<text x="${PADDING.left - 8}" y="${y(v)}" text-anchor="end" dominant-baseline="middle" font-size="9" fill="rgba(255,255,255,0.55)">${formatCompacto(v)}</text>`,
+    )
+    .join("");
+
+  const labelsX = puntos
+    .map((p, i) =>
+      i % pasoLabelX === 0
+        ? `<text x="${x(i)}" y="${HEIGHT - 8}" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.55)">${formatMesCorto(p.periodo)}</text>`
+        : "",
+    )
+    .join("");
+
+  const lineaProyectadaSvg =
+    idxCorte !== -1
+      ? `<path d="${lineaProyectada}" fill="none" stroke="#b89a5a" stroke-width="2" stroke-dasharray="4 4" stroke-linejoin="round"/>`
+      : "";
+  const hoyLine =
+    idxCorte > 0
+      ? `<line x1="${x(idxCorte)}" x2="${x(idxCorte)}" y1="${PADDING.top}" y2="${HEIGHT - PADDING.bottom}" stroke="#db0a5b" stroke-width="1.5"/>`
+      : "";
+
+  return `
+  <div style="background:#0a1f3c;border-radius:8px;padding:14px;margin-top:20px;">
+    <p style="margin:0 0 8px;font-size:11px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:rgba(255,255,255,0.5);">Total Nómina mensual — real y proyectado</p>
+    <svg viewBox="0 0 ${WIDTH} ${HEIGHT}" style="width:100%;height:auto;display:block;" role="img" aria-label="Gráfico de área: Total Nómina mensual requerido, real y proyectado">
+      ${gridlines}
+      <clipPath id="clipReal"><rect x="0" y="0" width="${x(corte)}" height="${HEIGHT}"/></clipPath>
+      <clipPath id="clipProyectado"><rect x="${x(corte)}" y="0" width="${WIDTH - x(corte)}" height="${HEIGHT}"/></clipPath>
+      <path d="${areaPath}" fill="#b89a5a" opacity="0.25" clip-path="url(#clipReal)"/>
+      <path d="${areaPath}" fill="#b89a5a" opacity="0.1" clip-path="url(#clipProyectado)"/>
+      <path d="${lineaReal}" fill="none" stroke="#b89a5a" stroke-width="2" stroke-linejoin="round"/>
+      ${lineaProyectadaSvg}
+      ${hoyLine}
+      ${labelsX}
+    </svg>
+    <div style="margin-top:6px;display:flex;gap:16px;font-size:11px;color:rgba(255,255,255,0.5);">
+      <span><span style="display:inline-block;width:12px;height:2px;background:#b89a5a;vertical-align:middle;margin-right:4px;"></span>Real</span>
+      <span><span style="display:inline-block;width:12px;height:0;border-top:2px dashed #b89a5a;vertical-align:middle;margin-right:4px;"></span>Proyectado</span>
+      <span><span style="display:inline-block;width:2px;height:10px;background:#db0a5b;vertical-align:middle;margin-right:4px;"></span>Hoy</span>
+    </div>
+  </div>`;
 }
 
 /**
@@ -219,6 +329,8 @@ export function renderReportHtml(params: {
     <tbody>${filaDotacion}${filasTabla}</tbody>
   </table>
   <p style="font-size:11px;color:#94a3b8;margin-top:8px;"><i>Cursiva</i> = proyectado, no dato real ingerido.</p>
+
+  ${renderChartSvg(serie)}
 </main>
 <footer><span class="badge">Uso interno — Grupo Maestra</span></footer>
 <script type="application/json" id="cash-flow-data">${JSON.stringify({ serie, kpis, periodoDesde, periodoHasta })}</script>

@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import type { CashFlowSeriePunto } from "../services/queries";
+import { pathSuavizado } from "../lib/smooth-path";
 
 /**
  * Gráfico de área para "Total Nómina requerido en el tiempo" — análogo a
@@ -38,36 +39,6 @@ function formatCLPCompacto(monto: number): string {
   if (Math.abs(monto) >= 1_000_000)
     return `$${(monto / 1_000_000).toFixed(0)}M`;
   return `$${new Intl.NumberFormat("es-CL").format(monto)}`;
-}
-
-/**
- * Path SVG suavizado (spline tipo Catmull-Rom convertida a curvas
- * Bézier cúbicas, tensión 1/6 — la aproximación estándar para gráficos
- * de líneas) para el sub-rango [desde, hasta] de `pts`, usando los
- * puntos VECINOS de la serie COMPLETA (no solo el sub-rango) como
- * control — así el corte real/proyectado se ve continuo en la curva, no
- * un quiebre en la tangente justo en "Hoy".
- */
-function pathSuavizado(
-  pts: { x: number; y: number }[],
-  desde: number,
-  hasta: number,
-): string {
-  if (hasta <= desde) return "";
-  const en = (i: number) => pts[Math.max(0, Math.min(pts.length - 1, i))];
-  let path = `M ${en(desde).x} ${en(desde).y}`;
-  for (let i = desde; i < hasta; i++) {
-    const p0 = en(i - 1);
-    const p1 = en(i);
-    const p2 = en(i + 1);
-    const p3 = en(i + 2);
-    const cp1x = p1.x + (p2.x - p0.x) / 6;
-    const cp1y = p1.y + (p2.y - p0.y) / 6;
-    const cp2x = p2.x - (p3.x - p1.x) / 6;
-    const cp2y = p2.y - (p3.y - p1.y) / 6;
-    path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
-  }
-  return path;
 }
 
 function formatMesCorto(periodo: string): string {
