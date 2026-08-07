@@ -20,6 +20,15 @@ export interface CashFlowInputs {
    */
   senceManual: number | null;
   /**
+   * Proyección de respaldo cuando NO hay `senceManual` todavía — pedido
+   * explícito del usuario: SENCE se paga una vez al año, normalmente en
+   * junio ($20.000.000 en 2026, la excepción de este año fue agosto). El
+   * caller (`refresh.ts`) decide el monto según el mes/año — 0 en meses
+   * sin pago esperado. Sigue quedando `esReal=false` siempre: es una
+   * proyección, no reemplaza cargar el monto real cuando se sepa.
+   */
+  senceFallbackProyectado: number;
+  /**
    * Costo promedio por cabeza del MES ANTERIOR (Remuneración$ ÷ dotación),
    * para proyectar Remuneración como precio×cantidad. `null` si no hay
    * dotación real/estimada disponible para el mes anterior — ver
@@ -137,9 +146,11 @@ export function calcularMesCashFlow(
     metodoCalculo: "formula_30pct_anticipo_mas_remun_mas_reliq",
   };
 
-  // Aporte SENCE: SIEMPRE manual, nunca fórmula. Si nadie lo ha cargado
-  // todavía para este período, queda en 0 marcado como pendiente — jamás
-  // se inventa un valor.
+  // Aporte SENCE: SIEMPRE manual, nunca fórmula — pero si nadie lo ha
+  // cargado todavía, se puede proyectar un estimado (pago anual, ver
+  // `senceFallbackProyectado`) en vez de inventar un valor arbitrario.
+  // Sigue sin ser "real" hasta que alguien cargue el monto exacto de ese
+  // período.
   const sence: CashFlowConceptoCalculado =
     inputs.senceManual !== null
       ? {
@@ -147,11 +158,17 @@ export function calcularMesCashFlow(
           esReal: true,
           metodoCalculo: "manual_override",
         }
-      : {
-          monto: 0,
-          esReal: false,
-          metodoCalculo: "pendiente_ingreso_manual",
-        };
+      : inputs.senceFallbackProyectado > 0
+        ? {
+            monto: inputs.senceFallbackProyectado,
+            esReal: false,
+            metodoCalculo: "proyeccion_pago_anual",
+          }
+        : {
+            monto: 0,
+            esReal: false,
+            metodoCalculo: "pendiente_ingreso_manual",
+          };
 
   const totalNomina =
     anticipo.monto +

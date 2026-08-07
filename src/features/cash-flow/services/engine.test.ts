@@ -7,6 +7,7 @@ const BASE: CashFlowInputs = {
   finiquitoReal: null,
   anticipoReal: null,
   senceManual: null,
+  senceFallbackProyectado: 0,
   costoPromedioPorCabezaMesAnterior: null,
   dotacionActual: null,
   remuneracionFallbackPromedioHistorico: 0,
@@ -139,6 +140,30 @@ describe("calcularMesCashFlow", () => {
     });
 
     expect(result.sence.monto).toBe(42_000_000);
+    expect(result.sence.esReal).toBe(true);
+    expect(result.sence.metodoCalculo).toBe("manual_override");
+  });
+
+  it("SENCE sin manual pero con proyección anual (ej. junio) usa esa, sigue sin ser real", () => {
+    const result = calcularMesCashFlow({
+      ...BASE,
+      remuneracionReal: 100_000_000,
+      senceFallbackProyectado: 20_000_000,
+    });
+
+    expect(result.sence.monto).toBe(20_000_000);
+    expect(result.sence.esReal).toBe(false);
+    expect(result.sence.metodoCalculo).toBe("proyeccion_pago_anual");
+  });
+
+  it("el override manual tiene prioridad sobre la proyección anual", () => {
+    const result = calcularMesCashFlow({
+      ...BASE,
+      remuneracionReal: 100_000_000,
+      senceManual: 20_000_000,
+      senceFallbackProyectado: 20_000_000,
+    });
+
     expect(result.sence.esReal).toBe(true);
     expect(result.sence.metodoCalculo).toBe("manual_override");
   });

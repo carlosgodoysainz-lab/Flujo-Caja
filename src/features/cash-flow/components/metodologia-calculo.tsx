@@ -40,9 +40,10 @@ const CONCEPTOS_METODOLOGIA = [
   {
     concepto: "Aporte SENCE",
     fuenteReal:
-      "SIEMPRE manual — es específico de cada período, no tiene fórmula ni fuente automatizada. Se ingresa directamente en la celda de la tabla de detalle (click para editar).",
-    formula: null,
-    color: "var(--err)",
+      "SIEMPRE manual — es específico de cada período, no tiene fórmula automática. Se ingresa directamente en la celda de la tabla de detalle (click para editar); ese valor manual siempre tiene prioridad.",
+    formula:
+      "Si no hay dato real: pago anual proyectado en $20.000.000 el mes esperado (junio todos los años; 2026 es la excepción, se pagó en agosto). 0 en el resto de los meses.",
+    color: "var(--warn)",
   },
   {
     concepto: "Total Nómina",
@@ -73,8 +74,10 @@ export function MetodologiaCalculo() {
           <strong className="text-[var(--ok)]">real</strong> cuando existe un
           archivo ingerido para ese mes desde SharePoint; si no existe (mes
           futuro o fuente pendiente), se completa con la fórmula
-          correspondiente. El Aporte SENCE es la única excepción: nunca tiene
-          fórmula, siempre se ingresa a mano.
+          correspondiente. El Aporte SENCE es la única excepción: nunca se
+          calcula desde un archivo real, siempre se ingresa a mano — la
+          "fórmula" que se ve para él es solo un recordatorio de que se paga una
+          vez al año.
         </p>
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left">

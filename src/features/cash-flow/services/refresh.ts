@@ -20,6 +20,23 @@ import { runForecastModel } from "@/features/headcount/forecast-model/run";
  */
 const METODOS_PRESERVADOS = ["manual_override", "ingesta_excel_historico"];
 
+/**
+ * Aporte SENCE es un pago ANUAL — pedido explícito del usuario: "todos
+ * los años en junio, pero solo por este año [2026] se realizará en
+ * agosto, y son $20.000.000". Se usa SOLO como respaldo cuando no hay
+ * `senceManual` cargado — nunca reemplaza el monto real cuando se sepa
+ * exacto (ver engine.ts).
+ */
+const SENCE_MONTO_ANUAL = 20_000_000;
+function senceMesEsperado(anio: number): number {
+  return anio === 2026 ? 7 : 5; // 2026: agosto (excepción); resto: junio
+}
+function senceFallbackProyectado(mes: Date): number {
+  return mes.getMonth() === senceMesEsperado(mes.getFullYear())
+    ? SENCE_MONTO_ANUAL
+    : 0;
+}
+
 export interface RefreshReportResult {
   reportSnapshotId: string | null;
   estado: "ok" | "parcial" | "error";
@@ -362,6 +379,7 @@ export async function refreshCashFlowReport(
       finiquitoReal,
       anticipoReal,
       senceManual,
+      senceFallbackProyectado: senceFallbackProyectado(mes),
       costoPromedioPorCabezaMesAnterior,
       dotacionActual,
       remuneracionFallbackPromedioHistorico,
