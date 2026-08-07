@@ -23,8 +23,14 @@ const GRID = "rgba(255,255,255,0.12)";
 const EJE_TEXTO = "rgba(255,255,255,0.55)";
 
 const WIDTH = 900;
-const HEIGHT = 220;
-const PADDING = { top: 16, right: 16, bottom: 28, left: 64 };
+// Más "delgado" (proporción más ancha que alta) — al ensanchar el
+// contenedor del gráfico (pedido explícito: "más amplia hacia los
+// lados"), el viewBox escala manteniendo proporción, así que con
+// HEIGHT=220 el gráfico también crecía en alto y quedaba cortado en la
+// primera vista de la página (bug real reportado). 130 en vez de 220
+// mantiene el ancho ganado sin la altura extra.
+const HEIGHT = 130;
+const PADDING = { top: 12, right: 16, bottom: 24, left: 64 };
 
 function formatCLPCompacto(monto: number): string {
   if (Math.abs(monto) >= 1_000_000_000)
@@ -32,6 +38,36 @@ function formatCLPCompacto(monto: number): string {
   if (Math.abs(monto) >= 1_000_000)
     return `$${(monto / 1_000_000).toFixed(0)}M`;
   return `$${new Intl.NumberFormat("es-CL").format(monto)}`;
+}
+
+/**
+ * Path SVG suavizado (spline tipo Catmull-Rom convertida a curvas
+ * Bézier cúbicas, tensión 1/6 — la aproximación estándar para gráficos
+ * de líneas) para el sub-rango [desde, hasta] de `pts`, usando los
+ * puntos VECINOS de la serie COMPLETA (no solo el sub-rango) como
+ * control — así el corte real/proyectado se ve continuo en la curva, no
+ * un quiebre en la tangente justo en "Hoy".
+ */
+function pathSuavizado(
+  pts: { x: number; y: number }[],
+  desde: number,
+  hasta: number,
+): string {
+  if (hasta <= desde) return "";
+  const en = (i: number) => pts[Math.max(0, Math.min(pts.length - 1, i))];
+  let path = `M ${en(desde).x} ${en(desde).y}`;
+  for (let i = desde; i < hasta; i++) {
+    const p0 = en(i - 1);
+    const p1 = en(i);
+    const p2 = en(i + 1);
+    const p3 = en(i + 2);
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+  }
+  return path;
 }
 
 function formatMesCorto(periodo: string): string {
@@ -79,17 +115,10 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
   const idxCorte = puntos.findIndex((p) => !p.esReal);
   const corte = idxCorte === -1 ? puntos.length - 1 : idxCorte;
 
-  const lineaCompleta = puntos
-    .map((p, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(p.monto)}`)
-    .join(" ");
-  const lineaReal = puntos
-    .slice(0, corte + 1)
-    .map((p, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(p.monto)}`)
-    .join(" ");
-  const lineaProyectada = puntos
-    .slice(corte)
-    .map((p, i) => `${i === 0 ? "M" : "L"} ${x(i + corte)} ${y(p.monto)}`)
-    .join(" ");
+  const xy = puntos.map((p, i) => ({ x: x(i), y: y(p.monto) }));
+  const lineaCompleta = pathSuavizado(xy, 0, xy.length - 1);
+  const lineaReal = pathSuavizado(xy, 0, corte);
+  const lineaProyectada = pathSuavizado(xy, corte, xy.length - 1);
 
   const areaPath = `${lineaCompleta} L ${x(puntos.length - 1)} ${y(0)} L ${x(0)} ${y(0)} Z`;
 
@@ -141,7 +170,7 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
               y={y(valor)}
               textAnchor="end"
               dominantBaseline="middle"
-              fontSize={10}
+              fontSize={8}
               fill={EJE_TEXTO}
             >
               {formatCLPCompacto(valor)}
@@ -209,7 +238,7 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
                 x={x(i)}
                 y={HEIGHT - 8}
                 textAnchor="middle"
-                fontSize={10}
+                fontSize={8}
                 fill={EJE_TEXTO}
               >
                 {formatMesCorto(p.periodo)}

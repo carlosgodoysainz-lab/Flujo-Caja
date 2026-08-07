@@ -1,5 +1,6 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/service";
+import { getDotacionTotalPorPeriodo } from "@/features/headcount/services/dotacion-total";
 
 export interface CashFlowSeriePunto {
   periodo: string;
@@ -58,6 +59,9 @@ export interface ResumenKpis {
   mesPico: { periodo: string; monto: number } | null;
   obrasConEstimacion: number;
   mesesProyectadosEnRango: number;
+  /** Dotación TOTAL de la compañía del mes actual (no solo por obra) — ver dotacion-total.ts. `null` si no hay dato para ese mes todavía. */
+  dotacionMesActual: number | null;
+  dotacionMesActualEsReal: boolean;
 }
 
 function primerDiaMesActual(): string {
@@ -122,10 +126,26 @@ export async function getResumenKpis(
     (esReal) => !esReal,
   ).length;
 
-  const { count: obrasConEstimacion } = await supabase
+  // BUG REAL corregido: esto contaba FILAS (una por obra POR MES — un
+  // rango de 24 meses en 12 obras estimadas ya son 250+ filas), no obras
+  // DISTINTAS — el KPI mostraba "254 obras con dotación estimada" cuando
+  // en total la empresa tiene 33 obras. Contar `obra_id` único, no filas.
+  const { data: filasEstimadas } = await supabase
     .from("headcount_by_obra")
-    .select("obra_id", { count: "exact", head: true })
+    .select("obra_id")
     .eq("origen", "modelo_estimado");
+  const obrasConEstimacion = new Set(
+    (filasEstimadas ?? []).map((f) => f.obra_id),
+  ).size;
+
+  // Dotación TOTAL de la compañía (no solo la de obras estimadas) — la
+  // misma fuente que alimenta la fila "Dotación (N°)" de la tabla de
+  // detalle, para el mes calendario actual puntual.
+  const dotacionPorPeriodo = await getDotacionTotalPorPeriodo(
+    new Date(mesActualStr),
+    new Date(mesActualStr),
+  );
+  const dotacionActual = dotacionPorPeriodo.get(mesActualStr) ?? null;
 
   return {
     totalMesActual,
@@ -134,7 +154,9 @@ export async function getResumenKpis(
     totalProximosTresMeses,
     totalProximosDoceMeses,
     mesPico,
-    obrasConEstimacion: obrasConEstimacion ?? 0,
+    obrasConEstimacion,
     mesesProyectadosEnRango,
+    dotacionMesActual: dotacionActual?.total ?? null,
+    dotacionMesActualEsReal: dotacionActual?.esReal ?? false,
   };
 }

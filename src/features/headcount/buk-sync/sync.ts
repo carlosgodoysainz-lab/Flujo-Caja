@@ -16,9 +16,21 @@ export interface BukSnapshotResult {
 /**
  * Corre el snapshot mensual de dotación. A diferencia del sync de
  * panel-relaciones-laborales (que hace UPSERT destructivo del estado
- * actual), este hace SIEMPRE INSERT de una fila nueva por
+ * actual), este hace SIEMPRE INSERT de filas nuevas por
  * (snapshot_date, cargo, area) — para preservar histórico real (ver
- * TECH-SPEC §2.2, decisión explícita del usuario).
+ * TECH-SPEC §2.2, decisión explícita del usuario). Eso es "insert-only"
+ * ENTRE meses distintos — nunca debe significar "insert sin límite" si
+ * este mismo snapshot se corre 2 veces el MISMO día.
+ *
+ * BUG REAL corregido: el `UNIQUE (snapshot_date, obra_id, cargo_id)` de
+ * la tabla no protege nada cuando `obra_id` es NULL (oficinas centrales,
+ * gerencias — normal, muchas áreas de Buk no mapean a ninguna obra):
+ * Postgres nunca considera dos NULL "iguales" para un constraint UNIQUE,
+ * así que corrió 2 veces el mismo día y cada área sin obra quedó
+ * duplicada — "Dotación total" salía ~2x lo real (1.646 en vez de ~800).
+ * Fix: borrar cualquier snapshot YA guardado para esa misma fecha antes
+ * de insertar el nuevo — corridas repetidas el mismo día se REEMPLAZAN,
+ * nunca se acumulan; el histórico de fechas PASADAS queda intacto.
  */
 export async function runBukSnapshot(
   fechaSnapshot: Date = new Date(),
@@ -71,7 +83,19 @@ export async function runBukSnapshot(
       if (match) obraIdPorAreaId.set(areaId, match.id);
     }
 
-    // 3. Snapshots — SIEMPRE insert, nunca upsert.
+    // 3. Snapshots — insert-only ENTRE fechas distintas, pero si esta
+    // MISMA fecha ya tiene snapshot (re-corrida el mismo día), se
+    // reemplaza completo primero — ver nota arriba sobre por qué (el
+    // UNIQUE constraint no protege combinaciones con obra_id NULL).
+    const { error: deleteError } = await supabase
+      .from("buk_dotacion_snapshots")
+      .delete()
+      .eq("snapshot_date", snapshotDate);
+    if (deleteError)
+      errores.push(
+        `No se pudo limpiar el snapshot anterior de ${snapshotDate}: ${deleteError.message}`,
+      );
+
     const filas = grupos.map((g) => ({
       snapshot_date: snapshotDate,
       cargo_id: idPorNombre.get(g.cargo) ?? null,

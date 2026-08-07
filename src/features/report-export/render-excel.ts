@@ -105,7 +105,14 @@ export async function renderReportExcel(params: {
     "Variación vs. mes anterior (%)",
     kpis.variacionPct != null ? Number(kpis.variacionPct.toFixed(1)) : "—",
   ]);
-  resumen.addRow(["Obras con dotación estimada", kpis.obrasConEstimacion]);
+  resumen.addRow([
+    "Dotación total (mes actual)",
+    kpis.dotacionMesActual ?? "—",
+  ]);
+  resumen.addRow([
+    "Obras con dotación estimada por el modelo",
+    kpis.obrasConEstimacion,
+  ]);
   resumen.addRow([
     "Meses proyectados en el rango",
     kpis.mesesProyectadosEnRango,

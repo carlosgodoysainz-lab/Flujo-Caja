@@ -98,8 +98,17 @@ export function HeroConsolidado({
             }
           />
           <KpiTile
-            label="Obras con dotación estimada"
-            valor={String(kpis.obrasConEstimacion)}
+            label="Dotación total (mes actual)"
+            valor={
+              kpis.dotacionMesActual != null
+                ? new Intl.NumberFormat("es-CL").format(kpis.dotacionMesActual)
+                : "—"
+            }
+            colorClass={
+              kpis.dotacionMesActual != null && !kpis.dotacionMesActualEsReal
+                ? "text-white/60"
+                : undefined
+            }
           />
         </div>
 
@@ -117,8 +126,15 @@ export function HeroConsolidado({
             proyección, no dato real todavía.
           </p>
         )}
+      </div>
 
-        <div className="mt-5 rounded-md bg-white/5 p-3">
+      {/* El gráfico va en SU PROPIO contenedor, más ancho que el resto del
+          hero (max-w-6xl arriba) — pedido explícito del usuario ("más
+          amplia hacia los lados"), y coherente con "Escala de Obras" de
+          referencia, que también ocupa mucho más ancho que el resto de su
+          dashboard. */}
+      <div className="mx-auto max-w-[1600px] px-4 pb-6">
+        <div className="rounded-md bg-white/5 p-3">
           <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/50">
             Total Nómina mensual — real y proyectado
           </p>

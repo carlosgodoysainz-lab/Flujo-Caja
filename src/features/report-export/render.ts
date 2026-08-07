@@ -206,7 +206,7 @@ export function renderReportHtml(params: {
     <div class="kpi"><div class="label">Próximos 3 meses</div><div class="valor">${formatCLP(kpis.totalProximosTresMeses)}</div></div>
     <div class="kpi"><div class="label">Próximos 12 meses</div><div class="valor">${formatCLP(kpis.totalProximosDoceMeses)}</div></div>
     <div class="kpi"><div class="label">Variación vs. mes anterior</div><div class="valor">${escapeHtml(variacionTexto)}</div></div>
-    <div class="kpi"><div class="label">Obras con dotación estimada</div><div class="valor">${kpis.obrasConEstimacion}</div></div>
+    <div class="kpi"><div class="label">Dotación total (mes actual)</div><div class="valor">${kpis.dotacionMesActual != null ? new Intl.NumberFormat("es-CL").format(kpis.dotacionMesActual) : "—"}</div></div>
   </div>
   ${
     kpis.mesPico

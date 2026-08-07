@@ -11,6 +11,8 @@ const KPIS: ResumenKpis = {
   mesPico: { periodo: "2026-12-01", monto: 150_000_000 },
   obrasConEstimacion: 3,
   mesesProyectadosEnRango: 5,
+  dotacionMesActual: 850,
+  dotacionMesActualEsReal: true,
 };
 
 describe("renderReportHtml", () => {
