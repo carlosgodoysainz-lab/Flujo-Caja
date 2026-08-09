@@ -4,6 +4,7 @@ import type {
   ResumenKpis,
 } from "@/features/cash-flow/services/queries";
 import type { DotacionTotalPunto } from "@/features/headcount/services/dotacion-total";
+import type { PlanObraDotacionFila } from "@/features/headcount/services/plan-obra-dotacion";
 
 // Cada fila principal puede traer sub-filas RG/RP (aperturadas — mismo
 // desglose que el Excel real, pedido explícito del usuario) indentadas
@@ -63,6 +64,8 @@ export async function renderReportExcel(params: {
   ufPorPeriodo: Map<string, number>;
   /** Dotación total (N°) por período — ver dotacion-total.ts. Fila "Dotación" solo aparece si hay dato. */
   dotacionPorPeriodo?: Map<string, DotacionTotalPunto>;
+  /** Plan de obra (Gespro) + dotación real (Buk) + flujo estimado por obra — ver plan-obra-dotacion.ts. Hoja "Plan de Obra" solo aparece si hay filas. */
+  planObraDotacion?: PlanObraDotacionFila[];
   periodoDesde: string;
   periodoHasta: string;
   generadoEn: Date;
@@ -72,6 +75,7 @@ export async function renderReportExcel(params: {
     kpis,
     ufPorPeriodo,
     dotacionPorPeriodo,
+    planObraDotacion,
     periodoDesde,
     periodoHasta,
     generadoEn,
@@ -217,6 +221,71 @@ export async function renderReportExcel(params: {
     color: { argb: "FF94A3B8" },
   };
   void legend;
+
+  // --- Hoja "Plan de Obra" — plan de obra (Gespro) + dotación real (Buk)
+  // + flujo de dotación estimada (altas−bajas del modelo de curva por
+  // obra similar) — pedido explícito del usuario. Formato "tidy" (1 fila
+  // por obra/mes) para poder filtrar/pivotear directo en Excel.
+  const ORIGEN_LABEL: Record<string, string> = {
+    manual: "Manual",
+    buk_real: "Buk (real)",
+    modelo_estimado: "Estimado (modelo)",
+  };
+  if (planObraDotacion && planObraDotacion.length > 0) {
+    const planObra = workbook.addWorksheet("Plan de Obra");
+    const headerPlanObra = planObra.addRow([
+      "Obra",
+      "Comuna",
+      "Tipo",
+      "Cliente",
+      "Unidades",
+      "Inicio Obra",
+      "Fin Obra",
+      "Duración (meses)",
+      "Período",
+      "Dotación Real (Buk)",
+      "Variación Neta (Altas−Bajas)",
+      "Origen Variación",
+    ]);
+    headerPlanObra.eachCell((cell) => {
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      cell.fill = FILL_HEADER;
+    });
+
+    for (const fila of planObraDotacion) {
+      const row = planObra.addRow([
+        fila.obraNombre,
+        fila.comuna ?? "",
+        fila.tipo ?? "",
+        fila.cliente ?? "",
+        fila.unidades ?? "",
+        fila.inicioObra ?? "",
+        fila.finObra ?? "",
+        fila.durObraMeses ?? "",
+        fila.periodo.slice(0, 7),
+        fila.dotacionReal ?? "",
+        fila.variacionNeta ?? "",
+        fila.origenVariacion ? ORIGEN_LABEL[fila.origenVariacion] : "Sin dato",
+      ]);
+      if (fila.origenVariacion === "modelo_estimado") {
+        row.getCell(11).fill = FILL_PROYECTADO;
+        row.getCell(12).fill = FILL_PROYECTADO;
+      }
+    }
+
+    planObra.getColumn(1).width = 28;
+    planObra.getColumn(2).width = 16;
+    planObra.getColumn(3).width = 10;
+    planObra.getColumn(4).width = 12;
+    planObra.getColumn(9).width = 10;
+    planObra.getColumn(12).width = 18;
+
+    const notaPlanObra = planObra.addRow([]);
+    planObra.addRow([
+      "Amarillo = dotación estimada por el modelo (curva de obras similares), no dato real de Buk.",
+    ]).font = { italic: true, size: 9, color: { argb: "FF94A3B8" } };
+    void notaPlanObra;
+  }
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);

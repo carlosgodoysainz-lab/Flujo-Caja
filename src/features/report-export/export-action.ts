@@ -8,6 +8,7 @@ import {
   getUfPorPeriodo,
 } from "@/features/cash-flow/services/queries";
 import { getDotacionTotalPorPeriodo } from "@/features/headcount/services/dotacion-total";
+import { getPlanObraConDotacion } from "@/features/headcount/services/plan-obra-dotacion";
 import { renderReportHtml } from "./render";
 import { renderReportExcel } from "./render-excel";
 
@@ -51,6 +52,12 @@ export async function exportReportAsHtml(
       periodoDesde,
       periodoHasta,
     );
+    // Solo para la hoja "Plan de Obra" del Excel — pedido explícito del
+    // usuario, no aplica al HTML.
+    const planObraDotacion = await getPlanObraConDotacion(
+      periodoDesde,
+      periodoHasta,
+    );
 
     const generadoEn = new Date();
     const paramsComunes = {
@@ -64,7 +71,10 @@ export async function exportReportAsHtml(
     };
 
     const html = renderReportHtml(paramsComunes);
-    const excelBuffer = await renderReportExcel(paramsComunes);
+    const excelBuffer = await renderReportExcel({
+      ...paramsComunes,
+      planObraDotacion,
+    });
 
     const fechaSlug = generadoEn.toISOString().slice(0, 10);
     const nombreArchivoHtml = `flujo-caja-nomina-${fechaSlug}.html`;
