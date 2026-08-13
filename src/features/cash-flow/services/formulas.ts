@@ -12,7 +12,8 @@
  *   Remuneración     | (prevMonto/prevHC)×HC | Igual — modelo costo-por-cabeza × dotación (ver dotacion-total.ts)
  *   Finiquito        | 7% × Remuneración    | Promedio de los ÚLTIMOS 6 MESES REALES (decisión explícita del usuario)
  *   Reliquidación    | 1% × Remuneración    | Igual (el usuario confirmó mantener la fórmula del Excel)
- *   Cotización       | 30% × (Rem+Reliq+Ant)| Igual, confirmado
+ *   Cotización       | 30% × (Rem+Reliq+Ant)| 30% × (Rem+Reliq+Ant+Beneficios) — el usuario pidió explícitamente
+ *                                              incluir Beneficios/Bonos (ver beneficios.ts) en la base, 13-ago-2026
  *   Aporte SENCE     | siempre manual       | Igual — NUNCA fórmula, ver override.ts
  *
  * IMPORTANTE: estas son fórmulas de RESPALDO — se usan solo cuando no hay
@@ -40,17 +41,24 @@ export function calcularReliquidacionProyectada(remuneracion: number): number {
 }
 
 /**
- * Cotizaciones ≈ 30% × (Anticipo + Remuneración + Reliquidación) del mismo
- * mes. Siempre fórmula — no hay fuente real automatizada para este
- * concepto (es un porcentaje legal relativamente estable, no requiere
- * ingesta de archivo).
+ * Cotizaciones ≈ 30% × (Anticipo + Remuneración + Reliquidación +
+ * Beneficios) del mismo mes. Siempre fórmula — no hay fuente real
+ * automatizada para este concepto (es un porcentaje legal relativamente
+ * estable, no requiere ingesta de archivo).
+ *
+ * `beneficios` se agregó el 13-ago-2026 — decisión de negocio explícita
+ * del usuario (algunos aguinaldos/bonos del Convenio Lira Parque y del
+ * Anexo Oficina Central sí son imponibles), no un bug. Ver beneficios.ts.
  */
 export function calcularCotizacion(
   anticipo: number,
   remuneracion: number,
   reliquidacion: number,
+  beneficios: number,
 ): number {
-  return round((anticipo + remuneracion + reliquidacion) * COTIZACION_PCT);
+  return round(
+    (anticipo + remuneracion + reliquidacion + beneficios) * COTIZACION_PCT,
+  );
 }
 
 /**

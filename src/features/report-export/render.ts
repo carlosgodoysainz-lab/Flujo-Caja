@@ -7,43 +7,13 @@ import type {
 } from "@/features/cash-flow/services/queries";
 import type { DotacionTotalPunto } from "@/features/headcount/services/dotacion-total";
 import { pathSuavizado } from "../cash-flow/lib/smooth-path";
+import { FILAS_DETALLE as FILAS } from "../cash-flow/lib/filas-detalle";
 
 const MAESTRA_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 275 50" height="24">
   <path fill="#db0a5b" d="M30.87,48.94,24,42.06a2.64,2.64,0,0,1,0-3.73L44.83,17.48a2.64,2.64,0,0,1,3.73,0l6.88,6.88a2.67,2.67,0,0,1,0,3.74L34.61,48.94a2.65,2.65,0,0,1-3.74,0"/>
   <path fill="#ffcd00" d="M16.94,35l-6.87-6.88a2.64,2.64,0,0,1,0-3.73l6.87-6.88a2.65,2.65,0,0,1,3.74,0l6.87,6.88a2.64,2.64,0,0,1,0,3.73L20.68,35a2.65,2.65,0,0,1-3.74,0"/>
   <path fill="#ffffff" d="M51.53,3.86l-2.8-2.79a2.8,2.8,0,0,0-3.86,0L34.61,11.18a2.63,2.63,0,0,1-3.76.06L23.48,3.86h0L20.68,1.07a2.65,2.65,0,0,0-3.74,0L0,18l2.94,2.94A2.66,2.66,0,0,0,6.69,21L16.94,10.76a2.65,2.65,0,0,1,3.74,0l2.77,2.79h0L30.85,21a2.64,2.64,0,0,0,3.32.32,2.61,2.61,0,0,0,.44-.38L44.87,10.76a2.8,2.8,0,0,1,3.86,0L58.88,20.93a2.63,2.63,0,0,0,3.72,0l3-3Z"/>
 </svg>`;
-
-// Cada fila principal puede traer sub-filas RG/RP (aperturadas — mismo
-// desglose que el Excel real, pedido explícito del usuario) indentadas
-// justo debajo, de menor jerarquía visual.
-const FILAS: {
-  concepto: string;
-  label: string;
-  sub?: { concepto: string; label: string }[];
-}[] = [
-  {
-    concepto: "anticipo",
-    label: "Anticipo",
-    sub: [
-      { concepto: "anticipo_rg", label: "RG" },
-      { concepto: "anticipo_rp", label: "RP" },
-    ],
-  },
-  {
-    concepto: "remuneracion",
-    label: "Remuneración",
-    sub: [
-      { concepto: "remuneracion_rg", label: "RG" },
-      { concepto: "remuneracion_rp", label: "RP" },
-    ],
-  },
-  { concepto: "finiquito", label: "Finiquito" },
-  { concepto: "reliquidacion", label: "Reliquidación" },
-  { concepto: "cotizacion", label: "Cotización" },
-  { concepto: "sence", label: "Aporte SENCE" },
-  { concepto: "total_nomina", label: "Total Nómina" },
-];
 
 function formatCLP(monto: number): string {
   return new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(
@@ -143,7 +113,7 @@ function renderChartSvg(serie: CashFlowSeriePunto[]): string {
       : "";
 
   return `
-  <div style="background:#0a1f3c;border-radius:8px;padding:14px;margin-top:20px;">
+  <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:14px;">
     <p style="margin:0 0 8px;font-size:11px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:rgba(255,255,255,0.5);">Total Nómina mensual — real y proyectado</p>
     <svg viewBox="0 0 ${WIDTH} ${HEIGHT}" style="width:100%;height:auto;display:block;" role="img" aria-label="Gráfico de área: Total Nómina mensual requerido, real y proyectado">
       ${gridlines}
@@ -263,6 +233,17 @@ export function renderReportHtml(params: {
       ? "—"
       : `${kpis.variacionPct >= 0 ? "▲" : "▼"} ${Math.abs(kpis.variacionPct).toFixed(1)}%`;
 
+  const variacionClase =
+    kpis.variacionPct === null
+      ? "muted"
+      : kpis.variacionPct >= 0
+        ? "err"
+        : "ok";
+  const dotacionClase =
+    kpis.dotacionMesActual != null && !kpis.dotacionMesActualEsReal
+      ? "muted"
+      : "";
+
   return `<!doctype html>
 <html lang="es">
 <head>
@@ -278,16 +259,32 @@ export function renderReportHtml(params: {
     margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     color: #1e293b; background: #fff;
   }
-  nav {
+  /* Hero — mismo patrón visual que hero-consolidado.tsx en /reporte: fondo
+     navy full-bleed a lo ancho de la página, contenido acotado y centrado
+     por dentro (pedido explícito del usuario: "igual al formato que se ve
+     en la página /reporte"). */
+  .hero { background: var(--navy); color: #fff; padding-bottom: 24px; }
+  .hero-topbar {
     display: flex; align-items: center; justify-content: space-between;
-    background: var(--navy); color: #fff; padding: 12px 24px;
+    max-width: 1000px; margin: 0 auto; padding: 16px 24px 0;
   }
-  nav .fecha { font-size: 13px; opacity: 0.8; }
+  .hero-topbar .fecha { font-size: 12px; color: rgba(255,255,255,0.6); }
+  .hero-content { max-width: 1000px; margin: 0 auto; padding: 12px 24px 0; }
+  .hero h1 { font-size: 22px; font-weight: 600; margin: 8px 0 4px; }
+  .hero h1 .accent { color: var(--gold); }
+  .hero .subtitle { font-size: 13px; color: rgba(255,255,255,0.7); max-width: 640px; margin: 4px 0 0; }
+  .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top: 18px; }
+  .kpi { border-radius: 8px; padding: 12px; }
+  .kpi.destacado { background: rgba(255,255,255,0.1); }
+  .kpi .label { font-size: 11px; color: rgba(255,255,255,0.6); }
+  .kpi .valor { font-size: 17px; font-weight: 600; margin-top: 3px; color: var(--gold); }
+  .kpi .valor.ok { color: var(--ok); }
+  .kpi .valor.err { color: var(--err); }
+  .kpi .valor.muted { color: rgba(255,255,255,0.6); }
+  .mes-pico { font-size: 12px; color: rgba(255,255,255,0.6); margin: 10px 0 0; }
+  .mes-pico strong { color: #fff; }
+  .chart-outer { max-width: 1400px; margin: 16px auto 0; padding: 0 16px 20px; }
   main { max-width: 1000px; margin: 0 auto; padding: 24px; }
-  .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 8px; }
-  .kpi { border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; }
-  .kpi .label { font-size: 12px; color: #64748b; }
-  .kpi .valor { font-size: 20px; font-weight: 600; margin-top: 4px; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 16px; }
   th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid #eef2f6; }
   th:first-child, td:first-child { text-align: left; }
@@ -305,32 +302,40 @@ export function renderReportHtml(params: {
 </style>
 </head>
 <body>
-<nav>
-  ${MAESTRA_LOGO_SVG}
-  <span class="fecha">Generado: ${generadoEn.toLocaleString("es-CL")} · Período ${periodoDesde} a ${periodoHasta}</span>
-</nav>
-<main>
-  <h1>Flujo de Caja Nómina</h1>
-  <div class="kpis">
-    <div class="kpi"><div class="label">Este mes</div><div class="valor">${formatCLP(kpis.totalMesActual)}</div></div>
-    <div class="kpi"><div class="label">Próximos 3 meses</div><div class="valor">${formatCLP(kpis.totalProximosTresMeses)}</div></div>
-    <div class="kpi"><div class="label">Próximos 12 meses</div><div class="valor">${formatCLP(kpis.totalProximosDoceMeses)}</div></div>
-    <div class="kpi"><div class="label">Variación vs. mes anterior</div><div class="valor">${escapeHtml(variacionTexto)}</div></div>
-    <div class="kpi"><div class="label">Dotación total (mes actual)</div><div class="valor">${kpis.dotacionMesActual != null ? new Intl.NumberFormat("es-CL").format(kpis.dotacionMesActual) : "—"}</div></div>
+<section class="hero">
+  <div class="hero-topbar">
+    ${MAESTRA_LOGO_SVG}
+    <span class="fecha">Generado: ${generadoEn.toLocaleString("es-CL")} · Período ${periodoDesde} a ${periodoHasta}</span>
   </div>
-  ${
-    kpis.mesPico
-      ? `<p style="font-size:12px;color:#64748b;margin:8px 0 16px;">📈 Mes de mayor requerimiento proyectado: <strong>${kpis.mesPico.periodo.slice(0, 7)}</strong> (${formatCLP(kpis.mesPico.monto)}) — ${kpis.mesesProyectadosEnRango} meses del rango son proyección.</p>`
-      : ""
-  }
+  <div class="hero-content">
+    <h1>Flujo de Caja Nómina: <span class="accent">efectivo requerido</span> por mes</h1>
+    <p class="subtitle">Proyección de anticipos, remuneraciones, finiquitos, reliquidaciones, beneficios, cotizaciones y SENCE — real hasta el mes actual, proyectado desde ahí.</p>
 
+    <div class="kpis">
+      <div class="kpi"><div class="label">Este mes</div><div class="valor">${formatCLP(kpis.totalMesActual)}</div></div>
+      <div class="kpi destacado"><div class="label">Próximos 3 meses</div><div class="valor">${formatCLP(kpis.totalProximosTresMeses)}</div></div>
+      <div class="kpi"><div class="label">Próximos 12 meses</div><div class="valor">${formatCLP(kpis.totalProximosDoceMeses)}</div></div>
+      <div class="kpi"><div class="label">Variación vs. mes anterior</div><div class="valor ${variacionClase}">${escapeHtml(variacionTexto)}</div></div>
+      <div class="kpi"><div class="label">Dotación total (mes actual)</div><div class="valor ${dotacionClase}">${kpis.dotacionMesActual != null ? new Intl.NumberFormat("es-CL").format(kpis.dotacionMesActual) : "—"}</div></div>
+    </div>
+
+    ${
+      kpis.mesPico
+        ? `<p class="mes-pico">📈 El mes de mayor requerimiento proyectado es <strong>${kpis.mesPico.periodo.slice(0, 7)}</strong> con <strong>${formatCLP(kpis.mesPico.monto)}</strong> — ${kpis.mesesProyectadosEnRango} de los meses en el rango son proyección, no dato real todavía.</p>`
+        : ""
+    }
+  </div>
+
+  <div class="chart-outer">
+    ${renderChartSvg(serie)}
+  </div>
+</section>
+<main>
   <table>
     <thead><tr><th>Concepto</th>${encabezadosPeriodo}</tr></thead>
-    <tbody>${filaDotacion}${filasTabla}</tbody>
+    <tbody>${filaDotacion}${filasTabla}${filaUf}</tbody>
   </table>
   <p style="font-size:11px;color:#94a3b8;margin-top:8px;"><i>Cursiva</i> = proyectado, no dato real ingerido.</p>
-
-  ${renderChartSvg(serie)}
 </main>
 <footer><span class="badge">Uso interno — Grupo Maestra</span></footer>
 <script type="application/json" id="cash-flow-data">${JSON.stringify({ serie, kpis, periodoDesde, periodoHasta })}</script>

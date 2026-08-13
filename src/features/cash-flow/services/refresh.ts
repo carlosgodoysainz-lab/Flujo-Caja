@@ -8,8 +8,12 @@ import { syncUfSeries } from "./uf-sync";
 import { syncFlujoCajaHistorico } from "./sync-flujo-caja-historico";
 import { calcularMesCashFlow, type CashFlowConceptoCalculado } from "./engine";
 import { ANTICIPO_PCT } from "./formulas";
-import { getDotacionTotalPorPeriodo } from "@/features/headcount/services/dotacion-total";
+import {
+  getDotacionTotalPorPeriodo,
+  type DotacionTotalPunto,
+} from "@/features/headcount/services/dotacion-total";
 import { runForecastModel } from "@/features/headcount/forecast-model/run";
+import { calcularBeneficiosDelMes, eventosPromedio6Meses } from "./beneficios";
 
 /**
  * Métodos de cálculo que NUNCA se pisan en un refresh — ya sea porque un
@@ -53,6 +57,7 @@ const CONCEPTOS_CALCULADOS = [
   "finiquito",
   "cotizacion",
   "sence",
+  "beneficios",
 ] as const;
 
 function mesAnteriorA(mes: Date): Date {
@@ -167,6 +172,79 @@ async function proporcionRgHistorica(
     sumaTotal += total;
   }
   return sumaTotal > 0 ? sumaRg / sumaTotal : null;
+}
+
+/**
+ * Dotación RG/RP del mes — reutiliza EXACTAMENTE la dimensión que ya
+ * existe para Anticipo/Remuneración (pedido explícito del usuario: "las
+ * personas sindicalizadas son solo de la constructora [Rol General], el
+ * resto se rige por el anexo"), en vez de construir una dimensión nueva
+ * de "sindicalizado". Real desde `dotacion_mensual` (columnas rg/rp del
+ * Excel histórico, ver flujo-caja-historico-parser.ts) cuando el mes ya
+ * está cerrado; si no, se deriva de la dotación TOTAL ya calculada
+ * (`getDotacionTotalPorPeriodo`) aplicando la misma razón RG/(RG+RP) que
+ * `proporcionRgHistorica` ya usa para aperturar Remuneración proyectada.
+ */
+async function dotacionRgRpDelMes(
+  supabase: ReturnType<typeof createServiceClient>,
+  mes: Date,
+  dotacionPorPeriodo: Map<string, DotacionTotalPunto>,
+): Promise<{ rg: number; rp: number }> {
+  const periodoStr = mes.toISOString().slice(0, 10);
+  const { data } = await supabase
+    .from("dotacion_mensual")
+    .select("rg, rp")
+    .eq("periodo", periodoStr)
+    .maybeSingle();
+  if (data?.rg != null && data?.rp != null) {
+    return { rg: data.rg, rp: data.rp };
+  }
+
+  const total = dotacionPorPeriodo.get(periodoStr)?.total ?? 0;
+  if (total === 0) return { rg: 0, rp: 0 };
+  const proporcionRg = await proporcionRgHistorica(supabase, mes);
+  if (proporcionRg == null) return { rg: 0, rp: 0 };
+  const rg = Math.round(total * proporcionRg);
+  return { rg, rp: total - rg };
+}
+
+/** Valor real ya cargado en `beneficios_line_items` para el mes — key `tipoEvento::poblacion`, ver beneficios.ts. */
+async function realBeneficiosDelMes(
+  supabase: ReturnType<typeof createServiceClient>,
+  mes: Date,
+): Promise<Map<string, number>> {
+  const { data } = await supabase
+    .from("beneficios_line_items")
+    .select("tipo_evento, poblacion, monto")
+    .eq("periodo", mes.toISOString().slice(0, 10))
+    .eq("es_real", true);
+
+  const mapa = new Map<string, number>();
+  for (const fila of data ?? []) {
+    mapa.set(`${fila.tipo_evento}::${fila.poblacion}`, Number(fila.monto));
+  }
+  return mapa;
+}
+
+/** Promedio de los últimos 6 meses REALES de un tipo de evento/población — mismo patrón que `promedioFiniquitoReal6m`, generalizado para los eventos sin fecha fija del catálogo de beneficios (ver beneficios.ts). */
+async function promedioBeneficioReal6m(
+  supabase: ReturnType<typeof createServiceClient>,
+  tipoEvento: string,
+  poblacion: string,
+  antesDe: Date,
+): Promise<number> {
+  const { data } = await supabase
+    .from("beneficios_line_items")
+    .select("monto")
+    .eq("tipo_evento", tipoEvento)
+    .eq("poblacion", poblacion)
+    .eq("es_real", true)
+    .lt("periodo", antesDe.toISOString().slice(0, 10))
+    .order("periodo", { ascending: false })
+    .limit(6);
+
+  if (!data || data.length === 0) return 0;
+  return data.reduce((acc, row) => acc + Number(row.monto), 0) / data.length;
 }
 
 /**
@@ -373,6 +451,37 @@ export async function refreshCashFlowReport(
       ? senceFilaExistente.monto
       : null;
 
+    // Beneficios/Bonos — RG (Convenio Lira Parque) y RP (Anexo Oficina
+    // Central). Dotación reutilizando la dimensión RG/RP ya existente
+    // (ver dotacionRgRpDelMes); cada evento del catálogo se resuelve real
+    // > fórmula fecha-fija > promedio 6 meses > 0 (ver beneficios.ts).
+    const { rg: dotacionRgMes, rp: dotacionRpMes } = await dotacionRgRpDelMes(
+      supabase,
+      mes,
+      dotacionPorPeriodo,
+    );
+    const realPorEventoBeneficio = await realBeneficiosDelMes(supabase, mes);
+    const promedio6mPorEvento = new Map<string, number>();
+    for (const evento of eventosPromedio6Meses()) {
+      const promedio = await promedioBeneficioReal6m(
+        supabase,
+        evento.tipoEvento,
+        evento.poblacion,
+        mes,
+      );
+      promedio6mPorEvento.set(
+        `${evento.tipoEvento}::${evento.poblacion}`,
+        promedio,
+      );
+    }
+    const beneficiosCalculado = calcularBeneficiosDelMes({
+      mes,
+      dotacionRg: dotacionRgMes,
+      dotacionRp: dotacionRpMes,
+      realPorEvento: realPorEventoBeneficio,
+      promedio6mPorEvento,
+    });
+
     const calculado = calcularMesCashFlow({
       remuneracionReal,
       reliquidacionReal,
@@ -384,6 +493,8 @@ export async function refreshCashFlowReport(
       dotacionActual,
       remuneracionFallbackPromedioHistorico,
       finiquitoFallbackPromedio6m,
+      beneficiosRg: beneficiosCalculado.rg,
+      beneficiosRp: beneficiosCalculado.rp,
     });
 
     const calculadoPorConcepto: Record<string, CashFlowConceptoCalculado> = {
@@ -393,6 +504,7 @@ export async function refreshCashFlowReport(
       finiquito: calculado.finiquito,
       cotizacion: calculado.cotizacion,
       sence: calculado.sence,
+      beneficios: calculado.beneficiosTotal,
     };
 
     // Ningún método preservado (`manual_override` o
@@ -565,6 +677,9 @@ export async function refreshCashFlowReport(
       { concepto: "finiquito", ...calculadoPorConcepto.finiquito },
       { concepto: "cotizacion", ...calculadoPorConcepto.cotizacion },
       { concepto: "sence", ...calculadoPorConcepto.sence },
+      { concepto: "beneficios", ...calculadoPorConcepto.beneficios },
+      { concepto: "beneficios_rg", ...beneficiosCalculado.rg },
+      { concepto: "beneficios_rp", ...beneficiosCalculado.rp },
       ...(remuneracionRgFila
         ? [{ concepto: "remuneracion_rg", ...remuneracionRgFila }]
         : []),
@@ -605,6 +720,31 @@ export async function refreshCashFlowReport(
       errores.push({ fuente: `Cálculo ${periodoStr}`, mensaje: error.message });
     } else {
       mesesRecalculados++;
+    }
+
+    // Guarda el detalle por evento — auditable, y necesario para que
+    // futuros meses puedan promediar los "últimos 6 reales" de eventos
+    // sin fecha fija (ver promedioBeneficioReal6m). Re-escribir una fila
+    // ya real es un no-op: `calcularBeneficiosDelMes` la lee primero y
+    // devuelve el mismo monto, nunca la reemplaza por fórmula.
+    const { error: beneficiosError } = await supabase
+      .from("beneficios_line_items")
+      .upsert(
+        beneficiosCalculado.lineItems.map((li) => ({
+          periodo: periodoStr,
+          poblacion: li.poblacion,
+          tipo_evento: li.tipoEvento,
+          monto: li.monto,
+          es_real: li.esReal,
+          metodo_calculo: li.metodoCalculo,
+        })),
+        { onConflict: "periodo,poblacion,tipo_evento" },
+      );
+    if (beneficiosError) {
+      errores.push({
+        fuente: `Beneficios ${periodoStr}`,
+        mensaje: beneficiosError.message,
+      });
     }
   }
 

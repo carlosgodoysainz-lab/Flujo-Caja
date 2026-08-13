@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { calcularMesCashFlow, type CashFlowInputs } from "./engine";
 
+const SIN_BENEFICIOS = {
+  monto: 0,
+  esReal: false,
+  metodoCalculo: "pendiente_ingreso_manual",
+};
+
 const BASE: CashFlowInputs = {
   remuneracionReal: null,
   reliquidacionReal: null,
@@ -12,6 +18,8 @@ const BASE: CashFlowInputs = {
   dotacionActual: null,
   remuneracionFallbackPromedioHistorico: 0,
   finiquitoFallbackPromedio6m: 0,
+  beneficiosRg: SIN_BENEFICIOS,
+  beneficiosRp: SIN_BENEFICIOS,
 };
 
 describe("calcularMesCashFlow", () => {
@@ -168,7 +176,7 @@ describe("calcularMesCashFlow", () => {
     expect(result.sence.metodoCalculo).toBe("manual_override");
   });
 
-  it("totalNomina es la suma exacta de los 6 conceptos", () => {
+  it("totalNomina es la suma exacta de los 7 conceptos (incluye Beneficios)", () => {
     const result = calcularMesCashFlow({
       ...BASE,
       remuneracionReal: 100_000_000,
@@ -176,6 +184,11 @@ describe("calcularMesCashFlow", () => {
       finiquitoReal: 500_000,
       anticipoReal: 2_000_000,
       senceManual: 1_000_000,
+      beneficiosRg: {
+        monto: 3_000_000,
+        esReal: true,
+        metodoCalculo: "ingesta_real",
+      },
     });
 
     const sumaManual =
@@ -184,9 +197,50 @@ describe("calcularMesCashFlow", () => {
       result.finiquito.monto +
       result.reliquidacion.monto +
       result.cotizacion.monto +
-      result.sence.monto;
+      result.sence.monto +
+      result.beneficiosTotal.monto;
 
     expect(result.totalNomina).toBe(sumaManual);
+    expect(result.beneficiosTotal.monto).toBe(3_000_000);
+  });
+
+  it("Beneficios se agregan (RG+RP) y entran a la base de Cotización", () => {
+    const result = calcularMesCashFlow({
+      ...BASE,
+      remuneracionReal: 100_000_000,
+      reliquidacionReal: 1_000_000,
+      anticipoReal: 2_000_000,
+      beneficiosRg: {
+        monto: 2_000_000,
+        esReal: false,
+        metodoCalculo: "formula_fecha_fija",
+      },
+      beneficiosRp: {
+        monto: 500_000,
+        esReal: false,
+        metodoCalculo: "formula_fecha_fija",
+      },
+    });
+
+    expect(result.beneficiosTotal.monto).toBe(2_500_000);
+    const esperadoCotizacion = Math.round(
+      (2_000_000 + 100_000_000 + 1_000_000 + 2_500_000) * 0.3,
+    );
+    expect(result.cotizacion.monto).toBe(esperadoCotizacion);
+  });
+
+  it("Beneficios agregado es 'real' si al menos RG o RP lo es", () => {
+    const result = calcularMesCashFlow({
+      ...BASE,
+      remuneracionReal: 100_000_000,
+      beneficiosRg: {
+        monto: 10_360_000,
+        esReal: true,
+        metodoCalculo: "ingesta_real",
+      },
+    });
+
+    expect(result.beneficiosTotal.esReal).toBe(true);
   });
 
   it("mes completamente sin datos (todo proyectado) no explota y da un total coherente", () => {

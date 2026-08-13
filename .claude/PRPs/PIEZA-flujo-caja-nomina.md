@@ -235,6 +235,23 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 - **Cómo se aplicaron las migraciones anteriores entonces**: probablemente por una sesión previa con `supabase login` ya hecho, o manualmente por el usuario — no quedó un mecanismo repetible documentado.
 - **Aplicar en**: si se necesita aplicar una migración nueva y no hay `SUPABASE_ACCESS_TOKEN`/`DATABASE_URL` a mano, no asumir que se puede — avisar explícitamente al usuario y darle el SQL exacto para pegar en el SQL Editor del dashboard. Considerar agregar `SUPABASE_ACCESS_TOKEN` a `.env.local` (o documentar dónde vive) para que las próximas migraciones sí se puedan aplicar solas.
 
+### 2026-08-13: Cotización cambia de fórmula — Beneficios entra a la base (decisión de negocio, no bug)
+
+- **Cambio**: `calcularCotizacion` pasó de `30%×(Anticipo+Remuneración+Reliquidación)` a `30%×(Anticipo+Remuneración+Reliquidación+Beneficios)`. No es una corrección de un error anterior — el usuario lo pidió explícitamente al incorporar Beneficios/Bonos (RG del Convenio Colectivo "Lira Parque" + RP del Anexo "Beneficio Oficina Central") al modelo, porque algunos aguinaldos/bonos sí son imponibles.
+- **Aplicar en**: cualquier reporte histórico o comparación contra meses ya cerrados ANTES del 13-ago-2026 debe considerar que la fórmula de Cotización cambió esa fecha — un mismo mes proyectado antes y después de este cambio puede diferir en Cotización sin que sea un error de cálculo.
+
+### 2026-08-13: Segmentación RG/RP para Beneficios — reutilizar, no reinventar una dimensión de "sindicalizado"
+
+- **Hallazgo (evitó trabajo duplicado)**: el pedido inicial parecía requerir una nueva dimensión "sindicalizado vs. no-sindicalizado" en el modelo, con su propio dato de dotación. El usuario aclaró que esa segmentación **es exactamente RG (Rol General) vs. RP (Rol Particular)** — la misma dimensión que YA existe hace semanas para Anticipo/Remuneración, con dotación real ya disponible en `dotacion_mensual.rg/rp` (columnas del Excel histórico).
+- **Fix**: `beneficios.ts`/`refresh.ts` reutilizan `dotacion_mensual` + la misma razón proporcional RG/(RG+RP) (`proporcionRgHistorica`, ya existente) que Remuneración/Anticipo proyectados usan para meses sin Excel histórico — cero tablas ni columnas nuevas de dotación.
+- **Aplicar en**: antes de modelar una "nueva" dimensión de segmentación de personas, revisar si el modelo ya tiene una equivalente por otro nombre (acá RG/RP ya era, en la práctica, sindicalizado/no-sindicalizado).
+
+### 2026-08-13: Export HTML tenía la fila "Total Nómina (UF)" calculada pero nunca insertada en la tabla
+
+- **Error real encontrado al comparar `render.ts` contra `/reporte`**: la variable `filaUf` se calculaba pero el `<tbody>` solo insertaba `${filaDotacion}${filasTabla}` — la fila UF quedaba silenciosamente descartada en el HTML descargable (sí aparecía en la app en vivo y en el Excel). Bug preexistente, no introducido en esta sesión.
+- **Fix**: `<tbody>${filaDotacion}${filasTabla}${filaUf}</tbody>`.
+- **Aplicar en**: al tocar una plantilla de exportación con variables intermedias, verificar que TODAS se usen en el markup final — una variable calculada y nunca interpolada no da error de TypeScript si el resto del archivo la referencia en otro lugar, pero acá ni siquiera eso ocurría (era candidata a `noUnusedLocals`, que este proyecto no tiene activado).
+
 ---
 
 ## Gotchas (Antes de Implementar)
@@ -268,7 +285,10 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 4. **Validar la metodología nueva contra un cierre real de nómina** — comparar el Total Nómina que arroja el reporte contra el Excel actual en un mes ya cerrado, antes de confiar en la proyección para meses futuros.
 5. **Deploy a Vercel** — requiere la cuenta Vercel de Carlos (el agente no puede autenticarse ahí). Pasos: `vercel link` → configurar las variables de entorno de `.env.local` en el dashboard de Vercel → `vercel deploy --prod`.
 6. **Actualizar el Redirect URI de Azure AD** con la URL real de producción una vez desplegado (hoy solo tiene `localhost:3000`).
-7. **Piloto en paralelo** — usar la herramienta para el próximo ciclo de nómina junto al Excel actual, comparar resultados antes de descontinuar el proceso manual.
+7. **🔴 BLOQUEANTE — aplicar la migración `20260813000001_beneficios_rg_rp.sql` manualmente** (mismo motivo que el punto 1: sin acceso a DDL desde este entorno). Sin esto, `beneficios_line_items` no existe y las filas `beneficios`/`beneficios_rg`/`beneficios_rp` quedan en 0 al correr "Actualizar reporte" (no falla, pero no hay tabla que consultar).
+8. **Correr `npx tsx --env-file=.env.local scripts/seed-beneficios-lira-parque-agosto-2026.ts`** después de (7) — carga el Bono de Término de Negociación y el Aporte Sindical único de agosto-2026 (Convenio Colectivo "Lira Parque") como dato real.
+9. **Cargar la dotación no-sindicalizada Rol Particular (Oficina Central)** cuando exista un mes sin cobertura del Excel histórico ni de Buk — hoy el modelo cae a $0 en Beneficios RP para esos meses (nunca inventa un número).
+10. **Piloto en paralelo** — usar la herramienta para el próximo ciclo de nómina junto al Excel actual, comparar resultados antes de descontinuar el proceso manual.
 
 ---
 

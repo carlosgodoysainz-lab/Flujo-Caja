@@ -10,37 +10,7 @@ import {
 import type { CashFlowSeriePunto } from "../services/queries";
 import type { DotacionTotalPunto } from "@/features/headcount/services/dotacion-total";
 import { SenceEditableCell } from "./sence-editable-cell";
-
-// Cada fila principal puede traer sub-filas RG/RP (aperturadas — mismo
-// desglose que el Excel real, pedido explícito del usuario) indentadas
-// justo debajo, de menor jerarquía visual.
-const FILAS: {
-  concepto: string;
-  label: string;
-  sub?: { concepto: string; label: string }[];
-}[] = [
-  {
-    concepto: "anticipo",
-    label: "Anticipo",
-    sub: [
-      { concepto: "anticipo_rg", label: "RG" },
-      { concepto: "anticipo_rp", label: "RP" },
-    ],
-  },
-  {
-    concepto: "remuneracion",
-    label: "Remuneración",
-    sub: [
-      { concepto: "remuneracion_rg", label: "RG" },
-      { concepto: "remuneracion_rp", label: "RP" },
-    ],
-  },
-  { concepto: "finiquito", label: "Finiquito" },
-  { concepto: "reliquidacion", label: "Reliquidación" },
-  { concepto: "cotizacion", label: "Cotización" },
-  { concepto: "sence", label: "Aporte SENCE" },
-  { concepto: "total_nomina", label: "Total Nómina" },
-];
+import { FILAS_DETALLE as FILAS } from "../lib/filas-detalle";
 
 function formatCLP(monto: number): string {
   return new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(

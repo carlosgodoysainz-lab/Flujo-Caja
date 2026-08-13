@@ -31,10 +31,19 @@ const CONCEPTOS_METODOLOGIA = [
     color: "var(--ok)",
   },
   {
+    concepto: "Beneficios / Bonos (RG/RP)",
+    fuenteReal:
+      'Real por evento cuando existe una fila cargada en beneficios_line_items (ej. el Bono de Término de Negociación y el Aporte Sindical único de agosto-2026, cargados por script al firmarse el Convenio Colectivo "Lira Parque"). RG = Rol General sindicalizado bajo ese convenio; RP = Rol Particular bajo el Anexo "Beneficio Oficina Central" — misma dimensión RG/RP que ya usan Anticipo y Remuneración.',
+    formula:
+      "Aguinaldos Fiestas Patrias/Navidad y Aporte Sindical mensual: fórmula fecha fija (monto por cabeza × dotación RG/RP, solo dentro de la vigencia del convenio). Eventos sin fecha fija (vacaciones, natalidad, matrimonio, fallecimiento, tijerales): $0 hasta acumular 6 meses de dato real, luego promedio de esos 6 meses. Asignación Escolar: siempre manual, igual criterio que SENCE.",
+    color: "var(--ok)",
+  },
+  {
     concepto: "Cotización",
     fuenteReal:
       "Sin fuente real automatizada — siempre se calcula por fórmula (porcentaje legal relativamente estable).",
-    formula: "30% × (Anticipo + Remuneración + Reliquidación) del mismo mes.",
+    formula:
+      "30% × (Anticipo + Remuneración + Reliquidación + Beneficios) del mismo mes — Beneficios se incorporó a la base el 13-ago-2026, decisión de negocio explícita del usuario.",
     color: "var(--warn)",
   },
   {
@@ -48,7 +57,7 @@ const CONCEPTOS_METODOLOGIA = [
   {
     concepto: "Total Nómina",
     fuenteReal:
-      "Suma de los 6 conceptos anteriores, cada uno con su propio origen (real, fórmula o manual).",
+      "Suma de los 7 conceptos anteriores, cada uno con su propio origen (real, fórmula o manual).",
     formula: null,
     color: "var(--navy-brand)",
   },

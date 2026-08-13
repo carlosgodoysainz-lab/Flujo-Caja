@@ -50,6 +50,16 @@ export interface CashFlowInputs {
    * 0 si todavía no hay 6 meses reales de historial.
    */
   finiquitoFallbackPromedio6m: number;
+  /**
+   * Beneficios/Bonos ya resueltos por población — RG (Convenio Colectivo
+   * Lira Parque) y RP (Anexo Beneficio Oficina Central). A diferencia de
+   * los demás inputs, estos llegan YA resueltos por `beneficios.ts` (real
+   * ingresado > fórmula fecha-fija > promedio 6 meses > 0) porque agregan
+   * múltiples tipos de evento con su propia regla cada uno — el mismo
+   * nivel de detalle que resuelve `sence` no alcanza para un solo booleano.
+   */
+  beneficiosRg: CashFlowConceptoCalculado;
+  beneficiosRp: CashFlowConceptoCalculado;
 }
 
 export interface CashFlowConceptoCalculado {
@@ -65,6 +75,9 @@ export interface CashFlowMesCalculado {
   finiquito: CashFlowConceptoCalculado;
   cotizacion: CashFlowConceptoCalculado;
   sence: CashFlowConceptoCalculado;
+  beneficiosRg: CashFlowConceptoCalculado;
+  beneficiosRp: CashFlowConceptoCalculado;
+  beneficiosTotal: CashFlowConceptoCalculado;
   totalNomina: number;
 }
 
@@ -134,16 +147,28 @@ export function calcularMesCashFlow(
           metodoCalculo: "promedio_ultimos_6_meses_reales",
         };
 
+  // Beneficios/Bonos ya llegan resueltos por población (ver beneficios.ts)
+  // — acá solo se agregan en un total combinado, mismo criterio "real si
+  // al menos un componente es real" que ya usa `total_nomina` en refresh.ts.
+  const beneficiosTotal: CashFlowConceptoCalculado = {
+    monto: inputs.beneficiosRg.monto + inputs.beneficiosRp.monto,
+    esReal: inputs.beneficiosRg.esReal || inputs.beneficiosRp.esReal,
+    metodoCalculo: "agregado_rg_mas_rp",
+  };
+
   // Cotizaciones siempre son fórmula — no existe fuente real automatizada
-  // para este concepto (% legal estable sobre la suma de los otros 3).
+  // para este concepto (% legal estable sobre la suma de los otros 4,
+  // incluye Beneficios desde el 13-ago-2026, decisión de negocio explícita
+  // del usuario — ver formulas.ts).
   const cotizacion: CashFlowConceptoCalculado = {
     monto: calcularCotizacion(
       anticipo.monto,
       remuneracion.monto,
       reliquidacion.monto,
+      beneficiosTotal.monto,
     ),
     esReal: false,
-    metodoCalculo: "formula_30pct_anticipo_mas_remun_mas_reliq",
+    metodoCalculo: "formula_30pct_anticipo_mas_remun_mas_reliq_mas_beneficios",
   };
 
   // Aporte SENCE: SIEMPRE manual, nunca fórmula — pero si nadie lo ha
@@ -176,7 +201,8 @@ export function calcularMesCashFlow(
     finiquito.monto +
     reliquidacion.monto +
     cotizacion.monto +
-    sence.monto;
+    sence.monto +
+    beneficiosTotal.monto;
 
   return {
     anticipo,
@@ -185,6 +211,9 @@ export function calcularMesCashFlow(
     finiquito,
     cotizacion,
     sence,
+    beneficiosRg: inputs.beneficiosRg,
+    beneficiosRp: inputs.beneficiosRp,
+    beneficiosTotal,
     totalNomina,
   };
 }

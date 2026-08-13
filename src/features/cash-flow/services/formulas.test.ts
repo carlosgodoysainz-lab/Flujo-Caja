@@ -22,19 +22,25 @@ describe("calcularReliquidacionProyectada", () => {
 });
 
 describe("calcularCotizacion", () => {
-  it("es 30% de (anticipo + remuneración + reliquidación)", () => {
+  it("es 30% de (anticipo + remuneración + reliquidación + beneficios)", () => {
     const anticipo = 5_000_000;
     const remuneracion = 100_000_000;
     const reliquidacion = 1_000_000;
+    const beneficios = 2_000_000;
     const esperado = Math.round(
-      (anticipo + remuneracion + reliquidacion) * 0.3,
+      (anticipo + remuneracion + reliquidacion + beneficios) * 0.3,
     );
-    expect(calcularCotizacion(anticipo, remuneracion, reliquidacion)).toBe(
-      esperado,
-    );
+    expect(
+      calcularCotizacion(anticipo, remuneracion, reliquidacion, beneficios),
+    ).toBe(esperado);
   });
   it("con todo en cero, cotización es cero", () => {
-    expect(calcularCotizacion(0, 0, 0)).toBe(0);
+    expect(calcularCotizacion(0, 0, 0, 0)).toBe(0);
+  });
+  it("beneficios en cero no cambia el resultado anterior a que existiera este concepto", () => {
+    expect(calcularCotizacion(5_000_000, 100_000_000, 1_000_000, 0)).toBe(
+      Math.round((5_000_000 + 100_000_000 + 1_000_000) * 0.3),
+    );
   });
 });
 
