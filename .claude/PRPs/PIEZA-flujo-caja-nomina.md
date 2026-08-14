@@ -298,6 +298,13 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 - **`engine.ts`**: `CashFlowInputs.finiquitoFallbackPromedio6m: number` pasó a `finiquitoFallback: {monto, metodoCalculo}` — mismo patrón ya usado para `senceFallback`/`beneficiosRg/Rp`, para que el motor exponga el método real usado, no un string hardcodeado que no reflejaba cuál fórmula se aplicó.
 - **Aplicar en**: cuando ya existe una proyección de "cantidad" confiable (acá, dotación) para un mes, preferir correlacionar conceptos derivados (Finiquito) con ella en vez de un promedio histórico ciego — mismo principio que motivó toda la auditoría de dotación de esta sesión.
 
+### 2026-08-13: Bug real de matching — "Obra Serrano Torre A" no conectaba con "Serrano A" (98 trabajadores de obra cayendo a "Oficina Central")
+
+- **Error real, encontrado auditando el pull en vivo de Buk**: de las 5 áreas con prefijo "Obra..." en Buk, 4 matcheaban bien contra el catálogo `obras`, pero **"Obra Serrano Torre A" (98 activos) no matcheaba con "Serrano A"** — ninguna de las 2 reglas de `matchObraByName` (exacto, o parcial por límite de palabra `\b`) las conecta, porque no comparten NINGUNA palabra completa en común ("torre" las separa: "serrano torre a" vs. "serrano a"). Esos 98 trabajadores de obra quedaban cayendo silenciosamente al balde "Oficina Central" — esto por sí solo cambia el split Construcción/Oficina Central reportado antes (550/299 en vivo) a algo más cercano a 648/201, bastante distinto.
+- **Fix**: `match-obra.ts` gana un tercer nivel de fallback, `ALIAS_MANUAL` (mapa explícito nombre-de-área-normalizado → nombre-de-obra), que se consulta SOLO si el match exacto y el match por palabra fallan — no se tocó la lógica de esos 2 (evita romper el caso "Lira I" vs "Lira II" ya probado). Agregado por ahora: `"serrano torre a" -> "serrano a"`.
+- **Aplicar en**: cuando Buk y Gespro nombran la misma obra de forma distinta (edificio/torre vs. nombre comercial del proyecto), un alias manual explícito es más seguro que aflojar la regex genérica — aflojarla arriesga falsos positivos entre obras reales con nombres parecidos (ej. "Lira Parque" vs. "Lira Plaza"). Si aparecen más casos así, agregarlos a `ALIAS_MANUAL` uno por uno, nunca relajar el matching por palabra.
+- **Pendiente**: correr `runBukSnapshot`/el cron real para que este fix se refleje en `buk_dotacion_snapshots` (el snapshot del 5-ago-2026 ya guardado NO se corrige retroactivamente solo, hay que resincronizar).
+
 ---
 
 ## Gotchas (Antes de Implementar)

@@ -6,6 +6,7 @@ const OBRAS = [
   { id: "2", nombre: "Lira II" },
   { id: "3", nombre: "Vista Llacolén" },
   { id: "4", nombre: "Lira III" },
+  { id: "5", nombre: "Serrano A" },
 ];
 
 describe("matchObraByName", () => {
@@ -33,5 +34,9 @@ describe("matchObraByName", () => {
     expect(matchObraByName("Obra Lira I", OBRAS)?.id).toBe("1");
     expect(matchObraByName("Obra Lira II", OBRAS)?.id).toBe("2");
     expect(matchObraByName("Obra Lira III", OBRAS)?.id).toBe("4");
+  });
+
+  it("regresión: alias manual conecta 'Obra Serrano Torre A' con 'Serrano A' (no comparten ninguna palabra, el match por palabra no los conecta)", () => {
+    expect(matchObraByName("Obra Serrano Torre A", OBRAS)?.id).toBe("5");
   });
 });
