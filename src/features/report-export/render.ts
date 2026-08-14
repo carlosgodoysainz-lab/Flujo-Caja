@@ -8,6 +8,7 @@ import type {
 import type { DotacionTotalPunto } from "@/features/headcount/services/dotacion-total";
 import { pathSuavizado } from "../cash-flow/lib/smooth-path";
 import { FILAS_DETALLE as FILAS } from "../cash-flow/lib/filas-detalle";
+import { SELLO_AUTOR_BASE64 } from "../cash-flow/lib/watermark";
 
 const MAESTRA_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 275 50" height="24">
   <path fill="#db0a5b" d="M30.87,48.94,24,42.06a2.64,2.64,0,0,1,0-3.73L44.83,17.48a2.64,2.64,0,0,1,3.73,0l6.88,6.88a2.67,2.67,0,0,1,0,3.74L34.61,48.94a2.65,2.65,0,0,1-3.74,0"/>
@@ -105,7 +106,7 @@ function renderChartSvg(serie: CashFlowSeriePunto[]): string {
 
   const lineaProyectadaSvg =
     idxCorte !== -1
-      ? `<path d="${lineaProyectada}" fill="none" stroke="#b89a5a" stroke-width="2" stroke-dasharray="4 4" stroke-linejoin="round"/>`
+      ? `<path d="${lineaProyectada}" fill="none" stroke="#b89a5a" stroke-width="2.25" stroke-dasharray="5 4" stroke-linejoin="round" stroke-linecap="round" filter="url(#chart-linea-glow)"/>`
       : "";
   const hoyLine =
     idxCorte > 0
@@ -116,15 +117,25 @@ function renderChartSvg(serie: CashFlowSeriePunto[]): string {
   <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:14px;">
     <p style="margin:0 0 8px;font-size:11px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:rgba(255,255,255,0.5);">Total Nómina mensual — real y proyectado</p>
     <svg viewBox="0 0 ${WIDTH} ${HEIGHT}" style="width:100%;height:auto;display:block;" role="img" aria-label="Gráfico de área: Total Nómina mensual requerido, real y proyectado">
+      <defs>
+        <linearGradient id="chart-area-gradiente" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#b89a5a" stop-opacity="0.5"/>
+          <stop offset="100%" stop-color="#b89a5a" stop-opacity="0.02"/>
+        </linearGradient>
+        <filter id="chart-linea-glow" x="-30%" y="-60%" width="160%" height="220%">
+          <feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#000" flood-opacity="0.35"/>
+        </filter>
+      </defs>
       ${gridlines}
       <clipPath id="clipReal"><rect x="0" y="0" width="${x(corte)}" height="${HEIGHT}"/></clipPath>
       <clipPath id="clipProyectado"><rect x="${x(corte)}" y="0" width="${WIDTH - x(corte)}" height="${HEIGHT}"/></clipPath>
-      <path d="${areaPath}" fill="#b89a5a" opacity="0.25" clip-path="url(#clipReal)"/>
-      <path d="${areaPath}" fill="#b89a5a" opacity="0.1" clip-path="url(#clipProyectado)"/>
-      <path d="${lineaReal}" fill="none" stroke="#b89a5a" stroke-width="2" stroke-linejoin="round"/>
+      <path d="${areaPath}" fill="url(#chart-area-gradiente)" clip-path="url(#clipReal)"/>
+      <path d="${areaPath}" fill="url(#chart-area-gradiente)" opacity="0.4" clip-path="url(#clipProyectado)"/>
+      <path d="${lineaReal}" fill="none" stroke="#b89a5a" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round" filter="url(#chart-linea-glow)"/>
       ${lineaProyectadaSvg}
       ${hoyLine}
       ${labelsX}
+      <image href="${SELLO_AUTOR_BASE64}" x="${WIDTH - 40}" y="${HEIGHT - 40}" width="30" height="30" opacity="0.22" style="pointer-events:none;"/>
     </svg>
     <div style="margin-top:6px;display:flex;gap:16px;font-size:11px;color:rgba(255,255,255,0.5);">
       <span><span style="display:inline-block;width:12px;height:2px;background:#b89a5a;vertical-align:middle;margin-right:4px;"></span>Real</span>

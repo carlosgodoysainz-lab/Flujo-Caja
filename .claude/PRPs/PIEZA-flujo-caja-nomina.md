@@ -277,6 +277,13 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 - **Fix**: `<tbody>${filaDotacion}${filasTabla}${filaUf}</tbody>`.
 - **Aplicar en**: al tocar una plantilla de exportación con variables intermedias, verificar que TODAS se usen en el markup final — una variable calculada y nunca interpolada no da error de TypeScript si el resto del archivo la referencia en otro lugar, pero acá ni siquiera eso ocurría (era candidata a `noUnusedLocals`, que este proyecto no tiene activado).
 
+### 2026-08-13: Gráfico de Total Nómina — degradé + glow + marca de agua (pedido explícito del usuario)
+
+- **Pedido**: "utilices /imagen-nano-banana para mejorar el diseño del gráfico que sea moderno... indica con una marca de agua pequeña quien lo hizo Carlos Godoy Sainz o créame un sello".
+- **Fix**: relleno de área pasó de opacidad plana a un `linearGradient` (dorado, más opaco arriba); la línea ganó un `feDropShadow` sutil (glow) para dar profundidad — aplicado igual en `cash-flow-area-chart.tsx` (vivo) y `render.ts` (export HTML), mismo criterio de siempre de mantener ambos visualmente idénticos.
+- **Sello**: generado con Nano Banana (`gemini-3-pro-image`, texto "CARLOS GODOY SAINZ" arqueado, paleta navy/dorado de Marca Maestra), recortado/reducido a 200×200 con `System.Drawing` (PowerShell) y embebido como base64 en `src/features/cash-flow/lib/watermark.ts` (`SELLO_AUTOR_BASE64`) — un solo módulo compartido para que ambos consumidores lo usen igual. Se coloca como `<image>` de baja opacidad (0.22) en la esquina inferior derecha del gráfico, `pointer-events:none` para no interceptar el mouse en la versión interactiva.
+- **Aplicar en**: cualquier asset de imagen que deba vivir en un HTML 100% autocontenido (export) Y en un componente React (vivo) — generar UNA vez, convertir a base64, y exportarlo desde un módulo compartido en vez de duplicar el string en los 2 archivos.
+
 ---
 
 ## Gotchas (Antes de Implementar)

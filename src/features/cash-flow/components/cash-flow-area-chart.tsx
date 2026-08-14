@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import type { CashFlowSeriePunto } from "../services/queries";
 import { pathSuavizado } from "../lib/smooth-path";
+import { SELLO_AUTOR_BASE64 } from "../lib/watermark";
 
 /**
  * Gráfico de área para "Total Nómina requerido en el tiempo" — análogo a
@@ -53,6 +54,13 @@ function formatMesCorto(periodo: string): string {
 export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  // IDs únicos por instancia — evita colisión de <clipPath>/<linearGradient>
+  // si el gráfico llega a renderizarse más de una vez en la misma página.
+  const uid = useId().replace(/:/g, "");
+  const idClipReal = `clipReal-${uid}`;
+  const idClipProyectado = `clipProyectado-${uid}`;
+  const idGradiente = `areaGradiente-${uid}`;
+  const idGlow = `lineaGlow-${uid}`;
 
   const puntos = useMemo(() => {
     const porMes = new Map<string, { monto: number; esReal: boolean }>();
@@ -149,42 +157,63 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
           </g>
         ))}
 
-        {/* Relleno — mismo hue en todo, más opaco en el tramo real */}
-        <clipPath id="clipReal">
+        {/* Relleno con degradé — más moderno que la opacidad plana
+            anterior, mismo hue (--gold) en todo el gráfico, más opaco en
+            el tramo real que en el proyectado. */}
+        <defs>
+          <linearGradient id={idGradiente} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={LINEA} stopOpacity={0.5} />
+            <stop offset="100%" stopColor={LINEA} stopOpacity={0.02} />
+          </linearGradient>
+          <filter id={idGlow} x="-30%" y="-60%" width="160%" height="220%">
+            <feDropShadow
+              dx="0"
+              dy="1.5"
+              stdDeviation="2"
+              floodColor="#000"
+              floodOpacity="0.35"
+            />
+          </filter>
+        </defs>
+        <clipPath id={idClipReal}>
           <rect x={0} y={0} width={x(corte)} height={HEIGHT} />
         </clipPath>
-        <clipPath id="clipProyectado">
+        <clipPath id={idClipProyectado}>
           <rect x={x(corte)} y={0} width={WIDTH - x(corte)} height={HEIGHT} />
         </clipPath>
         <path
           d={areaPath}
-          fill={LINEA}
-          opacity={0.25}
-          clipPath="url(#clipReal)"
+          fill={`url(#${idGradiente})`}
+          clipPath={`url(#${idClipReal})`}
         />
         <path
           d={areaPath}
-          fill={LINEA}
-          opacity={0.1}
-          clipPath="url(#clipProyectado)"
+          fill={`url(#${idGradiente})`}
+          opacity={0.4}
+          clipPath={`url(#${idClipProyectado})`}
         />
 
-        {/* Línea — sólida en el tramo real, punteada en el proyectado */}
+        {/* Línea — sólida en el tramo real, punteada en el proyectado, con
+            un sombreado sutil (glow) para dar profundidad. */}
         <path
           d={lineaReal}
           fill="none"
           stroke={LINEA}
-          strokeWidth={2}
+          strokeWidth={2.25}
           strokeLinejoin="round"
+          strokeLinecap="round"
+          filter={`url(#${idGlow})`}
         />
         {idxCorte !== -1 && (
           <path
             d={lineaProyectada}
             fill="none"
             stroke={LINEA}
-            strokeWidth={2}
-            strokeDasharray="4 4"
+            strokeWidth={2.25}
+            strokeDasharray="5 4"
             strokeLinejoin="round"
+            strokeLinecap="round"
+            filter={`url(#${idGlow})`}
           />
         )}
 
@@ -255,6 +284,20 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
             />
           </g>
         )}
+
+        {/* Marca de agua — pedido explícito del usuario: "indique con una
+            marca de agua pequeña quien lo hizo". Generada con Nano Banana
+            (ver watermark.ts), muy sutil (opacidad baja) para no competir
+            con los datos; no intercepta el mouse. */}
+        <image
+          href={SELLO_AUTOR_BASE64}
+          x={WIDTH - 34}
+          y={HEIGHT - 34}
+          width={26}
+          height={26}
+          opacity={0.22}
+          style={{ pointerEvents: "none" }}
+        />
       </svg>
 
       {hoverIdx !== null && (
