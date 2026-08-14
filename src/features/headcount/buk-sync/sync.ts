@@ -43,11 +43,24 @@ export async function runBukSnapshot(
     const empleados = await fetchBukEmpleadosActivos();
     const grupos = agruparDotacion(empleados, fechaSnapshot);
 
-    // 1. Catálogo de cargos — upsert (no INSERT-only, es un catálogo, no histórico)
+    // 1. Catálogo de cargos — upsert (no INSERT-only, es un catálogo, no
+    // histórico). `familia_cargo` (ej. "Rol General") ya se lee de Buk
+    // en `agruparDotacion` pero antes se descartaba en memoria — ahora se
+    // persiste, tanto para cargos nuevos como para backfill de los que ya
+    // estaban en el catálogo sin ese dato (columna ya existía, siempre en
+    // NULL). Análisis de auto-blindaje 2026-08-13: esto habilita
+    // segmentar dotación por familia de cargo (Rol General/Rol Particular)
+    // directamente desde Buk en vez de solo por proporción histórica.
+    const familiaCargoPorNombre = new Map<string, string | null>();
+    for (const g of grupos) {
+      if (!familiaCargoPorNombre.has(g.cargo))
+        familiaCargoPorNombre.set(g.cargo, g.familiaCargo);
+    }
+
     const cargosUnicos = [...new Set(grupos.map((g) => g.cargo))];
     const { data: catalogoExistente } = await supabase
       .from("buk_cargo_catalog")
-      .select("id, nombre_buk");
+      .select("id, nombre_buk, familia_cargo");
     const idPorNombre = new Map(
       (catalogoExistente ?? []).map((c) => [c.nombre_buk, c.id]),
     );
@@ -56,13 +69,32 @@ export async function runBukSnapshot(
     if (cargosNuevos.length > 0) {
       const { data: insertados, error } = await supabase
         .from("buk_cargo_catalog")
-        .insert(cargosNuevos.map((nombre) => ({ nombre_buk: nombre })))
+        .insert(
+          cargosNuevos.map((nombre) => ({
+            nombre_buk: nombre,
+            familia_cargo: familiaCargoPorNombre.get(nombre) ?? null,
+          })),
+        )
         .select("id, nombre_buk");
       if (error)
         errores.push(
           `Error creando cargos nuevos en catálogo: ${error.message}`,
         );
       for (const c of insertados ?? []) idPorNombre.set(c.nombre_buk, c.id);
+    }
+
+    const cargosSinFamiliaAunConDato = (catalogoExistente ?? []).filter(
+      (c) => !c.familia_cargo && familiaCargoPorNombre.get(c.nombre_buk),
+    );
+    for (const c of cargosSinFamiliaAunConDato) {
+      const { error } = await supabase
+        .from("buk_cargo_catalog")
+        .update({ familia_cargo: familiaCargoPorNombre.get(c.nombre_buk) })
+        .eq("id", c.id);
+      if (error)
+        errores.push(
+          `Error actualizando familia_cargo de "${c.nombre_buk}": ${error.message}`,
+        );
     }
 
     // 2. Resolver obra_id por area_id — best-effort, muchas áreas de Buk

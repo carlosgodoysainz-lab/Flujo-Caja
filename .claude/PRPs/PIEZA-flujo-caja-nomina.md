@@ -247,6 +247,13 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 - **Fix**: `beneficios.ts`/`refresh.ts` reutilizan `dotacion_mensual` + la misma razón proporcional RG/(RG+RP) (`proporcionRgHistorica`, ya existente) que Remuneración/Anticipo proyectados usan para meses sin Excel histórico — cero tablas ni columnas nuevas de dotación.
 - **Aplicar en**: antes de modelar una "nueva" dimensión de segmentación de personas, revisar si el modelo ya tiene una equivalente por otro nombre (acá RG/RP ya era, en la práctica, sindicalizado/no-sindicalizado).
 
+### 2026-08-13: `familia_cargo` de Buk se leía pero se descartaba en memoria (columna ya existía, siempre NULL)
+
+- **Hallazgo (auditoría experta de nómina pedida por el usuario)**: `agruparDotacion()` (`buk-sync/aggregate.ts`) ya lee `current_job.role.role_family.name` de la API de Buk y lo guarda como `familiaCargo` por grupo — pero `sync.ts` nunca lo escribía a `buk_cargo_catalog.familia_cargo` (columna que existe desde la migración inicial). Se calculaba y se tiraba.
+- **Fix**: `sync.ts` ahora persiste `familia_cargo` al crear cargos nuevos en el catálogo, y hace backfill de los cargos ya existentes que quedaron en NULL. Sin migración nueva — la columna ya estaba.
+- **Por qué importa**: es el primer paso real hacia poder segmentar dotación por "Rol General" vs. "Rol Particular" directamente desde Buk (dato real, mensual), en vez de depender solo de la razón proporcional histórica (`proporcionRgHistorica` en refresh.ts) para los meses sin Excel histórico. Ver análisis completo de auditoría de nómina de esta fecha (marco normativo, Reforma Previsional, AFC diferenciado RG/RP) — pendiente de decisión del usuario antes de tocar `calcularCotizacion`.
+- **Aplicar en**: siempre revisar si un campo que un cliente de API ya trae y tipa (aunque sea "para uso interno/agregación") se está persistiendo o se descarta silenciosamente en memoria — es la oportunidad más barata de enriquecer un modelo sin tocar la fuente de datos.
+
 ### 2026-08-13: Export HTML tenía la fila "Total Nómina (UF)" calculada pero nunca insertada en la tabla
 
 - **Error real encontrado al comparar `render.ts` contra `/reporte`**: la variable `filaUf` se calculaba pero el `<tbody>` solo insertaba `${filaDotacion}${filasTabla}` — la fila UF quedaba silenciosamente descartada en el HTML descargable (sí aparecía en la app en vivo y en el Excel). Bug preexistente, no introducido en esta sesión.
