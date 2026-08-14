@@ -117,10 +117,36 @@ async function main() {
   const { data: obras } = await supabase.from("obras").select("id, nombre");
   const obrasMatch = (obras ?? []).map((o) => ({ id: o.id, nombre: o.nombre }));
 
-  const fechas = primerDiaDeCadaMesDesde(FECHA_INICIO);
-  console.log(
-    `Reconstruyendo ${fechas.length} meses de histórico real (${fechas[0]} a ${fechas.at(-1)})...\n`,
-  );
+  const todasLasFechas = primerDiaDeCadaMesDesde(FECHA_INICIO);
+
+  // Resume: si una corrida anterior ya dejó meses guardados (cargo_id IS
+  // NULL = filas de este script), no los repite desde cero — retoma
+  // desde el último mes ya hecho (se re-descarga SOLO ese mes, para
+  // reconstruir `grupoAnterior` en memoria sin persistir person_id en
+  // ningún lado; los meses anteriores a ese se saltan por completo).
+  // Pedido explícito del usuario: "se pierde el backfill" si el proceso
+  // se corta — con esto, retomar mañana es rápido, no repite 2+ horas.
+  const { data: yaHechos } = await supabase
+    .from("buk_dotacion_snapshots")
+    .select("snapshot_date")
+    .is("cargo_id", null)
+    .in("snapshot_date", todasLasFechas)
+    .order("snapshot_date", { ascending: false })
+    .limit(1);
+  const ultimoYaHecho = yaHechos?.[0]?.snapshot_date;
+  const fechas = ultimoYaHecho
+    ? todasLasFechas.filter((f) => f >= ultimoYaHecho)
+    : todasLasFechas;
+
+  if (ultimoYaHecho) {
+    console.log(
+      `Retomando: ${todasLasFechas.length - fechas.length} meses ya estaban guardados de una corrida anterior (hasta ${ultimoYaHecho}) — se saltan. Continuando ${fechas.length} meses desde ahí.\n`,
+    );
+  } else {
+    console.log(
+      `Reconstruyendo ${fechas.length} meses de histórico real (${fechas[0]} a ${fechas.at(-1)})...\n`,
+    );
+  }
 
   const nombrePorAreaId = new Map<string, string | null>();
   const obraIdPorAreaId = new Map<string, string | null>();
