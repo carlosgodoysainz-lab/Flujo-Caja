@@ -12,8 +12,9 @@
  *   Remuneración     | (prevMonto/prevHC)×HC | Igual — modelo costo-por-cabeza × dotación (ver dotacion-total.ts)
  *   Finiquito        | 7% × Remuneración    | Promedio de los ÚLTIMOS 6 MESES REALES (decisión explícita del usuario)
  *   Reliquidación    | 1% × Remuneración    | Igual (el usuario confirmó mantener la fórmula del Excel)
- *   Cotización       | 30% × (Rem+Reliq+Ant)| 30% × (Rem+Reliq+Ant+Beneficios) — el usuario pidió explícitamente
- *                                              incluir Beneficios/Bonos (ver beneficios.ts) en la base, 13-ago-2026
+ *   Cotización       | 30% × (Rem+Reliq+Ant)| Igual, confirmado — Beneficios/Bonos (ver beneficios.ts) se suman de
+ *                                              forma IMPLÍCITA dentro de Remuneración (no es un sumando aparte
+ *                                              acá), así que ya quedan incluidos sin tocar esta fórmula
  *   Aporte SENCE     | siempre manual       | Igual — NUNCA fórmula, ver override.ts
  *
  * IMPORTANTE: estas son fórmulas de RESPALDO — se usan solo cuando no hay
@@ -41,24 +42,24 @@ export function calcularReliquidacionProyectada(remuneracion: number): number {
 }
 
 /**
- * Cotizaciones ≈ 30% × (Anticipo + Remuneración + Reliquidación +
- * Beneficios) del mismo mes. Siempre fórmula — no hay fuente real
- * automatizada para este concepto (es un porcentaje legal relativamente
- * estable, no requiere ingesta de archivo).
+ * Cotizaciones ≈ 30% × (Anticipo + Remuneración + Reliquidación) del mismo
+ * mes. Siempre fórmula — no hay fuente real automatizada para este
+ * concepto (es un porcentaje legal relativamente estable, no requiere
+ * ingesta de archivo).
  *
- * `beneficios` se agregó el 13-ago-2026 — decisión de negocio explícita
- * del usuario (algunos aguinaldos/bonos del Convenio Lira Parque y del
- * Anexo Oficina Central sí son imponibles), no un bug. Ver beneficios.ts.
+ * Beneficios/Bonos (Convenio Lira Parque + Anexo Oficina Central, ver
+ * beneficios.ts) NO son un 4to sumando acá — se suman de forma implícita
+ * dentro de `remuneracion` (decisión explícita del usuario: "no quiero
+ * que agregues estos como adicionales... se deben considerar de manera
+ * implícita en las remuneraciones", 13-ago-2026) — por eso ya quedan
+ * incluidos en la base sin tocar esta fórmula.
  */
 export function calcularCotizacion(
   anticipo: number,
   remuneracion: number,
   reliquidacion: number,
-  beneficios: number,
 ): number {
-  return round(
-    (anticipo + remuneracion + reliquidacion + beneficios) * COTIZACION_PCT,
-  );
+  return round((anticipo + remuneracion + reliquidacion) * COTIZACION_PCT);
 }
 
 /**

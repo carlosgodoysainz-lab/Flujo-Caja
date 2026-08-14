@@ -309,7 +309,7 @@ export function renderReportHtml(params: {
   </div>
   <div class="hero-content">
     <h1>Flujo de Caja Nómina: <span class="accent">efectivo requerido</span> por mes</h1>
-    <p class="subtitle">Proyección de anticipos, remuneraciones, finiquitos, reliquidaciones, beneficios, cotizaciones y SENCE — real hasta el mes actual, proyectado desde ahí.</p>
+    <p class="subtitle">Proyección de anticipos, remuneraciones, finiquitos, reliquidaciones, cotizaciones y SENCE — real hasta el mes actual, proyectado desde ahí.</p>
 
     <div class="kpis">
       <div class="kpi"><div class="label">Este mes</div><div class="valor">${formatCLP(kpis.totalMesActual)}</div></div>

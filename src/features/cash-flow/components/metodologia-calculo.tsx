@@ -12,7 +12,7 @@ const CONCEPTOS_METODOLOGIA = [
     fuenteReal:
       'Real desde las mismas 2 fuentes que Anticipo: el Excel maestro (histórico, ya separa RG/RP con su dotación real en la columna "N°") o el archivo "Solicitud de Requerimiento remuneración" de SharePoint para meses recientes.',
     formula:
-      "Si no hay dato real: costo promedio por cabeza del mes anterior (Remuneración$ mes anterior ÷ dotación mes anterior) × dotación del mes actual — el total. El desglose RG/RP proyectado usa la razón real RG/(RG+RP) promedio de los últimos 3 meses reales. La dotación es real (Excel histórico o snapshot de Buk) o proyectada acumulando altas−bajas por obra (curva de obras similares — ver /dotacion). Si tampoco hay dato de dotación: promedio de los últimos 3 meses reales.",
+      "Si no hay dato real: costo promedio por cabeza del mes anterior (Remuneración$ mes anterior ÷ dotación mes anterior) × dotación del mes actual — el total. El desglose RG/RP proyectado usa la razón real RG/(RG+RP) promedio de los últimos 3 meses reales. La dotación es real (Excel histórico o snapshot de Buk) o proyectada acumulando altas−bajas por obra (curva de obras similares — ver /dotacion). Si tampoco hay dato de dotación: promedio de los últimos 3 meses reales. Incluye de forma IMPLÍCITA los Beneficios/Bonos del Convenio Colectivo Lira Parque (RG) y del Anexo Beneficio Oficina Central (RP) — aguinaldos, aporte sindical, etc. (ver beneficios.ts) — no aparecen como fila aparte, quedan sumados dentro de este monto.",
     color: "var(--ok)",
   },
   {
@@ -31,19 +31,11 @@ const CONCEPTOS_METODOLOGIA = [
     color: "var(--ok)",
   },
   {
-    concepto: "Beneficios / Bonos (RG/RP)",
-    fuenteReal:
-      'Real por evento cuando existe una fila cargada en beneficios_line_items (ej. el Bono de Término de Negociación y el Aporte Sindical único de agosto-2026, cargados por script al firmarse el Convenio Colectivo "Lira Parque"). RG = Rol General sindicalizado bajo ese convenio; RP = Rol Particular bajo el Anexo "Beneficio Oficina Central" — misma dimensión RG/RP que ya usan Anticipo y Remuneración.',
-    formula:
-      "Aguinaldos Fiestas Patrias/Navidad y Aporte Sindical mensual: fórmula fecha fija (monto por cabeza × dotación RG/RP, solo dentro de la vigencia del convenio). Eventos sin fecha fija (vacaciones, natalidad, matrimonio, fallecimiento, tijerales): $0 hasta acumular 6 meses de dato real, luego promedio de esos 6 meses. Asignación Escolar: siempre manual, igual criterio que SENCE.",
-    color: "var(--ok)",
-  },
-  {
     concepto: "Cotización",
     fuenteReal:
       "Sin fuente real automatizada — siempre se calcula por fórmula (porcentaje legal relativamente estable).",
     formula:
-      "30% × (Anticipo + Remuneración + Reliquidación + Beneficios) del mismo mes — Beneficios se incorporó a la base el 13-ago-2026, decisión de negocio explícita del usuario.",
+      "30% × (Anticipo + Remuneración + Reliquidación) del mismo mes. Como Remuneración ya incluye Beneficios/Bonos de forma implícita, quedan incluidos en la base sin un 4to sumando.",
     color: "var(--warn)",
   },
   {
@@ -57,7 +49,7 @@ const CONCEPTOS_METODOLOGIA = [
   {
     concepto: "Total Nómina",
     fuenteReal:
-      "Suma de los 7 conceptos anteriores, cada uno con su propio origen (real, fórmula o manual).",
+      "Suma de los 6 conceptos anteriores, cada uno con su propio origen (real, fórmula o manual).",
     formula: null,
     color: "var(--navy-brand)",
   },

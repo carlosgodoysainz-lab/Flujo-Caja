@@ -57,7 +57,6 @@ const CONCEPTOS_CALCULADOS = [
   "finiquito",
   "cotizacion",
   "sence",
-  "beneficios",
 ] as const;
 
 function mesAnteriorA(mes: Date): Date {
@@ -504,7 +503,6 @@ export async function refreshCashFlowReport(
       finiquito: calculado.finiquito,
       cotizacion: calculado.cotizacion,
       sence: calculado.sence,
-      beneficios: calculado.beneficiosTotal,
     };
 
     // Ningún método preservado (`manual_override` o
@@ -545,32 +543,40 @@ export async function refreshCashFlowReport(
     const anticipoRgReal = await sumaLineItems(supabase, mes, ["anticipo_rg"]);
     const anticipoRpReal = await sumaLineItems(supabase, mes, ["anticipo_rp"]);
 
+    // Beneficios/Bonos se suman de forma IMPLÍCITA dentro de Remuneración
+    // (ver engine.ts) — acá se reparten en el desglose RG/RP informativo
+    // asignando cada población su propio monto exacto (no proporcional:
+    // el Bono de Término de Negociación es 100% RG, por ejemplo), para
+    // que RG+RP sigan sumando exacto la Remuneración total ya inflada.
     let remuneracionRgFila: CashFlowConceptoCalculado | null = null;
     let remuneracionRpFila: CashFlowConceptoCalculado | null = null;
     if (calculadoPorConcepto.remuneracion.esReal) {
       remuneracionRgFila = {
-        monto: remuneracionRgReal ?? 0,
+        monto: (remuneracionRgReal ?? 0) + beneficiosCalculado.rg.monto,
         esReal: true,
         metodoCalculo: "ingesta_real",
       };
       remuneracionRpFila = {
-        monto: remuneracionRpReal ?? 0,
+        monto: (remuneracionRpReal ?? 0) + beneficiosCalculado.rp.monto,
         esReal: true,
         metodoCalculo: "ingesta_real",
       };
     } else {
       const proporcionRg = await proporcionRgHistorica(supabase, mes);
       if (proporcionRg != null) {
-        const rg = Math.round(
-          calculadoPorConcepto.remuneracion.monto * proporcionRg,
-        );
+        const baseSinBeneficios =
+          calculadoPorConcepto.remuneracion.monto -
+          beneficiosCalculado.rg.monto -
+          beneficiosCalculado.rp.monto;
+        const rgBase = Math.round(baseSinBeneficios * proporcionRg);
         remuneracionRgFila = {
-          monto: rg,
+          monto: rgBase + beneficiosCalculado.rg.monto,
           esReal: false,
           metodoCalculo: "split_proporcional_historico",
         };
         remuneracionRpFila = {
-          monto: calculadoPorConcepto.remuneracion.monto - rg,
+          monto:
+            calculadoPorConcepto.remuneracion.monto - remuneracionRgFila.monto,
           esReal: false,
           metodoCalculo: "split_proporcional_historico",
         };
@@ -677,9 +683,6 @@ export async function refreshCashFlowReport(
       { concepto: "finiquito", ...calculadoPorConcepto.finiquito },
       { concepto: "cotizacion", ...calculadoPorConcepto.cotizacion },
       { concepto: "sence", ...calculadoPorConcepto.sence },
-      { concepto: "beneficios", ...calculadoPorConcepto.beneficios },
-      { concepto: "beneficios_rg", ...beneficiosCalculado.rg },
-      { concepto: "beneficios_rp", ...beneficiosCalculado.rp },
       ...(remuneracionRgFila
         ? [{ concepto: "remuneracion_rg", ...remuneracionRgFila }]
         : []),

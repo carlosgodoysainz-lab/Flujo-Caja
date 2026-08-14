@@ -35,14 +35,6 @@ export const FILAS_DETALLE: FilaDetalle[] = [
   },
   { concepto: "finiquito", label: "Finiquito" },
   { concepto: "reliquidacion", label: "Reliquidación" },
-  {
-    concepto: "beneficios",
-    label: "Beneficios / Bonos",
-    sub: [
-      { concepto: "beneficios_rg", label: "RG (Convenio Lira Parque)" },
-      { concepto: "beneficios_rp", label: "RP (Anexo Oficina Central)" },
-    ],
-  },
   { concepto: "cotizacion", label: "Cotización" },
   { concepto: "sence", label: "Aporte SENCE" },
   { concepto: "total_nomina", label: "Total Nómina" },

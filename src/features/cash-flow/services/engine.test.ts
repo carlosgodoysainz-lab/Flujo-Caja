@@ -176,7 +176,7 @@ describe("calcularMesCashFlow", () => {
     expect(result.sence.metodoCalculo).toBe("manual_override");
   });
 
-  it("totalNomina es la suma exacta de los 7 conceptos (incluye Beneficios)", () => {
+  it("totalNomina es la suma exacta de los 6 conceptos (Beneficios ya va implícito dentro de Remuneración)", () => {
     const result = calcularMesCashFlow({
       ...BASE,
       remuneracionReal: 100_000_000,
@@ -197,14 +197,14 @@ describe("calcularMesCashFlow", () => {
       result.finiquito.monto +
       result.reliquidacion.monto +
       result.cotizacion.monto +
-      result.sence.monto +
-      result.beneficiosTotal.monto;
+      result.sence.monto;
 
     expect(result.totalNomina).toBe(sumaManual);
-    expect(result.beneficiosTotal.monto).toBe(3_000_000);
+    // Beneficios se sumó DENTRO de remuneración (100M + 3M), no aparte.
+    expect(result.remuneracion.monto).toBe(103_000_000);
   });
 
-  it("Beneficios se agregan (RG+RP) y entran a la base de Cotización", () => {
+  it("Beneficios (RG+RP) se suman de forma implícita a Remuneración — no hay concepto ni fila aparte", () => {
     const result = calcularMesCashFlow({
       ...BASE,
       remuneracionReal: 100_000_000,
@@ -222,14 +222,19 @@ describe("calcularMesCashFlow", () => {
       },
     });
 
-    expect(result.beneficiosTotal.monto).toBe(2_500_000);
+    expect(result.remuneracion.monto).toBe(102_500_000);
+    const resultSinTipos = result as unknown as Record<string, unknown>;
+    expect(resultSinTipos.beneficiosTotal).toBeUndefined();
+    expect(resultSinTipos.beneficiosRg).toBeUndefined();
+    // Al ir implícito en Remuneración, Cotización (30% de Anticipo+Remun+Reliq)
+    // ya lo incluye sin necesidad de un 4to sumando.
     const esperadoCotizacion = Math.round(
-      (2_000_000 + 100_000_000 + 1_000_000 + 2_500_000) * 0.3,
+      (2_000_000 + 102_500_000 + 1_000_000) * 0.3,
     );
     expect(result.cotizacion.monto).toBe(esperadoCotizacion);
   });
 
-  it("Beneficios agregado es 'real' si al menos RG o RP lo es", () => {
+  it("Remuneración conserva su propio esReal/metodoCalculo aunque se le sumen Beneficios", () => {
     const result = calcularMesCashFlow({
       ...BASE,
       remuneracionReal: 100_000_000,
@@ -240,7 +245,26 @@ describe("calcularMesCashFlow", () => {
       },
     });
 
-    expect(result.beneficiosTotal.esReal).toBe(true);
+    expect(result.remuneracion.monto).toBe(110_360_000);
+    expect(result.remuneracion.esReal).toBe(true);
+    expect(result.remuneracion.metodoCalculo).toBe("ingesta_real");
+  });
+
+  it("sin remuneración real, Anticipo/Reliquidación formula usan la Remuneración YA con Beneficios sumados", () => {
+    const result = calcularMesCashFlow({
+      ...BASE,
+      costoPromedioPorCabezaMesAnterior: 1_000_000,
+      dotacionActual: 100, // remuneracionBase = 100.000.000
+      beneficiosRg: {
+        monto: 5_000_000,
+        esReal: false,
+        metodoCalculo: "formula_fecha_fija",
+      },
+    });
+
+    expect(result.remuneracion.monto).toBe(105_000_000);
+    expect(result.anticipo.monto).toBe(Math.round(105_000_000 * 0.24));
+    expect(result.reliquidacion.monto).toBe(Math.round(105_000_000 * 0.01));
   });
 
   it("mes completamente sin datos (todo proyectado) no explota y da un total coherente", () => {
