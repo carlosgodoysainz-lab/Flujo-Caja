@@ -129,11 +129,17 @@ async function main() {
   // para las fechas que ya están guardadas — se re-descargan de Buk
   // igual (barato comparado con perder la cadena de altas/bajas), pero
   // no se vuelven a escribir.
+  // .limit() explícito por seguridad — Supabase limita a 1000 filas por
+  // default sin él (ver el mismo bug real encontrado y arreglado en
+  // backfill-dotacion-por-cargo.ts, 14-ago-2026). Acá el volumen es bajo
+  // (~2 filas/fecha, rollup) así que no se disparó en la práctica, pero
+  // se deja explícito para no depender de eso.
   const { data: yaHechosData } = await supabase
     .from("buk_dotacion_snapshots")
     .select("snapshot_date")
     .is("cargo_id", null)
-    .in("snapshot_date", fechas);
+    .in("snapshot_date", fechas)
+    .limit(5_000);
   const fechasYaHechas = new Set(
     (yaHechosData ?? []).map((d) => d.snapshot_date),
   );

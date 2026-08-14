@@ -125,14 +125,24 @@ async function main() {
   // "Ya hecho" para ESTE script = tiene AL MENOS 1 fila con cargo_id NOT
   // NULL esa fecha (el rollup del backfill anterior, cargo_id IS NULL,
   // NO cuenta como hecho acá — se va a reemplazar).
-  const { data: yaHechosData } = await supabase
-    .from("buk_dotacion_snapshots")
-    .select("snapshot_date")
-    .not("cargo_id", "is", null)
-    .in("snapshot_date", fechas);
-  const fechasYaHechas = new Set(
-    (yaHechosData ?? []).map((d) => d.snapshot_date),
-  );
+  // OJO: un `.limit()` del cliente NO alcanza acá — PostgREST tiene un
+  // tope server-side (max-rows) que lo ignora y trunca igual a ~1000
+  // filas totales pase lo que pase. Con ~200 grupos(obra,cargo) por
+  // fecha y 103 fechas (~20.000+ filas), una sola consulta masiva
+  // siempre viene truncada a un subconjunto arbitrario — encontrado en
+  // vivo 2 veces (14-ago-2026): una corrida de "reparación" reprocesó 93
+  // meses que ya estaban completos porque solo 10 aparecían como
+  // "hechos". Fix real: 1 consulta liviana (count, sin traer filas) POR
+  // FECHA — 103 consultas chicas en vez de 1 consulta grande truncada.
+  const fechasYaHechas = new Set<string>();
+  for (const fecha of fechas) {
+    const { count } = await supabase
+      .from("buk_dotacion_snapshots")
+      .select("*", { count: "exact", head: true })
+      .eq("snapshot_date", fecha)
+      .not("cargo_id", "is", null);
+    if ((count ?? 0) > 0) fechasYaHechas.add(fecha);
+  }
 
   if (fechasYaHechas.size > 0) {
     const faltantes = fechas.filter((f) => !fechasYaHechas.has(f));
