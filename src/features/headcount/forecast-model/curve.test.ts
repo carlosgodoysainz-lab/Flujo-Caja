@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   aVariacionNeta,
   curvaPorAvance,
+  curvaPorAvanceConFases,
   escalarCurva,
   promediarCurvas,
 } from "./curve";
@@ -24,6 +25,64 @@ describe("curvaPorAvance", () => {
       { fecha: new Date(2026, 0, 1), activos: 5 }, // muy después de la duración -> ignorado
     ];
     const curva = curvaPorAvance(snapshots, inicioObra, 6);
+    expect(curva.every((v) => v === null)).toBe(true);
+  });
+});
+
+describe("curvaPorAvanceConFases", () => {
+  // Snapshots sintéticos: 22 meses de obra de referencia, valor = mes*10
+  // (mes 0 -> 0, mes 1 -> 10, ..., mes 21 -> 210) para poder verificar
+  // exactamente a qué mes del objetivo cae cada mes de referencia.
+  const inicioObraRef = new Date(2024, 0, 1);
+  const snapshots22Meses = Array.from({ length: 22 }, (_, mes) => ({
+    fecha: new Date(2024, mes, 1),
+    activos: mes * 10,
+  }));
+
+  it("con misma duración ref y objetivo, es idéntico a curvaPorAvance (identidad)", () => {
+    const conFases = curvaPorAvanceConFases(
+      snapshots22Meses,
+      inicioObraRef,
+      22,
+      22,
+    );
+    const sinFases = curvaPorAvance(snapshots22Meses, inicioObraRef, 22);
+    expect(conFases).toEqual(sinFases);
+  });
+
+  it("alinea el INICIO de la fase terminaciones de la referencia con el inicio de la fase terminaciones del objetivo, aunque las duraciones difieran", () => {
+    // Objetivo de 12 meses: mitad = mes 6 (ceil(12/2)) es el primer mes de
+    // terminaciones. En la referencia (22 meses), el primer mes de
+    // terminaciones es el mes 11 (ceil(22/2)), con valor 110.
+    const curva = curvaPorAvanceConFases(
+      snapshots22Meses,
+      inicioObraRef,
+      22,
+      12,
+    );
+    expect(curva[0]).toBe(0); // primer mes de obra gruesa de ambas, sin reescalar
+    expect(curva[6]).toBe(110); // primer mes de terminaciones -> primer mes de terminaciones
+    // Los últimos 2 meses de la referencia (20 y 21, valores 200 y 210)
+    // también colapsan en el último mes del objetivo por la compresión de
+    // fase — se promedian, igual que el caso del mes 5 (ver test siguiente).
+    expect(curva[11]).toBe(205);
+  });
+
+  it("si la compresión de fases hace caer 2 meses de referencia en el mismo mes objetivo, los promedia en vez de pisar el primero", () => {
+    const curva = curvaPorAvanceConFases(
+      snapshots22Meses,
+      inicioObraRef,
+      22,
+      12,
+    );
+    // mes 9 (valor 90) y mes 10 (valor 100) de la referencia caen ambos en
+    // el índice 5 del objetivo tras la compresión de la fase terminaciones.
+    expect(curva[5]).toBe(95);
+  });
+
+  it("sin duración de referencia (0), no divide por cero — todo cae en el mes 0", () => {
+    const curva = curvaPorAvanceConFases([], inicioObraRef, 0, 12);
+    expect(curva.length).toBe(12);
     expect(curva.every((v) => v === null)).toBe(true);
   });
 });

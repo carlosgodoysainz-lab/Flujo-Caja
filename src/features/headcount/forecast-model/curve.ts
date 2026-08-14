@@ -50,6 +50,72 @@ export function curvaPorAvance(
   return curva;
 }
 
+/**
+ * Igual que `curvaPorAvance`, pero re-indexa la curva de una obra de
+ * REFERENCIA al eje de meses de la obra OBJETIVO tratando el ciclo de
+ * vida como 2 FASES separadas — obra gruesa (primera mitad de la
+ * duración) y terminaciones (segunda mitad) — en vez de alinear por mes
+ * calendario crudo.
+ *
+ * Motivo: confirmado empíricamente con datos reales de Buk (14-ago-2026,
+ * ver Auto-Blindaje) que "Alto Buzeta" transiciona de obra gruesa a
+ * terminaciones exactamente en la mitad de su duración (mes 11 de 22) —
+ * el mix de cargo cambia de forma abrupta, no gradual (Enfierrador/
+ * Carpintero desaparecen, Pintor/Yesero/Terminaciones aparecen). El
+ * usuario confirmó generalizar este patrón a todas las obras ("el resto
+ * de las obras tienen el mismo modelo de Buzeta").
+ *
+ * Sin este re-indexado, comparar dos obras de duración DISTINTA por mes
+ * calendario crudo puede mezclar el remate de obra gruesa de una con el
+ * inicio de terminaciones de otra en el mismo índice — cada fase se
+ * escala por separado (regla de 3 sobre su propia mitad) para que
+ * "30% avanzada la fase de terminaciones" de la referencia caiga en
+ * "30% avanzada la fase de terminaciones" del objetivo, sin importar que
+ * las duraciones totales difieran.
+ */
+export function curvaPorAvanceConFases(
+  snapshots: SnapshotPunto[],
+  inicioObraRef: Date,
+  durObraRef: number,
+  durObraObjetivo: number,
+): (number | null)[] {
+  const curvaRef = curvaPorAvance(snapshots, inicioObraRef, durObraRef);
+  const mitadRef = Math.ceil(durObraRef / 2);
+  const mitadObjetivo = Math.ceil(durObraObjetivo / 2);
+  const curvaReindexada: (number | null)[] = new Array(durObraObjetivo).fill(
+    null,
+  );
+
+  for (let mes = 0; mes < durObraRef; mes++) {
+    const valor = curvaRef[mes];
+    if (valor == null) continue;
+
+    let mesObjetivo: number;
+    if (mes < mitadRef) {
+      // Fase obra gruesa — reescala la posición dentro de esta fase.
+      const fraccion = mitadRef > 0 ? mes / mitadRef : 0;
+      mesObjetivo = Math.round(fraccion * mitadObjetivo);
+    } else {
+      // Fase terminaciones — reescala la posición dentro de esta fase.
+      const duracionFaseRef = durObraRef - mitadRef;
+      const fraccion =
+        duracionFaseRef > 0 ? (mes - mitadRef) / duracionFaseRef : 0;
+      const duracionFaseObjetivo = durObraObjetivo - mitadObjetivo;
+      mesObjetivo = mitadObjetivo + Math.round(fraccion * duracionFaseObjetivo);
+    }
+
+    if (mesObjetivo < 0 || mesObjetivo >= durObraObjetivo) continue;
+    const actual = curvaReindexada[mesObjetivo];
+    // Si la compresión de fases hace caer 2 meses de referencia en el
+    // mismo mes objetivo, se promedian entre sí en vez de que el último
+    // pise al primero.
+    curvaReindexada[mesObjetivo] =
+      actual == null ? valor : Math.round((actual + valor) / 2);
+  }
+
+  return curvaReindexada;
+}
+
 /** Escala una curva absoluta por la razón de tamaño entre la obra objetivo y la obra de referencia. */
 export function escalarCurva(
   curva: (number | null)[],

@@ -5,7 +5,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { obrasSimilares, type ObraParaSimilitud } from "./similarity";
 import {
   aVariacionNeta,
-  curvaPorAvance,
+  curvaPorAvanceConFases,
   escalarCurva,
   promediarCurvas,
 } from "./curve";
@@ -27,6 +27,13 @@ export interface RunForecastModelResult {
  * no ML. Escribe en `headcount_by_obra` (origen='modelo_estimado') y
  * registra la corrida completa en `headcount_forecast_runs` para
  * trazabilidad (qué obras de referencia y qué método se usó).
+ *
+ * v2 (14-ago-2026): las curvas de referencia se re-indexan por FASE
+ * (obra gruesa = 1ra mitad de la duración, terminaciones = 2da mitad —
+ * ver `curvaPorAvanceConFases`) en vez de por mes calendario crudo,
+ * confirmado con datos reales ("Alto Buzeta" transiciona justo a la
+ * mitad de su duración) y generalizado a todas las obras por indicación
+ * explícita del usuario.
  */
 export async function runForecastModel(
   obraId: string,
@@ -66,7 +73,7 @@ export async function runForecastModel(
 
   const { data: todasLasObras } = await supabase
     .from("obras")
-    .select("id, nombre, tipo, unidades, comuna, inicio_obra");
+    .select("id, nombre, tipo, unidades, comuna, inicio_obra, dur_obra_meses");
 
   const objetivoParaSimilitud: ObraParaSimilitud = {
     id: obraObjetivo.id,
@@ -127,9 +134,16 @@ export async function runForecastModel(
       activos,
     }));
 
-    const curva = curvaPorAvance(
+    // Re-indexa por FASE (obra gruesa = 1ra mitad, terminaciones = 2da
+    // mitad de la duración de CADA obra) en vez de por mes calendario
+    // crudo — ver curvaPorAvanceConFases. Usa la duración PROPIA de la
+    // obra de referencia (si la tiene) para construir su curva real;
+    // si no tiene duración cargada, degrada a la del objetivo (mismo
+    // comportamiento que antes de este cambio).
+    const curva = curvaPorAvanceConFases(
       puntos,
       new Date(obraRef.inicio_obra),
+      obraRef.dur_obra_meses ?? obraObjetivo.dur_obra_meses,
       obraObjetivo.dur_obra_meses,
     );
     const curvaEscalada = escalarCurva(
@@ -170,7 +184,7 @@ export async function runForecastModel(
     .from("headcount_forecast_runs")
     .insert({
       obra_id: obraId,
-      metodo: "similar_obras_v1",
+      metodo: "similar_obras_v2_fases",
       obras_referencia: referenciasUsadas,
       parametros: {
         rangoUnidadesPct: 30,
