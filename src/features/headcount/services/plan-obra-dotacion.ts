@@ -16,9 +16,17 @@ export interface PlanObraDotacionFila {
   periodo: string;
   /** Dotación real (suma de `buk_dotacion_snapshots.activos` de esa obra ese mes) — `null` si no hay snapshot real ese mes. */
   dotacionReal: number | null;
+  /**
+   * Dotación absoluta PROYECTADA para ese mes — el "saldo" acumulado
+   * (altas−bajas mes a mes desde el inicio de la curva, ver
+   * `forecast-model/curve.ts`), no solo el delta. `null` si esa fila
+   * nunca se estimó (obra sin ningún dato todavía).
+   */
+  dotacionProyectada: number | null;
   /** Altas − bajas de ese mes — real (manual/buk_real) o estimado (modelo de curva por obra similar). `null` si no hay ningún dato. */
   variacionNeta: number | null;
-  origenVariacion: "manual" | "buk_real" | "modelo_estimado" | null;
+  origenVariacion:
+    "manual" | "buk_real" | "modelo_estimado" | "sin_dato_referencia" | null;
 }
 
 /**
@@ -68,15 +76,20 @@ export async function getPlanObraConDotacion(
 
   const { data: variaciones } = await supabase
     .from("headcount_by_obra")
-    .select("obra_id, periodo, variacion_neta, origen");
+    .select("obra_id, periodo, variacion_neta, acumulado, origen");
   const variacionPorObraYPeriodo = new Map<
     string,
-    { variacionNeta: number; origen: "manual" | "buk_real" | "modelo_estimado" }
+    {
+      variacionNeta: number;
+      acumulado: number | null;
+      origen: "manual" | "buk_real" | "modelo_estimado" | "sin_dato_referencia";
+    }
   >();
   for (const v of variaciones ?? []) {
     const key = `${v.obra_id}::${periodoDeFecha(v.periodo)}`;
     variacionPorObraYPeriodo.set(key, {
       variacionNeta: v.variacion_neta,
+      acumulado: v.acumulado,
       origen: v.origen,
     });
   }
@@ -90,7 +103,11 @@ export async function getPlanObraConDotacion(
     const inicioPeriodo = periodoDeFecha(obra.inicio_obra);
     const duracion = obra.dur_obra_meses ?? 24; // fallback defensivo si no hay duración cargada
 
-    for (let mes = 0, guard = 0; mes < duracion && guard < 240; mes++, guard++) {
+    for (
+      let mes = 0, guard = 0;
+      mes < duracion && guard < 240;
+      mes++, guard++
+    ) {
       const periodo = sumarMesesAPeriodo(inicioPeriodo, mes);
       if (periodo < desde || periodo > hasta) continue;
 
@@ -109,6 +126,7 @@ export async function getPlanObraConDotacion(
         durObraMeses: obra.dur_obra_meses,
         periodo,
         dotacionReal: dotacionRealPorObraYPeriodo.get(key) ?? null,
+        dotacionProyectada: variacion?.acumulado ?? null,
         variacionNeta: variacion?.variacionNeta ?? null,
         origenVariacion: variacion?.origen ?? null,
       });

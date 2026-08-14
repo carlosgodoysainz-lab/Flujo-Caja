@@ -21,6 +21,16 @@ const FILL_HEADER: ExcelJS.Fill = {
   pattern: "solid",
   fgColor: { argb: "FF003865" },
 };
+// Gris — distingue "el modelo de curva no tenía NINGUNA obra de
+// referencia con dato real ese mes de avance" (placeholder, no
+// estimación real) de una estimación amarilla normal. Ver Auto-Blindaje
+// 13-ago-2026: 91% de las filas estimadas caían en este caso sin que se
+// pudiera distinguir de un "0 confirmado".
+const FILL_SIN_DATO: ExcelJS.Fill = {
+  type: "pattern",
+  pattern: "solid",
+  fgColor: { argb: "FFD9D9D9" },
+};
 
 /**
  * Genera el respaldo en Excel que acompaña SIEMPRE al export HTML (ver
@@ -200,6 +210,7 @@ export async function renderReportExcel(params: {
     manual: "Manual",
     buk_real: "Buk (real)",
     modelo_estimado: "Estimado (modelo)",
+    sin_dato_referencia: "Sin obra de referencia",
   };
   if (planObraDotacion && planObraDotacion.length > 0) {
     const planObra = workbook.addWorksheet("Plan de Obra");
@@ -214,6 +225,7 @@ export async function renderReportExcel(params: {
       "Duración (meses)",
       "Período",
       "Dotación Real (Buk)",
+      "Dotación Proyectada (acumulada)",
       "Variación Neta (Altas−Bajas)",
       "Origen Variación",
     ]);
@@ -234,12 +246,16 @@ export async function renderReportExcel(params: {
         fila.durObraMeses ?? "",
         fila.periodo.slice(0, 7),
         fila.dotacionReal ?? "",
+        fila.dotacionProyectada ?? "",
         fila.variacionNeta ?? "",
         fila.origenVariacion ? ORIGEN_LABEL[fila.origenVariacion] : "Sin dato",
       ]);
       if (fila.origenVariacion === "modelo_estimado") {
         row.getCell(11).fill = FILL_PROYECTADO;
         row.getCell(12).fill = FILL_PROYECTADO;
+      } else if (fila.origenVariacion === "sin_dato_referencia") {
+        row.getCell(11).fill = FILL_SIN_DATO;
+        row.getCell(12).fill = FILL_SIN_DATO;
       }
     }
 
@@ -248,11 +264,12 @@ export async function renderReportExcel(params: {
     planObra.getColumn(3).width = 10;
     planObra.getColumn(4).width = 12;
     planObra.getColumn(9).width = 10;
-    planObra.getColumn(12).width = 18;
+    planObra.getColumn(11).width = 18;
+    planObra.getColumn(13).width = 20;
 
     const notaPlanObra = planObra.addRow([]);
     planObra.addRow([
-      "Amarillo = dotación estimada por el modelo (curva de obras similares), no dato real de Buk.",
+      "Amarillo = dotación estimada por el modelo (curva de obras similares). Gris = el modelo no tenía ninguna obra de referencia con dato real ese mes — el valor es un placeholder (0 acumulado), no una estimación real.",
     ]).font = { italic: true, size: 9, color: { argb: "FF94A3B8" } };
     void notaPlanObra;
   }

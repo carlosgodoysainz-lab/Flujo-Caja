@@ -3,6 +3,25 @@ export interface SnapshotPunto {
   activos: number;
 }
 
+export interface PuntoCurva {
+  valor: number;
+  /**
+   * true si NINGUNA obra de referencia tenía dato real de Buk para este
+   * mes de avance — `valor` es un placeholder (0 acumulado, sin cambio),
+   * NO una estimación real. Hallazgo real de auditoría (13-ago-2026): de
+   * 254 filas ya estimadas, 91% tenían variación 0, casi todas por esta
+   * razón (el cron de snapshots recién corrió 1 vez, solo 4 de 32 obras
+   * elegibles tenían histórico real de referencia) — sin esta bandera,
+   * "sin dato" y "0 confirmado" se veían idénticos en la tabla/Excel.
+   */
+  sinDatoReferencia: boolean;
+}
+
+export interface VariacionCurva {
+  variacion: number;
+  sinDatoReferencia: boolean;
+}
+
 function diferenciaEnMeses(desde: Date, hasta: Date): number {
   return (
     (hasta.getFullYear() - desde.getFullYear()) * 12 +
@@ -44,28 +63,50 @@ export function escalarCurva(
 
 /**
  * Promedia N curvas ya escaladas, mes de avance por mes de avance,
- * ignorando los `null` de cada una. Si todas son null en un mes, el
- * resultado es 0 (no hay señal — se documenta en `headcount_forecast_runs`).
+ * ignorando los `null` de cada una. Si TODAS son null en un mes, el
+ * valor es 0 pero se marca `sinDatoReferencia: true` — antes esto
+ * quedaba indistinguible de un 0 real (ver Auto-Blindaje 13-ago-2026).
  */
 export function promediarCurvas(
   curvas: (number | null)[][],
   duracion: number,
-): number[] {
-  const resultado: number[] = [];
+): PuntoCurva[] {
+  const resultado: PuntoCurva[] = [];
   for (let mes = 0; mes < duracion; mes++) {
     const valores = curvas
       .map((c) => c[mes])
       .filter((v): v is number => v != null);
     resultado.push(
       valores.length > 0
-        ? Math.round(valores.reduce((a, b) => a + b, 0) / valores.length)
-        : 0,
+        ? {
+            valor: Math.round(
+              valores.reduce((a, b) => a + b, 0) / valores.length,
+            ),
+            sinDatoReferencia: false,
+          }
+        : { valor: 0, sinDatoReferencia: true },
     );
   }
   return resultado;
 }
 
-/** Convierte una curva de headcount ABSOLUTO a variación NETA mensual (lo que espera `headcount_by_obra.variacion_neta`). */
-export function aVariacionNeta(curvaAbsoluta: number[]): number[] {
-  return curvaAbsoluta.map((v, i) => (i === 0 ? v : v - curvaAbsoluta[i - 1]));
+/**
+ * Convierte una curva de headcount ABSOLUTO a variación NETA mensual (lo
+ * que espera `headcount_by_obra.variacion_neta`). Un delta hereda
+ * `sinDatoReferencia: true` si CUALQUIERA de los 2 puntos que lo forman
+ * no tenía dato real — el delta tampoco es confiable en ese caso.
+ */
+export function aVariacionNeta(curvaAbsoluta: PuntoCurva[]): VariacionCurva[] {
+  return curvaAbsoluta.map((punto, i) => {
+    if (i === 0)
+      return {
+        variacion: punto.valor,
+        sinDatoReferencia: punto.sinDatoReferencia,
+      };
+    const anterior = curvaAbsoluta[i - 1];
+    return {
+      variacion: punto.valor - anterior.valor,
+      sinDatoReferencia: punto.sinDatoReferencia || anterior.sinDatoReferencia,
+    };
+  });
 }

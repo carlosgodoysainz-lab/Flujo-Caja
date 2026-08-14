@@ -15,6 +15,8 @@ export interface RunForecastModelResult {
   obraId: string;
   obrasReferenciaUsadas: number;
   mesesEstimados: number;
+  /** De `mesesEstimados`, cuántos quedaron sin ninguna obra de referencia con dato real ese mes de avance (origen='sin_dato_referencia', ver curve.ts). */
+  mesesSinDatoReferencia: number;
   errores: string[];
 }
 
@@ -45,6 +47,7 @@ export async function runForecastModel(
       obraId,
       obrasReferenciaUsadas: 0,
       mesesEstimados: 0,
+      mesesSinDatoReferencia: 0,
       errores: ["Obra no encontrada."],
     };
   }
@@ -54,6 +57,7 @@ export async function runForecastModel(
       obraId,
       obrasReferenciaUsadas: 0,
       mesesEstimados: 0,
+      mesesSinDatoReferencia: 0,
       errores: [
         "La obra no tiene fecha de inicio o duración — no se puede indexar la curva por mes de avance.",
       ],
@@ -88,6 +92,7 @@ export async function runForecastModel(
       obraId,
       obrasReferenciaUsadas: 0,
       mesesEstimados: 0,
+      mesesSinDatoReferencia: 0,
       errores: [
         "No se encontraron obras similares (mismo tipo, unidades ±30%) con datos para comparar.",
       ],
@@ -145,6 +150,7 @@ export async function runForecastModel(
       obraId,
       obrasReferenciaUsadas: 0,
       mesesEstimados: 0,
+      mesesSinDatoReferencia: 0,
       errores: [
         "Las obras similares encontradas no tienen histórico de Buk todavía (normal si el histórico es reciente) — no hay con qué estimar aún.",
       ],
@@ -156,6 +162,9 @@ export async function runForecastModel(
     obraObjetivo.dur_obra_meses,
   );
   const variacionNeta = aVariacionNeta(curvaPromedio);
+  const mesesSinDatoReferencia = variacionNeta.filter(
+    (v) => v.sinDatoReferencia,
+  ).length;
 
   const { data: forecastRun, error: runError } = await supabase
     .from("headcount_forecast_runs")
@@ -178,6 +187,7 @@ export async function runForecastModel(
       obraId,
       obrasReferenciaUsadas: referenciasUsadas.length,
       mesesEstimados: 0,
+      mesesSinDatoReferencia: 0,
       errores: [
         `No se pudo registrar la corrida del modelo: ${runError?.message}`,
       ],
@@ -185,7 +195,7 @@ export async function runForecastModel(
   }
 
   const inicioObra = new Date(obraObjetivo.inicio_obra);
-  const filas = variacionNeta.map((variacion, mesIndex) => {
+  const filas = variacionNeta.map((v, mesIndex) => {
     const periodo = new Date(
       inicioObra.getFullYear(),
       inicioObra.getMonth() + mesIndex,
@@ -194,8 +204,18 @@ export async function runForecastModel(
     return {
       obra_id: obraId,
       periodo: periodo.toISOString().slice(0, 10),
-      variacion_neta: variacion,
-      origen: "modelo_estimado" as const,
+      variacion_neta: v.variacion,
+      // Dotación absoluta acumulada de la curva promedio — permite ver
+      // "cuánta gente habrá en esta obra" en vez de solo el delta mes a
+      // mes (columna `acumulado` existía en el schema desde el inicio,
+      // nunca se poblaba — ver Auto-Blindaje 13-ago-2026).
+      acumulado: curvaPromedio[mesIndex].valor,
+      // Distingue "el modelo promedió obras de referencia reales" de
+      // "no había ninguna obra de referencia con dato ese mes de avance"
+      // — antes ambos casos quedaban como 'modelo_estimado' indistinguibles.
+      origen: v.sinDatoReferencia
+        ? ("sin_dato_referencia" as const)
+        : ("modelo_estimado" as const),
       forecast_run_id: forecastRun.id,
       created_by: session?.user?.id ?? null,
     };
@@ -212,6 +232,7 @@ export async function runForecastModel(
     obraId,
     obrasReferenciaUsadas: referenciasUsadas.length,
     mesesEstimados: filas.length,
+    mesesSinDatoReferencia,
     errores,
   };
 }

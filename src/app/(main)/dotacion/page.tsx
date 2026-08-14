@@ -19,7 +19,20 @@ const ORIGEN_LABEL: Record<
   manual: { text: "Manual", variant: "secondary" },
   buk_real: { text: "Buk (real)", variant: "default" },
   modelo_estimado: { text: "Estimado", variant: "outline" },
+  // Estimado, pero SIN ninguna obra de referencia con dato real ese mes
+  // de avance — el modelo dejó un placeholder (0), no una proyección
+  // real (ver Auto-Blindaje 13-ago-2026: 91% de las filas caían acá).
+  sin_dato_referencia: {
+    text: "Sin obra de referencia",
+    variant: "destructive",
+  },
 };
+
+/** Origen que NO debe pisarse por uno de menor confianza al elegir cuál mostrar por obra — ver `origenPorObra` abajo. */
+const ORIGENES_BAJA_CONFIANZA = new Set([
+  "modelo_estimado",
+  "sin_dato_referencia",
+]);
 
 export default async function DotacionPage() {
   const supabase = createServiceClient();
@@ -36,7 +49,10 @@ export default async function DotacionPage() {
 
   const origenPorObra = new Map<string, string>();
   for (const row of headcountRows ?? []) {
-    if (!origenPorObra.has(row.obra_id) || row.origen !== "modelo_estimado") {
+    if (
+      !origenPorObra.has(row.obra_id) ||
+      !ORIGENES_BAJA_CONFIANZA.has(row.origen)
+    ) {
       origenPorObra.set(row.obra_id, row.origen);
     }
   }

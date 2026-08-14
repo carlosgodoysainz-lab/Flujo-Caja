@@ -45,43 +45,74 @@ describe("escalarCurva", () => {
 });
 
 describe("promediarCurvas", () => {
-  it("promedia mes a mes ignorando nulls", () => {
+  it("promedia mes a mes ignorando nulls, marca sinDatoReferencia=false cuando hay señal", () => {
     const curvas = [
       [10, 20, null],
       [30, null, 50],
     ];
-    expect(promediarCurvas(curvas, 3)).toEqual([20, 20, 50]);
+    const resultado = promediarCurvas(curvas, 3);
+    expect(resultado).toEqual([
+      { valor: 20, sinDatoReferencia: false },
+      { valor: 20, sinDatoReferencia: false },
+      { valor: 50, sinDatoReferencia: false },
+    ]);
   });
 
-  it("mes sin ninguna señal da 0, no NaN ni null", () => {
+  it("mes sin ninguna señal da valor=0 Y sinDatoReferencia=true (no confundir con 0 confirmado)", () => {
     const curvas = [
       [null, 10],
       [null, 20],
     ];
     const resultado = promediarCurvas(curvas, 2);
-    expect(resultado[0]).toBe(0);
-    expect(Number.isFinite(resultado[0])).toBe(true);
+    expect(resultado[0]).toEqual({ valor: 0, sinDatoReferencia: true });
+    expect(resultado[1]).toEqual({ valor: 15, sinDatoReferencia: false });
   });
 
-  it("sin curvas de referencia, todo el resultado es 0", () => {
-    expect(promediarCurvas([], 3)).toEqual([0, 0, 0]);
+  it("sin curvas de referencia, todo el resultado es sin dato", () => {
+    expect(promediarCurvas([], 3)).toEqual([
+      { valor: 0, sinDatoReferencia: true },
+      { valor: 0, sinDatoReferencia: true },
+      { valor: 0, sinDatoReferencia: true },
+    ]);
   });
 });
 
 describe("aVariacionNeta", () => {
+  const conDato = (valor: number) => ({ valor, sinDatoReferencia: false });
+  const sinDato = (valor = 0) => ({ valor, sinDatoReferencia: true });
+
   it("el primer mes es su propio valor absoluto", () => {
-    expect(aVariacionNeta([5, 8, 12])[0]).toBe(5);
+    expect(
+      aVariacionNeta([conDato(5), conDato(8), conDato(12)])[0].variacion,
+    ).toBe(5);
   });
 
   it("los meses siguientes son la diferencia con el mes anterior", () => {
-    expect(aVariacionNeta([5, 8, 12])).toEqual([5, 3, 4]);
+    const resultado = aVariacionNeta([conDato(5), conDato(8), conDato(12)]);
+    expect(resultado.map((r) => r.variacion)).toEqual([5, 3, 4]);
+    expect(resultado.every((r) => !r.sinDatoReferencia)).toBe(true);
   });
 
   it("una curva plana da variación 0 después del primer mes", () => {
-    expect(aVariacionNeta([10, 10, 10])).toEqual([10, 0, 0]);
+    expect(
+      aVariacionNeta([conDato(10), conDato(10), conDato(10)]).map(
+        (r) => r.variacion,
+      ),
+    ).toEqual([10, 0, 0]);
   });
 
   it("una curva decreciente da variaciones negativas", () => {
-    expect(aVariacionNeta([20, 15, 10])).toEqual([20, -5, -5]);
+    expect(
+      aVariacionNeta([conDato(20), conDato(15), conDato(10)]).map(
+        (r) => r.variacion,
+      ),
+    ).toEqual([20, -5, -5]);
+  });
+
+  it("un delta hereda sinDatoReferencia=true si CUALQUIERA de sus 2 puntos no tenía dato real", () => {
+    const resultado = aVariacionNeta([conDato(10), sinDato(0), conDato(15)]);
+    expect(resultado[0].sinDatoReferencia).toBe(false);
+    expect(resultado[1].sinDatoReferencia).toBe(true); // depende de mes 0 (con dato) y mes 1 (sin dato)
+    expect(resultado[2].sinDatoReferencia).toBe(true); // depende de mes 1 (sin dato) y mes 2 (con dato)
   });
 });
