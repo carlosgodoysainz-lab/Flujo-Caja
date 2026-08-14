@@ -117,30 +117,31 @@ async function main() {
   const { data: obras } = await supabase.from("obras").select("id, nombre");
   const obrasMatch = (obras ?? []).map((o) => ({ id: o.id, nombre: o.nombre }));
 
-  const todasLasFechas = primerDiaDeCadaMesDesde(FECHA_INICIO);
+  const fechas = primerDiaDeCadaMesDesde(FECHA_INICIO);
 
-  // Resume: si una corrida anterior ya dejó meses guardados (cargo_id IS
-  // NULL = filas de este script), no los repite desde cero — retoma
-  // desde el último mes ya hecho (se re-descarga SOLO ese mes, para
-  // reconstruir `grupoAnterior` en memoria sin persistir person_id en
-  // ningún lado; los meses anteriores a ese se saltan por completo).
-  // Pedido explícito del usuario: "se pierde el backfill" si el proceso
-  // se corta — con esto, retomar mañana es rápido, no repite 2+ horas.
-  const { data: yaHechos } = await supabase
+  // Resume CONSCIENTE DE HUECOS: una corrida anterior puede haber
+  // fallado en varios meses NO consecutivos (ej. un corte de red de
+  // horas) — asumir "todo antes del último mes guardado está completo"
+  // es falso en ese caso (encontrado en vivo: 43 de 103 meses faltaban,
+  // en un solo bloque 2019-11..2023-07, pese a que 2026-07 ya existía).
+  // Por eso SIEMPRE se recorre el rango completo (mantiene la cadena de
+  // `grupoAnterior` correcta mes a mes) pero se SALTA el delete+insert
+  // para las fechas que ya están guardadas — se re-descargan de Buk
+  // igual (barato comparado con perder la cadena de altas/bajas), pero
+  // no se vuelven a escribir.
+  const { data: yaHechosData } = await supabase
     .from("buk_dotacion_snapshots")
     .select("snapshot_date")
     .is("cargo_id", null)
-    .in("snapshot_date", todasLasFechas)
-    .order("snapshot_date", { ascending: false })
-    .limit(1);
-  const ultimoYaHecho = yaHechos?.[0]?.snapshot_date;
-  const fechas = ultimoYaHecho
-    ? todasLasFechas.filter((f) => f >= ultimoYaHecho)
-    : todasLasFechas;
+    .in("snapshot_date", fechas);
+  const fechasYaHechas = new Set(
+    (yaHechosData ?? []).map((d) => d.snapshot_date),
+  );
 
-  if (ultimoYaHecho) {
+  if (fechasYaHechas.size > 0) {
+    const faltantes = fechas.filter((f) => !fechasYaHechas.has(f));
     console.log(
-      `Retomando: ${todasLasFechas.length - fechas.length} meses ya estaban guardados de una corrida anterior (hasta ${ultimoYaHecho}) — se saltan. Continuando ${fechas.length} meses desde ahí.\n`,
+      `Retomando: ${fechasYaHechas.size} de ${fechas.length} meses ya estaban guardados. Rellenando ${faltantes.length} huecos: ${faltantes.join(", ")}\n`,
     );
   } else {
     console.log(
@@ -236,16 +237,19 @@ async function main() {
       });
     }
 
-    await supabase
-      .from("buk_dotacion_snapshots")
-      .delete()
-      .eq("snapshot_date", fecha)
-      .is("cargo_id", null);
-    if (filas.length > 0) {
-      const { error } = await supabase
+    if (!fechasYaHechas.has(fecha)) {
+      await supabase
         .from("buk_dotacion_snapshots")
-        .insert(filas);
-      if (error) console.error(`  Error guardando ${fecha}: ${error.message}`);
+        .delete()
+        .eq("snapshot_date", fecha)
+        .is("cargo_id", null);
+      if (filas.length > 0) {
+        const { error } = await supabase
+          .from("buk_dotacion_snapshots")
+          .insert(filas);
+        if (error)
+          console.error(`  Error guardando ${fecha}: ${error.message}`);
+      }
     }
 
     const construccion = filas
@@ -253,8 +257,11 @@ async function main() {
       .reduce((s, f) => s + f.activos, 0);
     const oficina = filas.find((f) => f.obra_id === null)?.activos ?? 0;
     resumen.push({ fecha, total: empleados.length, construccion, oficina });
+    const yaEstaba = fechasYaHechas.has(fecha)
+      ? " (ya estaba, no se reescribe)"
+      : "";
     console.log(
-      `${fecha}: total=${empleados.length}  construcción=${construccion}  oficina=${oficina}`,
+      `${fecha}: total=${empleados.length}  construcción=${construccion}  oficina=${oficina}${yaEstaba}`,
     );
 
     grupoAnterior = grupoActual;
