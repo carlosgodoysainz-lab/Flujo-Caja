@@ -284,6 +284,13 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 - **Sello**: generado con Nano Banana (`gemini-3-pro-image`, texto "CARLOS GODOY SAINZ" arqueado, paleta navy/dorado de Marca Maestra), recortado/reducido a 200×200 con `System.Drawing` (PowerShell) y embebido como base64 en `src/features/cash-flow/lib/watermark.ts` (`SELLO_AUTOR_BASE64`) — un solo módulo compartido para que ambos consumidores lo usen igual. Se coloca como `<image>` de baja opacidad (0.22) en la esquina inferior derecha del gráfico, `pointer-events:none` para no interceptar el mouse en la versión interactiva.
 - **Aplicar en**: cualquier asset de imagen que deba vivir en un HTML 100% autocontenido (export) Y en un componente React (vivo) — generar UNA vez, convertir a base64, y exportarlo desde un módulo compartido en vez de duplicar el string en los 2 archivos.
 
+### 2026-08-13: REGLA DE NEGOCIO — Aporte SENCE es 500 UF el 30 de junio, NO $20.000.000 fijos
+
+- **Corrección del usuario**: "El SENCE se carga cada 30 junio 500 UF... el resto de los meses no está pendiente, es $0... por el año 2026 se retrasó y tendrá que ser en agosto". El monto anterior (`SENCE_MONTO_ANUAL = 20_000_000`, un CLP fijo hardcodeado) era una aproximación que se iba a desactualizar con el tiempo — el monto real está denominado en UF.
+- **Fix**: `refresh.ts` ahora convierte **500 UF** al valor de UF real de ese mes (`getUfPorPeriodo`, mismo dato que ya usa la fila "Total Nómina (UF)") en vez de un CLP fijo. Si la UF de ese mes todavía no está sincronizada, el monto queda en 0 con `metodo_calculo='pendiente_ingreso_manual'` (genuinamente pendiente); en cualquier OTRO mes (fuera de la fecha de pago), el 0 es el valor correcto y final, con `metodo_calculo='no_corresponde_pago_anual'` — antes ambos casos se veían idénticos ("pendiente"), lo cual era engañoso para el mes-a-mes que no requiere ninguna acción.
+- **Fecha de pago**: 30 de junio todos los años; **excepción 2026: se retrasó a agosto** (ya estaba bien codificado en `senceMesEsperado`, sin cambios ahí).
+- **Aplicar en**: cualquier proyección futura de SENCE debe seguir usando 500 UF × valor UF del mes, nunca un monto en pesos fijo — la UF se revaloriza, un CLP fijo se desactualiza silenciosamente mes a mes.
+
 ---
 
 ## Gotchas (Antes de Implementar)

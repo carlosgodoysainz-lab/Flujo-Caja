@@ -43,7 +43,7 @@ const CONCEPTOS_METODOLOGIA = [
     fuenteReal:
       "SIEMPRE manual — es específico de cada período, no tiene fórmula automática. Se ingresa directamente en la celda de la tabla de detalle (click para editar); ese valor manual siempre tiene prioridad.",
     formula:
-      "Si no hay dato real: pago anual proyectado en $20.000.000 el mes esperado (junio todos los años; 2026 es la excepción, se pagó en agosto). 0 en el resto de los meses.",
+      'Si no hay dato real: pago anual de 500 UF, convertidas al valor de UF real del mes de pago (30 de junio todos los años; 2026 es la excepción, se retrasó a agosto). En el resto de los meses el valor es $0 — no queda "pendiente", es el monto correcto y final.',
     color: "var(--warn)",
   },
   {

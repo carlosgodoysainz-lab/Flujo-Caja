@@ -21,13 +21,14 @@ export interface CashFlowInputs {
   senceManual: number | null;
   /**
    * Proyección de respaldo cuando NO hay `senceManual` todavía — pedido
-   * explícito del usuario: SENCE se paga una vez al año, normalmente en
-   * junio ($20.000.000 en 2026, la excepción de este año fue agosto). El
-   * caller (`refresh.ts`) decide el monto según el mes/año — 0 en meses
-   * sin pago esperado. Sigue quedando `esReal=false` siempre: es una
-   * proyección, no reemplaza cargar el monto real cuando se sepa.
+   * explícito del usuario: SENCE se paga una vez al año, el 30 de junio,
+   * 500 UF (2026 es la excepción: se retrasó a agosto). El caller
+   * (`refresh.ts`) ya resuelve el monto (500 UF × valor UF real de ese
+   * mes) y el motivo exacto (fuera de fecha / pendiente / proyectado) —
+   * sigue quedando `esReal=false` siempre: es una proyección, no
+   * reemplaza cargar el monto real cuando se sepa.
    */
-  senceFallbackProyectado: number;
+  senceFallback: { monto: number; metodoCalculo: string };
   /**
    * Costo promedio por cabeza del MES ANTERIOR (Remuneración$ ÷ dotación),
    * para proyectar Remuneración como precio×cantidad. `null` si no hay
@@ -188,17 +189,11 @@ export function calcularMesCashFlow(
           esReal: true,
           metodoCalculo: "manual_override",
         }
-      : inputs.senceFallbackProyectado > 0
-        ? {
-            monto: inputs.senceFallbackProyectado,
-            esReal: false,
-            metodoCalculo: "proyeccion_pago_anual",
-          }
-        : {
-            monto: 0,
-            esReal: false,
-            metodoCalculo: "pendiente_ingreso_manual",
-          };
+      : {
+          monto: inputs.senceFallback.monto,
+          esReal: false,
+          metodoCalculo: inputs.senceFallback.metodoCalculo,
+        };
 
   const totalNomina =
     anticipo.monto +

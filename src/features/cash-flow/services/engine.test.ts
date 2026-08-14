@@ -13,7 +13,7 @@ const BASE: CashFlowInputs = {
   finiquitoReal: null,
   anticipoReal: null,
   senceManual: null,
-  senceFallbackProyectado: 0,
+  senceFallback: { monto: 0, metodoCalculo: "no_corresponde_pago_anual" },
   costoPromedioPorCabezaMesAnterior: null,
   dotacionActual: null,
   remuneracionFallbackPromedioHistorico: 0,
@@ -129,10 +129,22 @@ describe("calcularMesCashFlow", () => {
     expect(result.cotizacion.monto).toBe(esperado);
   });
 
-  it("SENCE sin override manual queda pendiente en 0, nunca se inventa por fórmula", () => {
+  it("SENCE fuera del mes de pago (30-jun) da $0 SIN quedar 'pendiente' — es el valor correcto y final", () => {
     const result = calcularMesCashFlow({
       ...BASE,
       remuneracionReal: 100_000_000,
+    });
+
+    expect(result.sence.monto).toBe(0);
+    expect(result.sence.esReal).toBe(false);
+    expect(result.sence.metodoCalculo).toBe("no_corresponde_pago_anual");
+  });
+
+  it("SENCE en el mes de pago esperado pero sin UF sincronizada SÍ queda genuinamente pendiente", () => {
+    const result = calcularMesCashFlow({
+      ...BASE,
+      remuneracionReal: 100_000_000,
+      senceFallback: { monto: 0, metodoCalculo: "pendiente_ingreso_manual" },
     });
 
     expect(result.sence.monto).toBe(0);
@@ -152,11 +164,14 @@ describe("calcularMesCashFlow", () => {
     expect(result.sence.metodoCalculo).toBe("manual_override");
   });
 
-  it("SENCE sin manual pero con proyección anual (ej. junio) usa esa, sigue sin ser real", () => {
+  it("SENCE sin manual pero con proyección anual (500 UF convertidas) usa esa, sigue sin ser real", () => {
     const result = calcularMesCashFlow({
       ...BASE,
       remuneracionReal: 100_000_000,
-      senceFallbackProyectado: 20_000_000,
+      senceFallback: {
+        monto: 20_000_000,
+        metodoCalculo: "proyeccion_pago_anual",
+      },
     });
 
     expect(result.sence.monto).toBe(20_000_000);
@@ -169,7 +184,10 @@ describe("calcularMesCashFlow", () => {
       ...BASE,
       remuneracionReal: 100_000_000,
       senceManual: 20_000_000,
-      senceFallbackProyectado: 20_000_000,
+      senceFallback: {
+        monto: 20_000_000,
+        metodoCalculo: "proyeccion_pago_anual",
+      },
     });
 
     expect(result.sence.esReal).toBe(true);

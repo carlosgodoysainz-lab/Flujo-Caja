@@ -5,6 +5,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { syncObrasFromGespro } from "@/features/obras/services/sync";
 import { syncPagosMensuales } from "./sync-pagos-mensuales";
 import { syncUfSeries } from "./uf-sync";
+import { getUfPorPeriodo } from "./queries";
 import { syncFlujoCajaHistorico } from "./sync-flujo-caja-historico";
 import { calcularMesCashFlow, type CashFlowConceptoCalculado } from "./engine";
 import { ANTICIPO_PCT } from "./formulas";
@@ -25,20 +26,45 @@ import { calcularBeneficiosDelMes, eventosPromedio6Meses } from "./beneficios";
 const METODOS_PRESERVADOS = ["manual_override", "ingesta_excel_historico"];
 
 /**
- * Aporte SENCE es un pago ANUAL — pedido explícito del usuario: "todos
- * los años en junio, pero solo por este año [2026] se realizará en
- * agosto, y son $20.000.000". Se usa SOLO como respaldo cuando no hay
- * `senceManual` cargado — nunca reemplaza el monto real cuando se sepa
- * exacto (ver engine.ts).
+ * Aporte SENCE es un pago ANUAL de 500 UF, siempre el 30 de junio —
+ * confirmado y corregido por el usuario el 13-ago-2026 ("el SENCE se
+ * carga cada 30 junio 500 UF... el resto de los meses no está
+ * pendiente, es $0... por el año 2026 se retrasó y tendrá que ser en
+ * agosto"). El monto está en UF, no en pesos fijos — se convierte con
+ * el valor de UF real de ese mes (ver `uf-sync.ts`), nunca queda
+ * hardcodeado en CLP (así no se desactualiza con el tiempo, a
+ * diferencia del $20.000.000 fijo que usaba la versión anterior). Se
+ * usa SOLO como respaldo cuando no hay `senceManual` cargado — nunca
+ * reemplaza el monto real cuando se sepa exacto (ver engine.ts).
  */
-const SENCE_MONTO_ANUAL = 20_000_000;
+const SENCE_MONTO_UF = 500;
 function senceMesEsperado(anio: number): number {
-  return anio === 2026 ? 7 : 5; // 2026: agosto (excepción); resto: junio
+  return anio === 2026 ? 7 : 5; // 2026: agosto (excepción, se retrasó); resto: 30 de junio
 }
-function senceFallbackProyectado(mes: Date): number {
-  return mes.getMonth() === senceMesEsperado(mes.getFullYear())
-    ? SENCE_MONTO_ANUAL
-    : 0;
+/**
+ * Fuera del mes de pago: $0 es el valor CORRECTO y final, no "pendiente"
+ * — metodo_calculo lo refleja como `no_corresponde_pago_anual`, distinto
+ * de `pendiente_ingreso_manual` (que sí implica que falta un dato).
+ */
+async function senceFallbackProyectado(
+  supabase: ReturnType<typeof createServiceClient>,
+  mes: Date,
+): Promise<{ monto: number; metodoCalculo: string }> {
+  if (mes.getMonth() !== senceMesEsperado(mes.getFullYear())) {
+    return { monto: 0, metodoCalculo: "no_corresponde_pago_anual" };
+  }
+  const periodoStr = mes.toISOString().slice(0, 10);
+  const ufPorPeriodo = await getUfPorPeriodo([periodoStr]);
+  const valorUf = ufPorPeriodo.get(periodoStr);
+  if (!valorUf) {
+    // Mes de pago esperado, pero sin UF sincronizada todavía — acá sí
+    // queda genuinamente pendiente (no se inventa el monto sin la UF real).
+    return { monto: 0, metodoCalculo: "pendiente_ingreso_manual" };
+  }
+  return {
+    monto: Math.round(SENCE_MONTO_UF * valorUf),
+    metodoCalculo: "proyeccion_pago_anual",
+  };
 }
 
 export interface RefreshReportResult {
@@ -487,7 +513,7 @@ export async function refreshCashFlowReport(
       finiquitoReal,
       anticipoReal,
       senceManual,
-      senceFallbackProyectado: senceFallbackProyectado(mes),
+      senceFallback: await senceFallbackProyectado(supabase, mes),
       costoPromedioPorCabezaMesAnterior,
       dotacionActual,
       remuneracionFallbackPromedioHistorico,

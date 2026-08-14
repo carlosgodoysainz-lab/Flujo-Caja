@@ -37,6 +37,34 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Reintenta con backoff — la API de Buk ocasionalmente tarda/timeoutea en páginas puntuales; sin esto, 1 timeout transitorio mataba las 3+ horas de corrida completas (visto en vivo: falló en el mes 13 de 103). */
+async function fetchConReintentos(
+  url: string,
+  intentos = 4,
+): Promise<Response> {
+  let ultimoError: unknown;
+  for (let intento = 1; intento <= intentos; intento++) {
+    try {
+      const res = await fetch(url, {
+        headers: { auth_token: BUK_KEY, Accept: "application/json" },
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (res.ok) return res;
+      if (res.status >= 500 || res.status === 429) {
+        ultimoError = new Error(`HTTP ${res.status}`);
+      } else {
+        return res; // error del cliente (4xx que no es rate-limit) — no reintentar
+      }
+    } catch (e) {
+      ultimoError = e;
+    }
+    await sleep(2000 * intento);
+  }
+  throw ultimoError instanceof Error
+    ? ultimoError
+    : new Error(`Fallo tras ${intentos} intentos: ${url}`);
+}
+
 async function fetchActivosEnFecha(
   fecha: string,
 ): Promise<EmpleadoHistorico[]> {
@@ -44,12 +72,8 @@ async function fetchActivosEnFecha(
   let page = 1;
   let totalPages = 1;
   do {
-    const res = await fetch(
+    const res = await fetchConReintentos(
       `${BUK_BASE}/api/v1/employees/active?date=${fecha}&page_size=25&page=${page}`,
-      {
-        headers: { auth_token: BUK_KEY, Accept: "application/json" },
-        signal: AbortSignal.timeout(30_000),
-      },
     );
     if (!res.ok)
       throw new Error(`Buk API ${res.status} en fecha ${fecha} página ${page}`);
@@ -105,13 +129,13 @@ async function main() {
     let nombre: string | null = nombrePorAreaId.get(areaId) ?? null;
     if (!nombrePorAreaId.has(areaId)) {
       try {
-        const res = await fetch(`${BUK_BASE}/api/v1/areas/${areaId}`, {
-          headers: { auth_token: BUK_KEY, Accept: "application/json" },
-          signal: AbortSignal.timeout(10_000),
-        });
+        const res = await fetchConReintentos(
+          `${BUK_BASE}/api/v1/areas/${areaId}`,
+          2,
+        );
         nombre = res.ok ? ((await res.json()).data?.name ?? null) : null;
       } catch {
-        nombre = null;
+        nombre = null; // degrada a "sin obra" — no vale la pena matar la corrida por 1 área
       }
       nombrePorAreaId.set(areaId, nombre);
     }
@@ -130,8 +154,20 @@ async function main() {
     oficina: number;
   }[] = [];
 
+  const fechasFallidas: string[] = [];
+
   for (const fecha of fechas) {
-    const empleados = await fetchActivosEnFecha(fecha);
+    let empleados: EmpleadoHistorico[];
+    try {
+      empleados = await fetchActivosEnFecha(fecha);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(
+        `  ${fecha}: FALLÓ tras reintentos (${msg}) — se salta, sigue con el siguiente mes.`,
+      );
+      fechasFallidas.push(fecha);
+      continue; // grupoAnterior queda igual — el siguiente mes exitoso compara contra el último bueno conocido
+    }
 
     const grupoActual = new Map<string, Set<string>>();
     for (const emp of empleados) {
@@ -200,6 +236,14 @@ async function main() {
 
   console.log("\n=== Resumen ===");
   console.table(resumen);
+  if (fechasFallidas.length > 0) {
+    console.log(
+      `\n${fechasFallidas.length} fecha(s) fallaron tras reintentos y quedaron sin backfillear: ${fechasFallidas.join(", ")}`,
+    );
+    console.log(
+      "Volvé a correr el script — es idempotente, solo reprocesa lo que falta si agregás un filtro, o corre completo de nuevo sin costo de duplicar (delete-then-insert por fecha).",
+    );
+  }
 }
 
 main().catch((e) => {
