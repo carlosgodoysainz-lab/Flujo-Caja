@@ -20,7 +20,7 @@ const CONCEPTOS_METODOLOGIA = [
     fuenteReal:
       'Real cuando existe dato ingerido (incluye cuotas de finiquito que vienen dentro de los mismos archivos de remuneración, ej. "Finiquito RP cuota 4/5").',
     formula:
-      "Si no hay dato real: promedio de los últimos 6 meses con Finiquito real ingerido (0 si todavía no hay 6 meses de historial).",
+      "Si no hay dato real: cuando la dotación total proyecta una BAJA NETA ese mes (curva de cierre de obra), se correlaciona con el costo promedio histórico por baja neta; si no hay baja neta ese mes o no hay histórico suficiente para calibrar, cae al promedio de los últimos 6 meses con Finiquito real (0 si todavía no hay 6 meses de historial).",
     color: "var(--ok)",
   },
   {

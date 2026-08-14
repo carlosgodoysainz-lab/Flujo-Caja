@@ -291,6 +291,13 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 - **Fecha de pago**: 30 de junio todos los años; **excepción 2026: se retrasó a agosto** (ya estaba bien codificado en `senceMesEsperado`, sin cambios ahí).
 - **Aplicar en**: cualquier proyección futura de SENCE debe seguir usando 500 UF × valor UF del mes, nunca un monto en pesos fijo — la UF se revaloriza, un CLP fijo se desactualiza silenciosamente mes a mes.
 
+### 2026-08-13: Finiquito correlacionado con bajas netas de dotación (no solo promedio ciego)
+
+- **Pedido**: parte de la auditoría de dotación — "lo que más me interesa es que el flujo de dotación sea el correcto". El promedio de 6 meses de Finiquito quedaba ciego a la curva de cierre de obra (dotación ya proyecta cuándo una obra empieza a bajar dotación hacia el cierre), llegando "tarde" a un pico real de indemnizaciones.
+- **Fix**: `refresh.ts` calcula `costoPromedioFiniquitoPorBajaNeta` — calibrado sobre meses REALES donde Finiquito real y dotación total (mes actual y anterior) existen ambos: ratio = Finiquito real ÷ |baja neta de dotación|, promediado. Cuando la dotación total proyecta una baja neta este mes, `finiquitoFallback = costoPorBajaNeta × |bajaNeta|` con `metodo_calculo='correlacionado_bajas_netas_dotacion'`; si no hay baja neta ese mes o no hay histórico calibrable, cae al promedio de 6 meses de siempre (`promedio_ultimos_6_meses_reales`) — sin cambio de comportamiento para el caso base.
+- **`engine.ts`**: `CashFlowInputs.finiquitoFallbackPromedio6m: number` pasó a `finiquitoFallback: {monto, metodoCalculo}` — mismo patrón ya usado para `senceFallback`/`beneficiosRg/Rp`, para que el motor exponga el método real usado, no un string hardcodeado que no reflejaba cuál fórmula se aplicó.
+- **Aplicar en**: cuando ya existe una proyección de "cantidad" confiable (acá, dotación) para un mes, preferir correlacionar conceptos derivados (Finiquito) con ella en vez de un promedio histórico ciego — mismo principio que motivó toda la auditoría de dotación de esta sesión.
+
 ---
 
 ## Gotchas (Antes de Implementar)

@@ -45,12 +45,17 @@ export interface CashFlowInputs {
    */
   remuneracionFallbackPromedioHistorico: number;
   /**
-   * Promedio de los ÚLTIMOS 6 MESES con Finiquito REAL ingerido — la
-   * metodología que el usuario pidió explícitamente para proyectar este
-   * concepto (reemplaza la fórmula del Excel real, que era 7%×Remuneración).
-   * 0 si todavía no hay 6 meses reales de historial.
+   * Fallback de Finiquito cuando no hay dato real — ya resuelto por el
+   * caller (`refresh.ts`) con la mejor metodología disponible: si la
+   * dotación TOTAL proyecta una baja neta este mes, correlaciona con el
+   * costo promedio histórico por baja neta (curva de cierre de obra —
+   * pedido explícito del usuario: "lo que más me interesa es que el
+   * flujo de dotación sea el correcto", 13-ago-2026); si no hay baja
+   * neta ese mes o no hay suficiente histórico para calibrar la razón,
+   * cae al promedio de los últimos 6 meses reales (metodología
+   * original). Siempre `esReal=false` — es una proyección.
    */
-  finiquitoFallbackPromedio6m: number;
+  finiquitoFallback: { monto: number; metodoCalculo: string };
   /**
    * Beneficios/Bonos ya resueltos por población — RG (Convenio Colectivo
    * Lira Parque) y RP (Anexo Beneficio Oficina Central), ver
@@ -158,9 +163,9 @@ export function calcularMesCashFlow(
           metodoCalculo: "ingesta_real",
         }
       : {
-          monto: inputs.finiquitoFallbackPromedio6m,
+          monto: inputs.finiquitoFallback.monto,
           esReal: false,
-          metodoCalculo: "promedio_ultimos_6_meses_reales",
+          metodoCalculo: inputs.finiquitoFallback.metodoCalculo,
         };
 
   // Cotizaciones siempre son fórmula — no existe fuente real automatizada

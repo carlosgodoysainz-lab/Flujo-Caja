@@ -17,7 +17,10 @@ const BASE: CashFlowInputs = {
   costoPromedioPorCabezaMesAnterior: null,
   dotacionActual: null,
   remuneracionFallbackPromedioHistorico: 0,
-  finiquitoFallbackPromedio6m: 0,
+  finiquitoFallback: {
+    monto: 0,
+    metodoCalculo: "promedio_ultimos_6_meses_reales",
+  },
   beneficiosRg: SIN_BENEFICIOS,
   beneficiosRp: SIN_BENEFICIOS,
 };
@@ -105,13 +108,33 @@ describe("calcularMesCashFlow", () => {
     const result = calcularMesCashFlow({
       ...BASE,
       remuneracionReal: 100_000_000,
-      finiquitoFallbackPromedio6m: 3_500_000,
+      finiquitoFallback: {
+        monto: 3_500_000,
+        metodoCalculo: "promedio_ultimos_6_meses_reales",
+      },
     });
 
     expect(result.finiquito.monto).toBe(3_500_000);
     expect(result.finiquito.esReal).toBe(false);
     expect(result.finiquito.metodoCalculo).toBe(
       "promedio_ultimos_6_meses_reales",
+    );
+  });
+
+  it("sin dato real de finiquito pero con dotación en baja neta, usa la correlación con bajas (no el promedio)", () => {
+    const result = calcularMesCashFlow({
+      ...BASE,
+      remuneracionReal: 100_000_000,
+      finiquitoFallback: {
+        monto: 12_000_000,
+        metodoCalculo: "correlacionado_bajas_netas_dotacion",
+      },
+    });
+
+    expect(result.finiquito.monto).toBe(12_000_000);
+    expect(result.finiquito.esReal).toBe(false);
+    expect(result.finiquito.metodoCalculo).toBe(
+      "correlacionado_bajas_netas_dotacion",
     );
   });
 
