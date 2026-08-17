@@ -294,7 +294,11 @@ export function renderReportHtml(params: {
   .kpi .valor.muted { color: rgba(255,255,255,0.6); }
   .mes-pico { font-size: 12px; color: rgba(255,255,255,0.6); margin: 10px 0 0; }
   .mes-pico strong { color: #fff; }
-  .chart-outer { max-width: 1400px; margin: 16px auto 0; padding: 0 16px 20px; }
+  /* Mismo max-width y padding horizontal que .hero-content — a diferencia
+     de /reporte en vivo (donde el gráfico es intencionalmente más ancho,
+     ver hero-consolidado.tsx), en el HTML descargado el usuario pidió que
+     el cuadro de KPIs y el gráfico queden alineados borde a borde. */
+  .chart-outer { max-width: 1000px; margin: 16px auto 0; padding: 0 24px 20px; }
   main { max-width: 1000px; margin: 0 auto; padding: 24px; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 16px; }
   th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid #eef2f6; }
