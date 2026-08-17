@@ -38,9 +38,9 @@ export const CONCEPTOS_METODOLOGIA = [
   {
     concepto: "Cotización",
     fuenteReal:
-      'Real SOLO desde el Excel maestro de Flujo de Caja (cuando esa celda ya no está amarilla ahí) — hoy no hay ningún folder de SharePoint conectado para Cotización aparte de ese (a diferencia de Anticipo/Remuneración/Finiquito, que sí tienen un 2do folder real). Existe una carpeta real "imposiciones <mes> <año>" (formato Previred, un archivo .txt por empresa/caja de compensación) con el detalle real pagado — pendiente de conectar (parseo delicado, no construido todavía).',
+      'Real desde 2 fuentes: (1) el comprobante oficial de pago de Previred ("comprobante previred <Empresa> <RG|RP>.pdf", carpeta "Pagos Mensuales/imposiciones/imposiciones <mes> <año>") — se suma el TOTAL GENERAL ya calculado y confirmado por Previred de todos los comprobantes del mes, cruzado contra "TOTAL A PAGAR" del mismo documento (si no coinciden, se descarta ese comprobante en vez de arriesgar el monto); (2) el Excel maestro de Flujo de Caja para meses históricos que ya lo tenían. Nunca se parsea el archivo .txt crudo de Previred (~70-100 columnas por trabajador) — ese layout requeriría adivinar qué campos exactos sumar, riesgo real para un dato financiero.',
     formula:
-      "Si no hay dato real: 30% × (Anticipo + Remuneración + Reliquidación) del mismo mes. Como Remuneración ya incluye Beneficios/Bonos de forma implícita, quedan incluidos en la base sin un 4to sumando.",
+      "Si no hay dato real de ninguna de las 2 fuentes: 30% × (Anticipo + Remuneración + Reliquidación) del mismo mes. Como Remuneración ya incluye Beneficios/Bonos de forma implícita, quedan incluidos en la base sin un 4to sumando.",
   },
   {
     concepto: "Aporte SENCE",
@@ -95,7 +95,7 @@ export const MOTOR_CAMBIO_MENSUAL = [
   {
     concepto: "Cotización",
     explicacion:
-      "30% de (Anticipo + Remuneración + Reliquidación) — como Remuneración es el componente más grande de esa suma, Cotización en la práctica sube o baja siguiendo a Remuneración, con la misma causa raíz: la dotación.",
+      "Cuando hay comprobante Previred real, sube o baja con la dotación real pagada ese mes (más/menos gente cotizando). Sin dato real, la fórmula (30% de Anticipo+Remuneración+Reliquidación) sigue a Remuneración — que como componente más grande de esa suma, arrastra a Cotización en la misma dirección, misma causa raíz: la dotación.",
   },
   {
     concepto: "Aporte SENCE",

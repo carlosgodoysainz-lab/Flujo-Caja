@@ -13,6 +13,13 @@ export interface CashFlowInputs {
   /** Real cuando existe archivo en "Pagos Mensuales/Anticipo" para el mes (ver sync-pagos-mensuales.ts). */
   anticipoReal: number | null;
   /**
+   * Real cuando existe el comprobante oficial de pago de Previred para
+   * el mes (suma de todos los comprobantes de la compañía — ver
+   * sync-cotizacion-previred.ts). `null` si no hay ningún comprobante
+   * ingerido todavía para ese mes.
+   */
+  cotizacionReal: number | null;
+  /**
    * Aporte SENCE — dato SIEMPRE manual (nunca fórmula), específico del
    * período. Viene de un override manual ya guardado en `cash_flow_monthly`
    * (ver `override.ts`) o `null` si nadie lo ha ingresado todavía para ese
@@ -168,19 +175,29 @@ export function calcularMesCashFlow(
           metodoCalculo: inputs.finiquitoFallback.metodoCalculo,
         };
 
-  // Cotizaciones siempre son fórmula — no existe fuente real automatizada
-  // para este concepto (% legal estable sobre la suma de los otros 3).
-  // Beneficios ya queda incluido de forma implícita vía `remuneracion.monto`
-  // (ver arriba), sin necesidad de un 4to sumando acá.
-  const cotizacion: CashFlowConceptoCalculado = {
-    monto: calcularCotizacion(
-      anticipo.monto,
-      remuneracion.monto,
-      reliquidacion.monto,
-    ),
-    esReal: false,
-    metodoCalculo: "formula_30pct_anticipo_mas_remun_mas_reliq",
-  };
+  // Cotización real desde el comprobante oficial de pago de Previred
+  // (ver sync-cotizacion-previred.ts) — antes SIEMPRE era fórmula ("no
+  // existe fuente real automatizada"), corregido 17-ago-2026 tras
+  // confirmar que la carpeta real sí existe. Mismo patrón real-gana-
+  // sobre-fórmula que todos los demás conceptos. Beneficios ya queda
+  // incluido de forma implícita vía `remuneracion.monto` (ver arriba),
+  // sin necesidad de un 4to sumando en la fórmula de respaldo.
+  const cotizacion: CashFlowConceptoCalculado =
+    inputs.cotizacionReal !== null
+      ? {
+          monto: inputs.cotizacionReal,
+          esReal: true,
+          metodoCalculo: "ingesta_previred",
+        }
+      : {
+          monto: calcularCotizacion(
+            anticipo.monto,
+            remuneracion.monto,
+            reliquidacion.monto,
+          ),
+          esReal: false,
+          metodoCalculo: "formula_30pct_anticipo_mas_remun_mas_reliq",
+        };
 
   // Aporte SENCE: SIEMPRE manual, nunca fórmula — pero si nadie lo ha
   // cargado todavía, se puede proyectar un estimado (pago anual, ver

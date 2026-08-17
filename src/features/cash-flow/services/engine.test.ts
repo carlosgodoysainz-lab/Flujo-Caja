@@ -12,6 +12,7 @@ const BASE: CashFlowInputs = {
   reliquidacionReal: null,
   finiquitoReal: null,
   anticipoReal: null,
+  cotizacionReal: null,
   senceManual: null,
   senceFallback: { monto: 0, metodoCalculo: "no_corresponde_pago_anual" },
   costoPromedioPorCabezaMesAnterior: null,
@@ -138,7 +139,7 @@ describe("calcularMesCashFlow", () => {
     );
   });
 
-  it("cotización siempre es fórmula — 30% de (anticipo + remuneración + reliquidación)", () => {
+  it("sin cotización real, cae a la fórmula 30% de (anticipo + remuneración + reliquidación)", () => {
     const result = calcularMesCashFlow({
       ...BASE,
       remuneracionReal: 100_000_000,
@@ -150,6 +151,25 @@ describe("calcularMesCashFlow", () => {
     const esperado = Math.round((2_000_000 + 100_000_000 + 1_000_000) * 0.3);
     expect(result.cotizacion.esReal).toBe(false);
     expect(result.cotizacion.monto).toBe(esperado);
+    expect(result.cotizacion.metodoCalculo).toBe(
+      "formula_30pct_anticipo_mas_remun_mas_reliq",
+    );
+  });
+
+  it("cotización real (comprobante Previred) tiene prioridad sobre la fórmula", () => {
+    const result = calcularMesCashFlow({
+      ...BASE,
+      remuneracionReal: 100_000_000,
+      reliquidacionReal: 1_000_000,
+      anticipoReal: 2_000_000,
+      // Muy distinto al 30% que daría la fórmula (~31M) — si el real no
+      // ganara, este test fallaría con el monto de la fórmula.
+      cotizacionReal: 9_885_783,
+    });
+
+    expect(result.cotizacion.monto).toBe(9_885_783);
+    expect(result.cotizacion.esReal).toBe(true);
+    expect(result.cotizacion.metodoCalculo).toBe("ingesta_previred");
   });
 
   it("SENCE fuera del mes de pago (30-jun) da $0 SIN quedar 'pendiente' — es el valor correcto y final", () => {

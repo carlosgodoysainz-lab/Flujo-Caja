@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { createServiceClient } from "@/lib/supabase/service";
 import { syncObrasFromGespro } from "@/features/obras/services/sync";
 import { syncPagosMensuales } from "./sync-pagos-mensuales";
+import { syncCotizacionPrevired } from "./sync-cotizacion-previred";
 import { syncUfSeries } from "./uf-sync";
 import { getUfPorPeriodo } from "./queries";
 import { syncFlujoCajaHistorico } from "./sync-flujo-caja-historico";
@@ -414,6 +415,22 @@ export async function refreshCashFlowReport(
         mensaje: pagosResult.errores.join("; "),
       });
     }
+
+    // Cotización real desde los comprobantes de pago de Previred — mismo
+    // criterio de tolerancia que Pagos Mensuales: el mes calendario en
+    // curso normalmente todavía no tiene el comprobante subido (Previred
+    // se paga a mediados del mes siguiente), no es un error.
+    const cotizacionResult = await syncCotizacionPrevired(mes);
+    documentosIngeridos += cotizacionResult.comprobantesProcesados;
+    const esMesActualSinComprobantesAun =
+      mes.getTime() === mesActual.getTime() &&
+      cotizacionResult.comprobantesProcesados === 0;
+    if (cotizacionResult.estado === "error" && !esMesActualSinComprobantesAun) {
+      errores.push({
+        fuente: `Cotización Previred ${cotizacionResult.periodo}`,
+        mensaje: cotizacionResult.errores.join("; "),
+      });
+    }
   }
 
   // Dotación total (variable "Q" del modelo de Remuneración) para todo el
@@ -441,6 +458,7 @@ export async function refreshCashFlowReport(
       "reliquidacion",
     ]);
     const finiquitoReal = await sumaLineItems(supabase, mes, ["finiquito"]);
+    const cotizacionReal = await sumaLineItems(supabase, mes, ["cotizacion"]);
 
     const remuneracionMesAnterior = await montoCashFlow(
       supabase,
@@ -539,6 +557,7 @@ export async function refreshCashFlowReport(
       reliquidacionReal,
       finiquitoReal,
       anticipoReal,
+      cotizacionReal,
       senceManual,
       senceFallback: await senceFallbackProyectado(supabase, mes),
       costoPromedioPorCabezaMesAnterior,
