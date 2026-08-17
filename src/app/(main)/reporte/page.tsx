@@ -14,13 +14,17 @@ import { MetodologiaCalculo } from "@/features/cash-flow/components/metodologia-
 
 export const dynamic = "force-dynamic";
 
-// Rango del dashboard: 12 meses atrás -> 12 meses adelante desde hoy.
-// El histórico completo (2022+) queda disponible ampliando el rango en
-// una fase futura (filtros de UI) — para el MVP este rango cubre el caso
-// de uso principal (¿cuánta caja necesito los próximos meses?).
+// Rango del dashboard: 3 meses atrás -> 12 meses adelante desde hoy.
+// Pedido explícito del usuario (17-ago-2026): a Finanzas le interesa
+// mucho más la proyección hacia adelante que el histórico profundo — 3
+// meses de real alcanzan para dar contexto/continuidad sin enterrar la
+// proyección entre demasiadas columnas de historia. Antes eran 12 meses
+// atrás, mostraba casi 2 años de historia por cada mes de foco real. El
+// histórico completo (2022+) sigue disponible ampliando el rango en una
+// fase futura (filtros de UI).
 function rangoDefault() {
   const hoy = new Date();
-  const desde = new Date(hoy.getFullYear(), hoy.getMonth() - 12, 1);
+  const desde = new Date(hoy.getFullYear(), hoy.getMonth() - 3, 1);
   const hasta = new Date(hoy.getFullYear(), hoy.getMonth() + 12, 1);
   return { desde, hasta };
 }

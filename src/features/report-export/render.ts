@@ -300,6 +300,15 @@ export function renderReportHtml(params: {
      el cuadro de KPIs y el gráfico queden alineados borde a borde. */
   .chart-outer { max-width: 1000px; margin: 16px auto 0; padding: 0 24px 20px; }
   main { max-width: 1000px; margin: 0 auto; padding: 24px; }
+  /* Bug real corregido 17-ago-2026: sin este wrapper, la tabla ancha (25+
+     columnas mensuales) empujaba el body completo más allá del
+     viewport — al hacer scroll horizontal para ver meses posteriores, el
+     hero (dimensionado al viewport original) quedaba "cortado" y se veía
+     un hueco blanco al lado, dando la sensación de que el gráfico era
+     angosto/apretado. Mismo patrón que el overflow-x-auto del
+     DetailTable en vivo — el scroll queda contenido en la tabla, nunca
+     en toda la página. */
+  .tabla-scroll { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 16px; }
   th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid #eef2f6; }
   th:first-child, td:first-child { text-align: left; }
@@ -346,10 +355,12 @@ export function renderReportHtml(params: {
   </div>
 </section>
 <main>
-  <table>
-    <thead><tr><th>Concepto</th>${encabezadosPeriodo}</tr></thead>
-    <tbody>${filaDotacion}${filasTabla}${filaUf}</tbody>
-  </table>
+  <div class="tabla-scroll">
+    <table>
+      <thead><tr><th>Concepto</th>${encabezadosPeriodo}</tr></thead>
+      <tbody>${filaDotacion}${filasTabla}${filaUf}</tbody>
+    </table>
+  </div>
   <p style="font-size:11px;color:#94a3b8;margin-top:8px;"><i>Cursiva</i> = proyectado, no dato real ingerido.</p>
 </main>
 <footer><span class="badge">Uso interno — Grupo Maestra</span></footer>
