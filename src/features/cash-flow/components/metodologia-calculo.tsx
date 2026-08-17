@@ -56,6 +56,58 @@ const CONCEPTOS_METODOLOGIA = [
 ] as const;
 
 /**
+ * Qué hace que cada concepto SUBA o BAJE de un mes al siguiente — pedido
+ * explícito del usuario (17-ago-2026): "incorpora una explicación
+ * mostrando el detalle de cómo el modelo aumenta o disminuye los
+ * conceptos mes a mes para que sea explicativo". Es la mecánica GENERAL
+ * (aplica igual todos los meses), no un cálculo puntual de un mes
+ * específico — complementa la tabla de arriba (qué fórmula usa) con el
+ * PORQUÉ del movimiento mes a mes.
+ */
+const MOTOR_CAMBIO_MENSUAL = [
+  {
+    concepto: "Dotación (N°)",
+    explicacion:
+      "El motor de TODO lo demás. Sube cuando arranca o avanza una obra (más gente contratada); baja hacia el cierre de una obra (desvinculaciones). Un salto grande de un mes a otro casi siempre viene de una obra que empieza/termina, no de un cambio gradual.",
+  },
+  {
+    concepto: "Remuneración",
+    explicacion:
+      "Sube o baja principalmente porque cambia la DOTACIÓN, no el costo por persona (que se mantiene relativamente estable mes a mes): Remuneración ≈ costo promedio por cabeza del mes anterior × dotación del mes actual. Si la dotación crece 5%, Remuneración proyectada crece ≈5% en el mismo sentido.",
+  },
+  {
+    concepto: "Anticipo",
+    explicacion:
+      "Sigue a Remuneración del mismo mes (24% de ella) — sube o baja en la MISMA dirección y proporción, nunca tiene un movimiento propio distinto.",
+  },
+  {
+    concepto: "Reliquidación",
+    explicacion:
+      "Igual que Anticipo: sigue a Remuneración (1% de ella) — mismo sentido, sin dinámica propia.",
+  },
+  {
+    concepto: "Finiquito",
+    explicacion:
+      "Es la excepción — no sigue a Remuneración, sigue a las BAJAS de dotación. Sube en los meses donde la dotación total cae (cierre de obra, desvinculaciones); en meses sin caída neta se mantiene estable en torno al promedio histórico.",
+  },
+  {
+    concepto: "Cotización",
+    explicacion:
+      "30% de (Anticipo + Remuneración + Reliquidación) — como Remuneración es el componente más grande de esa suma, Cotización en la práctica sube o baja siguiendo a Remuneración, con la misma causa raíz: la dotación.",
+  },
+  {
+    concepto: "Aporte SENCE",
+    explicacion:
+      "No tiene una dinámica gradual — es un escalón: $0 durante 11 meses, y un salto único al monto completo (500 UF) el mes de pago (30-jun normalmente; agosto en 2026). No sube ni baja gradualmente, salta.",
+  },
+  {
+    concepto: "Total Nómina",
+    explicacion:
+      "Suma de todos los anteriores — en la práctica, se mueve casi siempre en la MISMA dirección que la dotación (a través de Remuneración, Anticipo, Reliquidación y Cotización), con un salto adicional puntual el mes de pago de SENCE y en los meses con Finiquito alto por cierre de obra.",
+  },
+] as const;
+
+/**
  * Explica de forma transparente cómo se calcula cada concepto — qué es
  * dato real ingerido, qué es fórmula (y cuál exacta) y qué es siempre
  * manual. Metodología REDEFINIDA junto con el usuario tras revisar el
@@ -118,6 +170,28 @@ export function MetodologiaCalculo() {
           (curva de obras similares ya terminadas, mismo tipo, tamaño ±30%). Ver
           /dotacion para el detalle por obra.
         </p>
+
+        <div className="border-t border-slate-100 pt-3">
+          <h3 className="text-sm font-medium text-slate-700">
+            ¿Por qué sube o baja cada concepto de un mes al siguiente?
+          </h3>
+          <p className="mt-1 text-xs text-slate-400">
+            La tabla de arriba explica QUÉ fórmula usa cada concepto — esto
+            explica el MOTOR detrás del movimiento mes a mes: qué lo hace subir
+            o bajar, y por qué casi todo se mueve en la misma dirección que la
+            dotación.
+          </p>
+          <dl className="mt-3 space-y-2.5 text-sm">
+            {MOTOR_CAMBIO_MENSUAL.map((m) => (
+              <div key={m.concepto} className="flex gap-3">
+                <dt className="w-32 shrink-0 font-medium text-slate-700">
+                  {m.concepto}
+                </dt>
+                <dd className="text-slate-600">{m.explicacion}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
       </div>
     </details>
   );
