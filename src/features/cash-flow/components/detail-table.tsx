@@ -52,6 +52,7 @@ export function DetailTable({
           periodo={p}
           monto={punto?.monto ?? 0}
           esReal={punto?.esReal ?? false}
+          metodoCalculo={punto?.metodoCalculo ?? null}
         />
       );
     }

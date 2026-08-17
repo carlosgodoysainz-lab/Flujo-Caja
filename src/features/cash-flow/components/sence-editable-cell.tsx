@@ -17,15 +17,27 @@ function formatCLP(monto: number): string {
  * motor (engine.ts) lo deja en 0/"pendiente_ingreso_manual" hasta que
  * alguien lo ingresa acá, vía `overrideCashFlowValue` (mismo mecanismo de
  * auditoría que cualquier otro ajuste manual, ver override.ts).
+ *
+ * `metodoCalculo` distingue 3 estados que antes se veían idénticos (todo
+ * "— pendiente" con `esReal=false`, ver Auto-Blindaje 17-ago-2026):
+ * - `no_corresponde_pago_anual`: el modelo YA sabe que este mes no paga
+ *   SENCE (solo se paga una vez al año) — es un "$0" CONFIRMADO, no una
+ *   incertidumbre. Nunca debe mostrar "pendiente".
+ * - `proyeccion_pago_anual`: es un mes futuro de pago (500 UF) sin dato
+ *   real todavía — se muestra el monto proyectado, no se oculta.
+ * - `pendiente_ingreso_manual` (o sin metodoCalculo): SÍ es el mes de pago
+ *   y falta el dato real — este es el único caso que amerita "pendiente".
  */
 export function SenceEditableCell({
   periodo,
   monto,
   esReal,
+  metodoCalculo,
 }: {
   periodo: string;
   monto: number;
   esReal: boolean;
+  metodoCalculo: string | null;
 }) {
   const [editando, setEditando] = useState(false);
   const [valor, setValor] = useState(String(Math.round(monto)));
@@ -33,6 +45,13 @@ export function SenceEditableCell({
   const router = useRouter();
 
   if (!editando) {
+    const noCorresponde = metodoCalculo === "no_corresponde_pago_anual";
+    const proyeccion = metodoCalculo === "proyeccion_pago_anual";
+    // "$0 confirmado" o "proyección futura" muestran su monto tal cual
+    // (en el mismo estilo gris/itálico de cualquier celda proyectada) —
+    // solo el mes de pago real sin dato ingerido todavía usa "— pendiente".
+    const texto =
+      esReal || noCorresponde || proyeccion ? formatCLP(monto) : "— pendiente";
     return (
       <button
         type="button"
@@ -43,7 +62,7 @@ export function SenceEditableCell({
         className={`w-full text-right ${esReal ? "" : "text-slate-400 italic"} hover:underline`}
         title="Click para ingresar el Aporte SENCE de este mes (dato manual)"
       >
-        {esReal ? formatCLP(monto) : "— pendiente"}
+        {texto}
       </button>
     );
   }

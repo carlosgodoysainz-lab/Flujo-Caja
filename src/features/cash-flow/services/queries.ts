@@ -7,6 +7,14 @@ export interface CashFlowSeriePunto {
   concepto: string;
   monto: number;
   esReal: boolean;
+  /**
+   * Cómo se resolvió el monto (ej. `no_corresponde_pago_anual`,
+   * `pendiente_ingreso_manual`, `proyeccion_pago_anual` para SENCE) — la
+   * UI lo usa para distinguir "$0 confirmado, no corresponde este mes" de
+   * "falta ingresar el dato real", que antes se veían idénticos (ver
+   * sence-editable-cell.tsx).
+   */
+  metodoCalculo: string | null;
 }
 
 export async function getCashFlowSeries(
@@ -16,7 +24,7 @@ export async function getCashFlowSeries(
   const supabase = createServiceClient();
   const { data } = await supabase
     .from("cash_flow_monthly")
-    .select("periodo, concepto, monto, es_real")
+    .select("periodo, concepto, monto, es_real, metodo_calculo")
     .gte("periodo", periodoDesde.toISOString().slice(0, 10))
     .lte("periodo", periodoHasta.toISOString().slice(0, 10))
     .order("periodo");
@@ -26,6 +34,7 @@ export async function getCashFlowSeries(
     concepto: d.concepto,
     monto: Number(d.monto),
     esReal: d.es_real,
+    metodoCalculo: d.metodo_calculo,
   }));
 }
 
