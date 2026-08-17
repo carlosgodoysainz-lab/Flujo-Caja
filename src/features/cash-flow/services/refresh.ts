@@ -14,6 +14,7 @@ import {
   type DotacionTotalPunto,
 } from "@/features/headcount/services/dotacion-total";
 import { runForecastModel } from "@/features/headcount/forecast-model/run";
+import { runBukSnapshot } from "@/features/headcount/buk-sync/sync";
 import { calcularBeneficiosDelMes, eventosPromedio6Meses } from "./beneficios";
 
 /**
@@ -424,6 +425,22 @@ export async function refreshCashFlowReport(
     });
   } else {
     documentosIngeridos += 1;
+  }
+
+  // Pull EN VIVO del estado actual de Buk — antes solo el cron mensual de
+  // Vercel (que nunca ha corrido: el deploy todavía está pendiente) o los
+  // backfills manuales llenaban `buk_dotacion_snapshots`, así que la fila
+  // "Dotación" se quedaba estancada en el último mes que alguien hubiera
+  // corrido a mano (encontrado en vivo 17-ago-2026: dotación real solo
+  // hasta mayo pese a que Buk ya tenía jun/jul/parte de ago). Con esto,
+  // cada "Actualizar reporte" deja un snapshot real "al día de hoy" —
+  // corrige el mes en curso sin depender del cron.
+  const bukSnapshotResult = await runBukSnapshot();
+  if (bukSnapshotResult.estado === "error") {
+    errores.push({
+      fuente: "Snapshot Buk (dotación en vivo)",
+      mensaje: bukSnapshotResult.errores.join("; "),
+    });
   }
 
   const { obrasEstimadas } = await estimarDotacionFaltante(supabase);
