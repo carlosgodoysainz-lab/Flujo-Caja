@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import ExcelJS from "exceljs";
 import type {
   CashFlowSeriePunto,
@@ -6,6 +9,22 @@ import type {
 import type { DotacionTotalPunto } from "@/features/headcount/services/dotacion-total";
 import type { PlanObraDotacionFila } from "@/features/headcount/services/plan-obra-dotacion";
 import { FILAS_DETALLE as FILAS } from "@/features/cash-flow/lib/filas-detalle";
+
+// Fuente única de marca en Word/Excel/PPTX (skill marca-maestra) — hoy
+// ninguna celda la fijaba, quedaba en la fuente default de Excel.
+const FUENTE_MARCA = "Arial";
+
+// Logo horizontal color (fondo blanco), copiado al repo desde la skill
+// marca-maestra — nunca referenciar la ruta absoluta de la skill (vive en
+// el perfil del usuario, no existiría en otra máquina ni en producción).
+// Proporción real del archivo: 2363×600 (~3.94:1). `import.meta.url` en
+// vez de `__dirname` — el proyecto compila como ESM ("module": "esnext"
+// en tsconfig), donde `__dirname` no está garantizado según el bundler.
+const LOGO_MAESTRA_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "assets",
+  "maestra-logo.jpg",
+);
 
 // Mismo amarillo que el Excel ORIGINAL usaba para marcar proyección — ver
 // el hallazgo inicial ("lo que está en amarillo es lo que falta
@@ -72,41 +91,90 @@ export async function renderReportExcel(params: {
 
   // --- Hoja "Resumen" ---
   const resumen = workbook.addWorksheet("Resumen");
+
+  // Logo Maestra — solo en esta hoja (portada del archivo), mismo criterio
+  // de marca que "logo solo en portada/primera hoja" (ver skill
+  // marca-maestra). 3 filas reservadas arriba para que no se pise con el
+  // texto de abajo; ancho fijo, alto acorde a la proporción real del
+  // archivo (2363×600) para no deformar el logo.
+  // Cast necesario: el `Buffer` que espera `ExcelJS.Image.buffer` no
+  // coincide estructuralmente con el `Buffer` que devuelve `readFileSync`
+  // en esta versión de @types/node (colisión de tipos, no de runtime —
+  // es el mismo objeto real). Se castea el objeto completo, vía `unknown`,
+  // directo al tipo que exporta ExcelJS — evita el choque en la
+  // propiedad `buffer` sin recurrir a `any`.
+  const logoId = workbook.addImage({
+    buffer: readFileSync(LOGO_MAESTRA_PATH),
+    extension: "jpeg",
+  } as unknown as ExcelJS.Image);
+  resumen.addImage(logoId, {
+    tl: { col: 0, row: 0 },
+    ext: { width: 180, height: 46 },
+  });
+  resumen.addRow([]);
+  resumen.addRow([]);
+  resumen.addRow([]);
+
   resumen.addRow(["Flujo de Caja Nómina — Grupo Maestra"]).font = {
+    name: FUENTE_MARCA,
     bold: true,
     size: 14,
   };
   resumen.addRow([
     `Generado: ${generadoEn.toLocaleString("es-CL")}`,
     `Período: ${periodoDesde} a ${periodoHasta}`,
-  ]);
+  ]).font = { name: FUENTE_MARCA };
   resumen.addRow([]);
-  resumen.addRow(["KPI", "Valor"]).font = { bold: true };
-  resumen.addRow(["Este mes", kpis.totalMesActual]);
-  resumen.addRow(["Próximos 3 meses", kpis.totalProximosTresMeses]);
-  resumen.addRow(["Próximos 12 meses", kpis.totalProximosDoceMeses]);
-  resumen.addRow([
+  resumen.addRow(["KPI", "Valor"]).font = {
+    name: FUENTE_MARCA,
+    bold: true,
+  };
+
+  /** Agrega una fila KPI con fuente Arial y formato de número en la columna "Valor". */
+  function agregarFilaKpi(
+    label: string,
+    valor: number | string,
+    numFmt?: string,
+  ) {
+    const row = resumen.addRow([label, valor]);
+    row.font = { name: FUENTE_MARCA };
+    if (numFmt && typeof valor === "number") row.getCell(2).numFmt = numFmt;
+  }
+
+  agregarFilaKpi("Este mes", kpis.totalMesActual, "#,##0");
+  agregarFilaKpi("Próximos 3 meses", kpis.totalProximosTresMeses, "#,##0");
+  agregarFilaKpi("Próximos 12 meses", kpis.totalProximosDoceMeses, "#,##0");
+  agregarFilaKpi(
     "Variación vs. mes anterior (%)",
     kpis.variacionPct != null ? Number(kpis.variacionPct.toFixed(1)) : "—",
-  ]);
-  resumen.addRow([
+    "0.0",
+  );
+  agregarFilaKpi(
     "Dotación total (mes actual)",
     kpis.dotacionMesActual ?? "—",
-  ]);
-  resumen.addRow([
+    "#,##0",
+  );
+  agregarFilaKpi(
     "Obras con dotación estimada por el modelo",
     kpis.obrasConEstimacion,
-  ]);
-  resumen.addRow([
+    "#,##0",
+  );
+  agregarFilaKpi(
     "Meses proyectados en el rango",
     kpis.mesesProyectadosEnRango,
-  ]);
-  if (kpis.mesPico)
-    resumen.addRow([
-      "Mes de mayor requerimiento",
-      `${kpis.mesPico.periodo.slice(0, 7)} — ${kpis.mesPico.monto}`,
-    ]);
-  resumen.getColumn(1).width = 32;
+    "#,##0",
+  );
+  if (kpis.mesPico) {
+    // El período va en la etiqueta y el monto queda en su propia celda
+    // numérica con formato — antes era un solo string concatenado sin
+    // formato ("2027-05 — 3168296668"), rompía el resto de la columna.
+    agregarFilaKpi(
+      `Mes de mayor requerimiento (${kpis.mesPico.periodo.slice(0, 7)})`,
+      kpis.mesPico.monto,
+      "#,##0",
+    );
+  }
+  resumen.getColumn(1).width = 40;
   resumen.getColumn(2).width = 22;
 
   // --- Hoja "Detalle" — misma estructura que la tabla del HTML/dashboard ---
@@ -116,7 +184,7 @@ export async function renderReportExcel(params: {
     ...periodos.map((p) => p.slice(0, 7)),
   ]);
   headerRow.eachCell((cell) => {
-    cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    cell.font = { name: FUENTE_MARCA, bold: true, color: { argb: "FFFFFFFF" } };
     cell.fill = FILL_HEADER;
   });
 
@@ -131,7 +199,7 @@ export async function renderReportExcel(params: {
       if (punto && !punto.esReal) celdasProyectadas.push(i + 2);
     });
     const row = detalle.addRow(filaDotacion);
-    row.font = { color: { argb: "FF475569" } };
+    row.font = { name: FUENTE_MARCA, color: { argb: "FF475569" } };
     for (const colNum of celdasProyectadas)
       row.getCell(colNum).fill = FILL_PROYECTADO;
     row.eachCell((cell, colNumber) => {
@@ -152,7 +220,9 @@ export async function renderReportExcel(params: {
       if (punto && !punto.esReal) celdasProyectadas.push(i + 2); // +2: col 1 es "Concepto", 1-indexed
     });
     const row = detalle.addRow(fila);
-    if (negrita) row.font = { bold: true };
+    row.font = negrita
+      ? { name: FUENTE_MARCA, bold: true }
+      : { name: FUENTE_MARCA };
     for (const colNum of celdasProyectadas) {
       row.getCell(colNum).fill = FILL_PROYECTADO;
     }
@@ -181,7 +251,11 @@ export async function renderReportExcel(params: {
       filaUf.push(totalNomina && valorUf ? totalNomina.monto / valorUf : "");
     });
     const row = detalle.addRow(filaUf);
-    row.font = { italic: true, color: { argb: "FF003865" } };
+    row.font = {
+      name: FUENTE_MARCA,
+      italic: true,
+      color: { argb: "FF003865" },
+    };
     row.eachCell((cell, colNumber) => {
       if (colNumber > 1) cell.numFmt = "#,##0.0";
     });
@@ -196,6 +270,7 @@ export async function renderReportExcel(params: {
   detalle.addRow([
     "Amarillo = proyectado (fórmula, no dato real ingerido) — mismo criterio que el Excel original.",
   ]).font = {
+    name: FUENTE_MARCA,
     italic: true,
     size: 9,
     color: { argb: "FF94A3B8" },
@@ -230,7 +305,11 @@ export async function renderReportExcel(params: {
       "Origen Variación",
     ]);
     headerPlanObra.eachCell((cell) => {
-      cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      cell.font = {
+        name: FUENTE_MARCA,
+        bold: true,
+        color: { argb: "FFFFFFFF" },
+      };
       cell.fill = FILL_HEADER;
     });
 
@@ -250,6 +329,7 @@ export async function renderReportExcel(params: {
         fila.variacionNeta ?? "",
         fila.origenVariacion ? ORIGEN_LABEL[fila.origenVariacion] : "Sin dato",
       ]);
+      row.font = { name: FUENTE_MARCA };
       if (fila.origenVariacion === "modelo_estimado") {
         row.getCell(11).fill = FILL_PROYECTADO;
         row.getCell(12).fill = FILL_PROYECTADO;
@@ -270,7 +350,12 @@ export async function renderReportExcel(params: {
     const notaPlanObra = planObra.addRow([]);
     planObra.addRow([
       "Amarillo = dotación estimada por el modelo (curva de obras similares). Gris = el modelo no tenía ninguna obra de referencia con dato real ese mes — el valor es un placeholder (0 acumulado), no una estimación real.",
-    ]).font = { italic: true, size: 9, color: { argb: "FF94A3B8" } };
+    ]).font = {
+      name: FUENTE_MARCA,
+      italic: true,
+      size: 9,
+      color: { argb: "FF94A3B8" },
+    };
     void notaPlanObra;
   }
 
