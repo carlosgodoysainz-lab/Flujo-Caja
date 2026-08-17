@@ -12,6 +12,10 @@ import type {
 } from "@/features/headcount/services/dotacion-total";
 import type { PlanObraDotacionFila } from "@/features/headcount/services/plan-obra-dotacion";
 import { FILAS_DETALLE as FILAS } from "@/features/cash-flow/lib/filas-detalle";
+import {
+  CONCEPTOS_METODOLOGIA,
+  MOTOR_CAMBIO_MENSUAL,
+} from "@/features/cash-flow/lib/metodologia-contenido";
 
 // Fuente única de marca en Word/Excel/PPTX (skill marca-maestra) — hoy
 // ninguna celda la fijaba, quedaba en la fuente default de Excel.
@@ -77,6 +81,18 @@ export async function renderReportExcel(params: {
   dotacionRgRpPorPeriodo?: Map<string, DotacionRgRpPunto>;
   /** Plan de obra (Gespro) + dotación real (Buk) + flujo estimado por obra — ver plan-obra-dotacion.ts. Hoja "Plan de Obra" solo aparece si hay filas. */
   planObraDotacion?: PlanObraDotacionFila[];
+  /**
+   * Períodos ANTERIORES a este (YYYY-MM-DD) quedan agrupados/colapsados
+   * en la hoja "Detalle" (outline de columnas de Excel) en vez de
+   * mostrarse expandidos — pedido explícito del usuario 17-ago-2026: "el
+   * histórico dejalo agrupado en el excel, no lo elimines" (el Excel
+   * trae más meses hacia atrás que la app en vivo, pero sin abrumar por
+   * default — mismo criterio de agrupación por columnas que ya usa el
+   * Excel real de Finanzas, visible como los botones "1 2" en la
+   * esquina superior izquierda). Sin este parámetro, ninguna columna se
+   * agrupa (comportamiento previo).
+   */
+  columnasAgrupadasHastaPeriodo?: string;
   periodoDesde: string;
   periodoHasta: string;
   generadoEn: Date;
@@ -88,6 +104,7 @@ export async function renderReportExcel(params: {
     dotacionPorPeriodo,
     dotacionRgRpPorPeriodo,
     planObraDotacion,
+    columnasAgrupadasHastaPeriodo,
     periodoDesde,
     periodoHasta,
     generadoEn,
@@ -333,6 +350,24 @@ export async function renderReportExcel(params: {
     col.width = esColumnaN ? 8 : 14;
   });
 
+  // Agrupa/colapsa (outline de columnas de Excel) los períodos anteriores
+  // a `columnasAgrupadasHastaPeriodo` — presentes en el archivo pero no
+  // expandidos por default, mismo criterio visual que el Excel real de
+  // Finanzas (botones "1 2" de agrupación en la esquina superior
+  // izquierda). Sin este parámetro, no se agrupa ninguna columna.
+  if (columnasAgrupadasHastaPeriodo) {
+    periodos.forEach((p, i) => {
+      if (p >= columnasAgrupadasHastaPeriodo) return;
+      const col = colValor(i);
+      detalle.getColumn(col).outlineLevel = 1;
+      detalle.getColumn(col).hidden = true;
+      if (conColumnaN) {
+        detalle.getColumn(col + 1).outlineLevel = 1;
+        detalle.getColumn(col + 1).hidden = true;
+      }
+    });
+  }
+
   const legend = detalle.addRow([]);
   const textoLeyenda =
     "Amarillo = proyectado (fórmula, no dato real ingerido) — mismo criterio que el Excel original." +
@@ -346,6 +381,59 @@ export async function renderReportExcel(params: {
     color: { argb: "FF94A3B8" },
   };
   void legend;
+
+  // --- Hoja "Metodología" — misma explicación que la sección "¿Cómo se
+  // calcula este flujo?" de la app en vivo (metodologia-calculo.tsx),
+  // pedido explícito del usuario 17-ago-2026: "faltan las explicaciones
+  // de las modificaciones de valores en el excel". Contenido compartido
+  // desde metodologia-contenido.ts — nunca duplicado a mano en 2 lugares.
+  const metodologia = workbook.addWorksheet("Metodología");
+  metodologia.addRow(["¿Cómo se calcula cada concepto?"]).font = {
+    name: FUENTE_MARCA,
+    bold: true,
+    size: 14,
+  };
+  metodologia.addRow([]);
+  const headerMetodologia = metodologia.addRow([
+    "Concepto",
+    "Fuente real",
+    "Fórmula (si no hay dato real)",
+  ]);
+  headerMetodologia.eachCell((cell) => {
+    cell.font = { name: FUENTE_MARCA, bold: true, color: { argb: "FFFFFFFF" } };
+    cell.fill = FILL_HEADER;
+  });
+  for (const c of CONCEPTOS_METODOLOGIA) {
+    const row = metodologia.addRow([
+      c.concepto,
+      c.fuenteReal,
+      c.formula ?? "—",
+    ]);
+    row.font = { name: FUENTE_MARCA };
+    row.alignment = { vertical: "top", wrapText: true };
+  }
+
+  metodologia.addRow([]);
+  metodologia.addRow([
+    "¿Por qué sube o baja cada concepto de un mes al siguiente?",
+  ]).font = { name: FUENTE_MARCA, bold: true, size: 12 };
+  const headerMotor = metodologia.addRow([
+    "Concepto",
+    "Motor del cambio mensual",
+  ]);
+  headerMotor.eachCell((cell) => {
+    cell.font = { name: FUENTE_MARCA, bold: true, color: { argb: "FFFFFFFF" } };
+    cell.fill = FILL_HEADER;
+  });
+  for (const m of MOTOR_CAMBIO_MENSUAL) {
+    const row = metodologia.addRow([m.concepto, m.explicacion]);
+    row.font = { name: FUENTE_MARCA };
+    row.alignment = { vertical: "top", wrapText: true };
+  }
+
+  metodologia.getColumn(1).width = 24;
+  metodologia.getColumn(2).width = 60;
+  metodologia.getColumn(3).width = 60;
 
   // --- Hoja "Plan de Obra" — plan de obra (Gespro) + dotación real (Buk)
   // + flujo de dotación estimada (altas−bajas del modelo de curva por

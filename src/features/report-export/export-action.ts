@@ -69,21 +69,62 @@ export async function exportReportAsHtml(
       periodoHasta,
     );
 
+    // El Excel trae MÁS histórico que la app en vivo/el HTML — pedido
+    // explícito del usuario ("el histórico dejalo agrupado en el excel,
+    // no lo elimines") tras acotar el rango en vivo a 3 meses atrás (esa
+    // acotación era para el foco de Finanzas en la proyección, no para
+    // perder el respaldo histórico del Excel). Se agregan 9 meses más
+    // atrás (total 12 desde hoy) y quedan agrupados/colapsados en la
+    // hoja "Detalle" (ver `columnasAgrupadasHastaPeriodo` en
+    // render-excel.ts) — presentes pero no estorbando por default.
+    const desdeExcel = new Date(
+      periodoDesde.getFullYear(),
+      periodoDesde.getMonth() - 9,
+      1,
+    );
+    const [serieExcel] = await Promise.all([
+      getCashFlowSeries(desdeExcel, periodoHasta),
+    ]);
+    const ufPorPeriodoExcel = await getUfPorPeriodo([
+      ...new Set(serieExcel.map((p) => p.periodo)),
+    ]);
+    const dotacionPorPeriodoExcel = await getDotacionTotalPorPeriodo(
+      desdeExcel,
+      periodoHasta,
+    );
+    const dotacionRgRpPorPeriodoExcel = await getDotacionRgRpPorPeriodo(
+      desdeExcel,
+      periodoHasta,
+    );
+
     const generadoEn = new Date();
+    const periodoDesdeStr = periodoDesde.toISOString().slice(0, 10);
+    const periodoHastaStr = periodoHasta.toISOString().slice(0, 10);
     const paramsComunes = {
       serie,
       kpis,
       ufPorPeriodo,
       dotacionPorPeriodo,
       dotacionRgRpPorPeriodo,
-      periodoDesde: periodoDesde.toISOString().slice(0, 10),
-      periodoHasta: periodoHasta.toISOString().slice(0, 10),
+      periodoDesde: periodoDesdeStr,
+      periodoHasta: periodoHastaStr,
       generadoEn,
     };
 
     const html = renderReportHtml(paramsComunes);
     const excelBuffer = await renderReportExcel({
-      ...paramsComunes,
+      serie: serieExcel,
+      kpis,
+      ufPorPeriodo: ufPorPeriodoExcel,
+      dotacionPorPeriodo: dotacionPorPeriodoExcel,
+      dotacionRgRpPorPeriodo: dotacionRgRpPorPeriodoExcel,
+      periodoDesde: periodoDesdeStr,
+      periodoHasta: periodoHastaStr,
+      // Todo lo anterior a este período queda agrupado/colapsado en
+      // "Detalle" — mismo período que ve la app en vivo, el resto es
+      // respaldo histórico accesible pero no estorba por default.
+      columnasAgrupadasHastaPeriodo: periodoDesdeStr,
+      generadoEn,
       planObraDotacion,
     });
 
