@@ -360,6 +360,13 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 - **Wireado además**: `runBukSnapshot()` (pull en vivo de Buk, ya existía en `buk-sync/sync.ts`) ahora se llama dentro de `refresh.ts` en cada "Actualizar reporte" — antes solo lo llenaba el cron mensual de Vercel (nunca corrido, el deploy sigue pendiente) o backfills manuales, así que el mes en curso se quedaba stale indefinidamente. Se corrió una vez a mano (vía el endpoint `/api/cron/buk-snapshot` contra el dev server local, con `CRON_SECRET`) para dejar un snapshot real de agosto-2026 sin esperar al próximo refresh.
 - **Aplicar en**: cualquier consulta nueva a una tabla que pueda crecer sin cota conocida — jamás confiar en que "total de filas esperado < 1000" seguirá siendo cierto; paginar con `.range()` desde el día uno si la tabla es de series de tiempo/histórico.
 
+### 2026-08-17: 2do bug real el mismo día — sumar 2 snapshots del mismo mes duplicaba gente
+
+- **Síntoma**: apenas se corrigió el bug anterior y se probó en vivo, agosto-2026 salió **1.763** en la fila Dotación — más del doble que julio (841), imposible según el usuario ("es imposible que sea más del doble del mes anterior").
+- **Causa real, confirmada con datos**: `buk_dotacion_snapshots` tenía 2 snapshots distintos dentro de agosto — el del cron mensual original (`2026-08-05`, suma=913) y el pull en vivo recién agregado (`2026-08-17`, suma=862, ver hallazgo anterior). `getDotacionTotalPorPeriodo` agregaba por período SUMANDO todas las filas de un mes sin importar de qué `snapshot_date` venían — sumaba 2 FOTOS distintas del mismo mes (913+862≈1775, cerca del 1.763 mostrado) en vez de quedarse con la más reciente. Es consecuencia directa de haber wireado `runBukSnapshot()` a cada "Actualizar reporte" (hallazgo anterior, mismo día): ahora cada click agrega una fecha de snapshot nueva dentro del mes en curso.
+- **Fix real**: la agregación ahora suma `activos` por `snapshot_date` EXACTA primero, y después cada período se queda con la suma de la fecha más reciente que caiga en ese mes — nunca con la suma de todas las fechas del mes. Verificado contra la base real: mayo=784, junio=774, julio=841, agosto=862 (antes del fix: agosto salía ~1.763-1.775).
+- **Aplicar en**: cualquier tabla de snapshots puntuales (una fila = una foto en el tiempo, no un acumulado) donde pueda existir MÁS DE 1 fila por período de agregación — agregar siempre por la clave de snapshot exacta primero, nunca sumar directo por el período derivado (mes/semana/etc.) sin des-duplicar por fecha real antes.
+
 ---
 
 ## Gotchas (Antes de Implementar)

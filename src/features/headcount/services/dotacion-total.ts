@@ -63,12 +63,31 @@ export async function getDotacionTotalPorPeriodo(
     snapshots.push(...pagina);
     if (pagina.length < TAMANO_PAGINA) break;
   }
+  // BUG REAL corregido 17-ago-2026 (mismo día, 2do bug distinto): cada
+  // `snapshot_date` es una FOTO puntual de dotación — si el mismo mes
+  // tiene más de 1 snapshot (ej. el cron mensual del día 5 + el pull en
+  // vivo de "Actualizar reporte" de hoy, que ahora corre cada vez que se
+  // hace click — ver refresh.ts), el período debe quedarse con el
+  // snapshot MÁS RECIENTE de ese mes, nunca con la SUMA de ambos (sumar 2
+  // fotos del mismo mes duplica gente que sigue activa en las 2 — visto
+  // en vivo: agosto salió ~1.760 en vez de ~860 porque sumaba el
+  // snapshot del 5-ago con el de hoy). Primero se suma `activos` por
+  // fecha exacta, después cada período se queda con la fecha más
+  // reciente que caiga en ese mes (no con la suma de todas).
+  const sumaPorFechaExacta = new Map<string, number>();
   for (const s of snapshots) {
-    const periodo = periodoDeFecha(s.snapshot_date);
-    totalPorSnapshot.set(
-      periodo,
-      (totalPorSnapshot.get(periodo) ?? 0) + s.activos,
+    sumaPorFechaExacta.set(
+      s.snapshot_date,
+      (sumaPorFechaExacta.get(s.snapshot_date) ?? 0) + s.activos,
     );
+  }
+  for (const [fecha, suma] of [...sumaPorFechaExacta.entries()].sort(
+    ([a], [b]) => a.localeCompare(b),
+  )) {
+    // Recorriendo en orden ascendente, la última asignación por período
+    // es siempre la fecha más reciente de ese mes — pisa a la anterior a
+    // propósito.
+    totalPorSnapshot.set(periodoDeFecha(fecha), suma);
   }
 
   // `dotacion_mensual` manda por sobre el derivado de Buk cuando ambos
