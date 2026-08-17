@@ -8,7 +8,10 @@ import {
   TableRow,
 } from "@/shared/ui/table";
 import type { CashFlowSeriePunto } from "../services/queries";
-import type { DotacionTotalPunto } from "@/features/headcount/services/dotacion-total";
+import type {
+  DotacionTotalPunto,
+  DotacionRgRpPunto,
+} from "@/features/headcount/services/dotacion-total";
 import { SenceEditableCell } from "./sence-editable-cell";
 import { FILAS_DETALLE as FILAS } from "../lib/filas-detalle";
 
@@ -30,17 +33,27 @@ export function DetailTable({
   serie,
   ufPorPeriodo,
   dotacionPorPeriodo,
+  dotacionRgRpPorPeriodo,
 }: {
   serie: CashFlowSeriePunto[];
   /** Valor UF por período (mismo formato YYYY-MM-DD que `periodo`) — ver uf-sync.ts. Fila "Total Nómina (UF)" solo aparece si hay dato. */
   ufPorPeriodo: Map<string, number>;
   /** Dotación total (N°) por período — ver dotacion-total.ts. Fila "Dotación" solo aparece si hay dato. */
   dotacionPorPeriodo?: Map<string, DotacionTotalPunto>;
+  /**
+   * Dotación (N°) RG/RP por período — misma columna que el Excel real de
+   * Finanzas trae al lado de cada sub-fila RG/RP de Anticipo/Remuneración
+   * (pedido explícito del usuario 17-ago-2026). Si no se provee, la
+   * tabla queda con una sola columna por período (comportamiento previo).
+   */
+  dotacionRgRpPorPeriodo?: Map<string, DotacionRgRpPunto>;
 }) {
   const periodos = [...new Set(serie.map((p) => p.periodo))].sort();
   const valorPorConceptoYPeriodo = new Map<string, CashFlowSeriePunto>();
   for (const punto of serie)
     valorPorConceptoYPeriodo.set(`${punto.concepto}::${punto.periodo}`, punto);
+
+  const conColumnaN = !!dotacionRgRpPorPeriodo;
 
   function celda(concepto: string, p: string) {
     const punto = valorPorConceptoYPeriodo.get(`${concepto}::${p}`);
@@ -59,18 +72,46 @@ export function DetailTable({
     return punto ? formatCLP(punto.monto) : "—";
   }
 
+  /** Celda "N°" — vacía salvo en las sub-filas RG/RP de Anticipo/Remuneración (ver `FilaDetalle.sub[].dotacion`). */
+  function celdaN(dotacion: "rg" | "rp" | undefined, p: string) {
+    if (!dotacion) return null;
+    const punto = dotacionRgRpPorPeriodo?.get(p);
+    const valor = punto?.[dotacion];
+    return valor != null ? formatN(valor) : "—";
+  }
+
   return (
     <div className="overflow-x-auto">
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Concepto</TableHead>
-            {periodos.map((p) => (
-              <TableHead key={p} className="text-right">
-                {p.slice(0, 7)}
-              </TableHead>
-            ))}
+            <TableHead rowSpan={conColumnaN ? 2 : 1}>Concepto</TableHead>
+            {periodos.map((p) =>
+              conColumnaN ? (
+                <TableHead key={p} colSpan={2} className="text-center">
+                  {p.slice(0, 7)}
+                </TableHead>
+              ) : (
+                <TableHead key={p} className="text-right">
+                  {p.slice(0, 7)}
+                </TableHead>
+              ),
+            )}
           </TableRow>
+          {conColumnaN && (
+            <TableRow>
+              {periodos.map((p) => (
+                <Fragment key={p}>
+                  <TableHead className="text-right text-[10px] font-normal text-slate-400">
+                    $
+                  </TableHead>
+                  <TableHead className="text-right text-[10px] font-normal text-slate-400">
+                    N°
+                  </TableHead>
+                </Fragment>
+              ))}
+            </TableRow>
+          )}
         </TableHeader>
         <TableBody>
           {dotacionPorPeriodo && dotacionPorPeriodo.size > 0 && (
@@ -80,11 +121,16 @@ export function DetailTable({
               </TableCell>
               {periodos.map((p) => {
                 const punto = dotacionPorPeriodo.get(p);
-                return (
-                  <TableCell
-                    key={p}
-                    className={`text-right ${punto && !punto.esReal ? "text-slate-400 italic" : ""}`}
-                  >
+                const clase = `text-right ${punto && !punto.esReal ? "text-slate-400 italic" : ""}`;
+                return conColumnaN ? (
+                  <Fragment key={p}>
+                    <TableCell className={clase}>
+                      {punto ? formatN(punto.total) : "—"}
+                    </TableCell>
+                    <TableCell />
+                  </Fragment>
+                ) : (
+                  <TableCell key={p} className={clase}>
                     {punto ? formatN(punto.total) : "—"}
                   </TableCell>
                 );
@@ -103,11 +149,16 @@ export function DetailTable({
                   const punto = valorPorConceptoYPeriodo.get(
                     `${fila.concepto}::${p}`,
                   );
-                  return (
-                    <TableCell
-                      key={p}
-                      className={`text-right ${punto && !punto.esReal ? "text-slate-400 italic" : ""}`}
-                    >
+                  const clase = `text-right ${punto && !punto.esReal ? "text-slate-400 italic" : ""}`;
+                  return conColumnaN ? (
+                    <Fragment key={p}>
+                      <TableCell className={clase}>
+                        {celda(fila.concepto, p)}
+                      </TableCell>
+                      <TableCell />
+                    </Fragment>
+                  ) : (
+                    <TableCell key={p} className={clase}>
                       {celda(fila.concepto, p)}
                     </TableCell>
                   );
@@ -120,11 +171,20 @@ export function DetailTable({
                     const punto = valorPorConceptoYPeriodo.get(
                       `${sub.concepto}::${p}`,
                     );
-                    return (
-                      <TableCell
-                        key={p}
-                        className={`text-right text-xs ${punto && !punto.esReal ? "italic" : ""}`}
-                      >
+                    const clase = `text-right text-xs ${punto && !punto.esReal ? "italic" : ""}`;
+                    return conColumnaN ? (
+                      <Fragment key={p}>
+                        <TableCell className={clase}>
+                          {punto ? formatCLP(punto.monto) : "—"}
+                        </TableCell>
+                        <TableCell
+                          className={`text-right text-xs text-slate-400`}
+                        >
+                          {celdaN(sub.dotacion, p)}
+                        </TableCell>
+                      </Fragment>
+                    ) : (
+                      <TableCell key={p} className={clase}>
                         {punto ? formatCLP(punto.monto) : "—"}
                       </TableCell>
                     );
@@ -143,7 +203,14 @@ export function DetailTable({
                 const valorUf = ufPorPeriodo.get(p);
                 const enUf =
                   totalNomina && valorUf ? totalNomina.monto / valorUf : null;
-                return (
+                return conColumnaN ? (
+                  <Fragment key={p}>
+                    <TableCell className="text-right">
+                      {enUf !== null ? formatUF(enUf) : "—"}
+                    </TableCell>
+                    <TableCell />
+                  </Fragment>
+                ) : (
                   <TableCell key={p} className="text-right">
                     {enUf !== null ? formatUF(enUf) : "—"}
                   </TableCell>

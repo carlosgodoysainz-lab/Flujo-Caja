@@ -13,7 +13,20 @@
 export interface FilaDetalle {
   concepto: string;
   label: string;
-  sub?: { concepto: string; label: string }[];
+  sub?: {
+    concepto: string;
+    label: string;
+    /**
+     * Si esta sub-fila lleva columna "N°" (dotación) al lado del monto —
+     * mismo formato del Excel real de Finanzas, pedido explícito del
+     * usuario 17-ago-2026 ("mantén ese formato para ver cómo va
+     * cambiando el input principal que corresponde a dotación"). Solo
+     * Anticipo/Remuneración RG-RP la llevan — Finiquito, Reliquidación,
+     * Cotización, SENCE y Total Nómina quedan sin columna N° (igual que
+     * en el Excel original, esa columna queda vacía para esas filas).
+     */
+    dotacion?: "rg" | "rp";
+  }[];
 }
 
 export const FILAS_DETALLE: FilaDetalle[] = [
@@ -21,16 +34,16 @@ export const FILAS_DETALLE: FilaDetalle[] = [
     concepto: "anticipo",
     label: "Anticipo",
     sub: [
-      { concepto: "anticipo_rg", label: "RG" },
-      { concepto: "anticipo_rp", label: "RP" },
+      { concepto: "anticipo_rg", label: "RG", dotacion: "rg" },
+      { concepto: "anticipo_rp", label: "RP", dotacion: "rp" },
     ],
   },
   {
     concepto: "remuneracion",
     label: "Remuneración",
     sub: [
-      { concepto: "remuneracion_rg", label: "RG" },
-      { concepto: "remuneracion_rp", label: "RP" },
+      { concepto: "remuneracion_rg", label: "RG", dotacion: "rg" },
+      { concepto: "remuneracion_rp", label: "RP", dotacion: "rp" },
     ],
   },
   { concepto: "finiquito", label: "Finiquito" },

@@ -11,7 +11,8 @@ import { calcularMesCashFlow, type CashFlowConceptoCalculado } from "./engine";
 import { ANTICIPO_PCT } from "./formulas";
 import {
   getDotacionTotalPorPeriodo,
-  type DotacionTotalPunto,
+  dotacionRgRpDelMes,
+  proporcionRgHistorica,
 } from "@/features/headcount/services/dotacion-total";
 import { runForecastModel } from "@/features/headcount/forecast-model/run";
 import { runBukSnapshot } from "@/features/headcount/buk-sync/sync";
@@ -160,78 +161,6 @@ async function promedioRemuneracionReal(
 
   if (!data || data.length === 0) return 0;
   return data.reduce((acc, row) => acc + Number(row.monto), 0) / data.length;
-}
-
-/**
- * Razón real Remuneración RG / Remuneración total, promediada de los
- * últimos N meses reales — para "aperturar" el desglose RG/RP también en
- * los meses PROYECTADOS (pedido explícito del usuario, "como en el
- * Excel"), ya que el modelo costo-por-cabeza solo proyecta el total
- * combinado. `null` si no hay ningún mes real con el desglose todavía.
- */
-async function proporcionRgHistorica(
-  supabase: ReturnType<typeof createServiceClient>,
-  antesDe: Date,
-  n = 3,
-): Promise<number | null> {
-  const { data } = await supabase
-    .from("cash_flow_monthly")
-    .select("periodo, monto")
-    .eq("concepto", "remuneracion_rg")
-    .eq("es_real", true)
-    .lt("periodo", antesDe.toISOString().slice(0, 10))
-    .order("periodo", { ascending: false })
-    .limit(n);
-
-  if (!data || data.length === 0) return null;
-
-  let sumaRg = 0;
-  let sumaTotal = 0;
-  for (const fila of data) {
-    const total = await montoCashFlow(
-      supabase,
-      new Date(fila.periodo),
-      "remuneracion",
-    );
-    if (!total) continue;
-    sumaRg += Number(fila.monto);
-    sumaTotal += total;
-  }
-  return sumaTotal > 0 ? sumaRg / sumaTotal : null;
-}
-
-/**
- * Dotación RG/RP del mes — reutiliza EXACTAMENTE la dimensión que ya
- * existe para Anticipo/Remuneración (pedido explícito del usuario: "las
- * personas sindicalizadas son solo de la constructora [Rol General], el
- * resto se rige por el anexo"), en vez de construir una dimensión nueva
- * de "sindicalizado". Real desde `dotacion_mensual` (columnas rg/rp del
- * Excel histórico, ver flujo-caja-historico-parser.ts) cuando el mes ya
- * está cerrado; si no, se deriva de la dotación TOTAL ya calculada
- * (`getDotacionTotalPorPeriodo`) aplicando la misma razón RG/(RG+RP) que
- * `proporcionRgHistorica` ya usa para aperturar Remuneración proyectada.
- */
-async function dotacionRgRpDelMes(
-  supabase: ReturnType<typeof createServiceClient>,
-  mes: Date,
-  dotacionPorPeriodo: Map<string, DotacionTotalPunto>,
-): Promise<{ rg: number; rp: number }> {
-  const periodoStr = mes.toISOString().slice(0, 10);
-  const { data } = await supabase
-    .from("dotacion_mensual")
-    .select("rg, rp")
-    .eq("periodo", periodoStr)
-    .maybeSingle();
-  if (data?.rg != null && data?.rp != null) {
-    return { rg: data.rg, rp: data.rp };
-  }
-
-  const total = dotacionPorPeriodo.get(periodoStr)?.total ?? 0;
-  if (total === 0) return { rg: 0, rp: 0 };
-  const proporcionRg = await proporcionRgHistorica(supabase, mes);
-  if (proporcionRg == null) return { rg: 0, rp: 0 };
-  const rg = Math.round(total * proporcionRg);
-  return { rg, rp: total - rg };
 }
 
 /** Valor real ya cargado en `beneficios_line_items` para el mes — key `tipoEvento::poblacion`, ver beneficios.ts. */

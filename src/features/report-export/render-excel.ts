@@ -6,7 +6,10 @@ import type {
   CashFlowSeriePunto,
   ResumenKpis,
 } from "@/features/cash-flow/services/queries";
-import type { DotacionTotalPunto } from "@/features/headcount/services/dotacion-total";
+import type {
+  DotacionTotalPunto,
+  DotacionRgRpPunto,
+} from "@/features/headcount/services/dotacion-total";
 import type { PlanObraDotacionFila } from "@/features/headcount/services/plan-obra-dotacion";
 import { FILAS_DETALLE as FILAS } from "@/features/cash-flow/lib/filas-detalle";
 
@@ -63,6 +66,15 @@ export async function renderReportExcel(params: {
   ufPorPeriodo: Map<string, number>;
   /** Dotación total (N°) por período — ver dotacion-total.ts. Fila "Dotación" solo aparece si hay dato. */
   dotacionPorPeriodo?: Map<string, DotacionTotalPunto>;
+  /**
+   * Dotación (N°) RG/RP por período — misma columna que el Excel real de
+   * Finanzas trae al lado de cada sub-fila RG/RP de Anticipo/
+   * Remuneración (pedido explícito del usuario 17-ago-2026: "el flujo de
+   * caja que yo realizaba en Excel colocaba la dotación en los
+   * subgrupos, mantén ese formato"). Si no se provee, la hoja "Detalle"
+   * queda con 1 columna por período (comportamiento previo).
+   */
+  dotacionRgRpPorPeriodo?: Map<string, DotacionRgRpPunto>;
   /** Plan de obra (Gespro) + dotación real (Buk) + flujo estimado por obra — ver plan-obra-dotacion.ts. Hoja "Plan de Obra" solo aparece si hay filas. */
   planObraDotacion?: PlanObraDotacionFila[];
   periodoDesde: string;
@@ -74,11 +86,13 @@ export async function renderReportExcel(params: {
     kpis,
     ufPorPeriodo,
     dotacionPorPeriodo,
+    dotacionRgRpPorPeriodo,
     planObraDotacion,
     periodoDesde,
     periodoHasta,
     generadoEn,
   } = params;
+  const conColumnaN = !!dotacionRgRpPorPeriodo;
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Flujo de Caja Nómina — Grupo Maestra";
@@ -177,26 +191,67 @@ export async function renderReportExcel(params: {
   resumen.getColumn(1).width = 40;
   resumen.getColumn(2).width = 22;
 
-  // --- Hoja "Detalle" — misma estructura que la tabla del HTML/dashboard ---
+  // --- Hoja "Detalle" — misma estructura que la tabla del HTML/dashboard,
+  // y columnas de a pares ($, N°) por período cuando hay dotación RG/RP
+  // disponible — mismo formato del Excel real de Finanzas (pedido
+  // explícito del usuario 17-ago-2026: "el flujo de caja que yo
+  // realizaba en Excel colocaba la dotación en los subgrupos, mantén
+  // ese formato").
   const detalle = workbook.addWorksheet("Detalle");
-  const headerRow = detalle.addRow([
-    "Concepto",
-    ...periodos.map((p) => p.slice(0, 7)),
-  ]);
-  headerRow.eachCell((cell) => {
-    cell.font = { name: FUENTE_MARCA, bold: true, color: { argb: "FFFFFFFF" } };
-    cell.fill = FILL_HEADER;
-  });
+  /** Columna 1-indexada de la celda de VALOR del período i (1=Concepto). La celda "N°" vecina es col+1 cuando `conColumnaN`. */
+  const colValor = (i: number) => (conColumnaN ? 2 : 1) * i + 2;
 
-  // Dotación (N°) — misma fila que el "N°" del Excel original, antes de
-  // los conceptos monetarios.
+  if (conColumnaN) {
+    const fila1: (string | number)[] = ["Concepto"];
+    const fila2: (string | number)[] = [""];
+    periodos.forEach((p) => {
+      fila1.push(p.slice(0, 7), "");
+      fila2.push("$", "N°");
+    });
+    const headerRow1 = detalle.addRow(fila1);
+    const headerRow2 = detalle.addRow(fila2);
+    [headerRow1, headerRow2].forEach((row) =>
+      row.eachCell((cell) => {
+        cell.font = {
+          name: FUENTE_MARCA,
+          bold: true,
+          color: { argb: "FFFFFFFF" },
+        };
+        cell.fill = FILL_HEADER;
+      }),
+    );
+    detalle.mergeCells(1, 1, 2, 1); // "Concepto" ocupa las 2 filas de header
+    periodos.forEach((_, i) => {
+      const col = colValor(i);
+      detalle.mergeCells(1, col, 1, col + 1); // nombre del período ocupa sus 2 columnas
+    });
+  } else {
+    const headerRow = detalle.addRow([
+      "Concepto",
+      ...periodos.map((p) => p.slice(0, 7)),
+    ]);
+    headerRow.eachCell((cell) => {
+      cell.font = {
+        name: FUENTE_MARCA,
+        bold: true,
+        color: { argb: "FFFFFFFF" },
+      };
+      cell.fill = FILL_HEADER;
+    });
+  }
+
+  // Dotación (N°) total — misma fila que el "N°" del Excel original,
+  // antes de los conceptos monetarios. Ocupa igual las 2 columnas del
+  // período (deja la 2da en blanco) para no desalinear el resto de la
+  // tabla cuando hay columnas de a pares.
   if (dotacionPorPeriodo && dotacionPorPeriodo.size > 0) {
     const filaDotacion: (string | number)[] = ["Dotación (N°)"];
     const celdasProyectadas: number[] = [];
     periodos.forEach((p, i) => {
       const punto = dotacionPorPeriodo.get(p);
       filaDotacion.push(punto ? punto.total : "");
-      if (punto && !punto.esReal) celdasProyectadas.push(i + 2);
+      if (conColumnaN) filaDotacion.push("");
+      if (punto && !punto.esReal) celdasProyectadas.push(colValor(i));
     });
     const row = detalle.addRow(filaDotacion);
     row.font = { name: FUENTE_MARCA, color: { argb: "FF475569" } };
@@ -211,13 +266,20 @@ export async function renderReportExcel(params: {
     concepto: string,
     label: string,
     negrita: boolean,
+    dotacion?: "rg" | "rp",
   ) {
     const fila: (string | number)[] = [label];
     const celdasProyectadas: number[] = [];
     periodos.forEach((p, i) => {
       const punto = valorPorConceptoYPeriodo.get(`${concepto}::${p}`);
       fila.push(punto ? punto.monto : "");
-      if (punto && !punto.esReal) celdasProyectadas.push(i + 2); // +2: col 1 es "Concepto", 1-indexed
+      if (punto && !punto.esReal) celdasProyectadas.push(colValor(i));
+      if (conColumnaN) {
+        const n = dotacion
+          ? dotacionRgRpPorPeriodo?.get(p)?.[dotacion]
+          : undefined;
+        fila.push(n ?? "");
+      }
     });
     const row = detalle.addRow(fila);
     row.font = negrita
@@ -238,7 +300,7 @@ export async function renderReportExcel(params: {
       fila.concepto === "total_nomina",
     );
     for (const sub of fila.sub ?? []) {
-      agregarFilaConcepto(sub.concepto, sub.label, false);
+      agregarFilaConcepto(sub.concepto, sub.label, false, sub.dotacion);
     }
   }
 
@@ -249,6 +311,7 @@ export async function renderReportExcel(params: {
       const totalNomina = valorPorConceptoYPeriodo.get(`total_nomina::${p}`);
       const valorUf = ufPorPeriodo.get(p);
       filaUf.push(totalNomina && valorUf ? totalNomina.monto / valorUf : "");
+      if (conColumnaN) filaUf.push("");
     });
     const row = detalle.addRow(filaUf);
     row.font = {
@@ -263,13 +326,20 @@ export async function renderReportExcel(params: {
 
   detalle.getColumn(1).width = 22;
   detalle.columns.forEach((col, i) => {
-    if (i > 0) col.width = 14;
+    if (i === 0) return;
+    // Columnas "N°" (impares desde la col 3 en adelante, 0-indexed) más
+    // angostas que las de monto — mismo criterio visual que el Excel real.
+    const esColumnaN = conColumnaN && (i - 1) % 2 === 1;
+    col.width = esColumnaN ? 8 : 14;
   });
 
   const legend = detalle.addRow([]);
-  detalle.addRow([
-    "Amarillo = proyectado (fórmula, no dato real ingerido) — mismo criterio que el Excel original.",
-  ]).font = {
+  const textoLeyenda =
+    "Amarillo = proyectado (fórmula, no dato real ingerido) — mismo criterio que el Excel original." +
+    (conColumnaN
+      ? " La columna “N°” muestra la dotación (cabezas) que explica el monto RG/RP de esa fila."
+      : "");
+  detalle.addRow([textoLeyenda]).font = {
     name: FUENTE_MARCA,
     italic: true,
     size: 9,

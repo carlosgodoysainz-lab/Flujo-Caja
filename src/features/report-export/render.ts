@@ -5,7 +5,10 @@ import type {
   CashFlowSeriePunto,
   ResumenKpis,
 } from "@/features/cash-flow/services/queries";
-import type { DotacionTotalPunto } from "@/features/headcount/services/dotacion-total";
+import type {
+  DotacionTotalPunto,
+  DotacionRgRpPunto,
+} from "@/features/headcount/services/dotacion-total";
 import { pathSuavizado } from "../cash-flow/lib/smooth-path";
 import { FILAS_DETALLE as FILAS } from "../cash-flow/lib/filas-detalle";
 import { SELLO_AUTOR_BASE64 } from "../cash-flow/lib/watermark";
@@ -165,6 +168,14 @@ export function renderReportHtml(params: {
   ufPorPeriodo?: Map<string, number>;
   /** Dotación total (N°) por período — ver dotacion-total.ts. Fila "Dotación" solo aparece si hay dato. */
   dotacionPorPeriodo?: Map<string, DotacionTotalPunto>;
+  /**
+   * Dotación (N°) RG/RP por período — misma columna que el Excel real de
+   * Finanzas trae al lado de cada sub-fila RG/RP de Anticipo/
+   * Remuneración (pedido explícito del usuario 17-ago-2026). Si no se
+   * provee, la tabla queda con 1 columna por período (comportamiento
+   * previo).
+   */
+  dotacionRgRpPorPeriodo?: Map<string, DotacionRgRpPunto>;
   periodoDesde: string;
   periodoHasta: string;
   generadoEn: Date;
@@ -174,6 +185,7 @@ export function renderReportHtml(params: {
     kpis,
     ufPorPeriodo,
     dotacionPorPeriodo,
+    dotacionRgRpPorPeriodo,
     periodoDesde,
     periodoHasta,
     generadoEn,
@@ -184,13 +196,22 @@ export function renderReportHtml(params: {
   for (const punto of serie)
     valorPorConceptoYPeriodo.set(`${punto.concepto}::${punto.periodo}`, punto);
 
+  const conColumnaN = !!dotacionRgRpPorPeriodo;
+  /** Celda "N°" vacía, salvo en las sub-filas RG/RP de Anticipo/Remuneración — ver FILAS_DETALLE. */
+  const celdaN = (dotacion: "rg" | "rp" | undefined, p: string): string => {
+    if (!conColumnaN) return "";
+    if (!dotacion) return `<td class="n-col"></td>`;
+    const valor = dotacionRgRpPorPeriodo?.get(p)?.[dotacion];
+    return `<td class="n-col">${valor != null ? new Intl.NumberFormat("es-CL").format(valor) : "—"}</td>`;
+  };
+
   const filaDotacion =
     dotacionPorPeriodo && dotacionPorPeriodo.size > 0
       ? `<tr class="dotacion"><td>Dotación (N°)</td>${periodos
           .map((p) => {
             const punto = dotacionPorPeriodo.get(p);
             const clase = punto && !punto.esReal ? ' class="proyectado"' : "";
-            return `<td${clase}>${punto ? new Intl.NumberFormat("es-CL").format(punto.total) : "—"}</td>`;
+            return `<td${clase}>${punto ? new Intl.NumberFormat("es-CL").format(punto.total) : "—"}</td>${celdaN(undefined, p)}`;
           })
           .join("")}</tr>`
       : "";
@@ -200,7 +221,7 @@ export function renderReportHtml(params: {
       .map((p) => {
         const punto = valorPorConceptoYPeriodo.get(`${fila.concepto}::${p}`);
         const clase = punto && !punto.esReal ? ' class="proyectado"' : "";
-        return `<td${clase}>${punto ? formatCLP(punto.monto) : "—"}</td>`;
+        return `<td${clase}>${punto ? formatCLP(punto.monto) : "—"}</td>${celdaN(undefined, p)}`;
       })
       .join("");
     const claseFila = fila.concepto === "total_nomina" ? ' class="total"' : "";
@@ -211,7 +232,7 @@ export function renderReportHtml(params: {
           .map((p) => {
             const punto = valorPorConceptoYPeriodo.get(`${sub.concepto}::${p}`);
             const clase = punto && !punto.esReal ? ' class="proyectado"' : "";
-            return `<td${clase}>${punto ? formatCLP(punto.monto) : "—"}</td>`;
+            return `<td${clase}>${punto ? formatCLP(punto.monto) : "—"}</td>${celdaN(sub.dotacion, p)}`;
           })
           .join("");
         return `<tr class="sub"><td>${sub.label}</td>${celdasSub}</tr>`;
@@ -230,14 +251,24 @@ export function renderReportHtml(params: {
             const valorUf = ufPorPeriodo.get(p);
             const enUf =
               totalNomina && valorUf ? totalNomina.monto / valorUf : null;
-            return `<td>${enUf !== null ? `${new Intl.NumberFormat("es-CL", { maximumFractionDigits: 1 }).format(enUf)} UF` : "—"}</td>`;
+            return `<td>${enUf !== null ? `${new Intl.NumberFormat("es-CL", { maximumFractionDigits: 1 }).format(enUf)} UF` : "—"}</td>${celdaN(undefined, p)}`;
           })
           .join("")}</tr>`
       : "";
 
   const encabezadosPeriodo = periodos
-    .map((p) => `<th>${p.slice(0, 7)}</th>`)
+    .map((p) =>
+      conColumnaN
+        ? `<th colspan="2">${p.slice(0, 7)}</th>`
+        : `<th>${p.slice(0, 7)}</th>`,
+    )
     .join("");
+
+  // Fila 2 del header ("$" / "N°" por período) — solo si hay columna N°.
+  // Mismo formato del Excel real de Finanzas (columnas de a pares por mes).
+  const subEncabezadosPeriodo = conColumnaN
+    ? `<tr>${periodos.map(() => `<th class="n-sub">$</th><th class="n-sub">N°</th>`).join("")}</tr>`
+    : "";
 
   const variacionTexto =
     kpis.variacionPct === null
@@ -318,6 +349,11 @@ export function renderReportHtml(params: {
   tr.sub td { color: #94a3b8; font-size: 11px; }
   tr.sub td:first-child { padding-left: 22px; }
   td.proyectado { color: #94a3b8; font-style: italic; }
+  /* Columna N° (dotación) por sub-fila RG/RP — mismo formato del Excel
+     real de Finanzas (columnas de a pares por mes), pedido explícito
+     del usuario 17-ago-2026. */
+  td.n-col, th.n-sub { color: #94a3b8; font-size: 11px; padding-left: 6px; padding-right: 6px; }
+  th.n-sub { font-weight: 400; text-transform: none; }
   footer {
     text-align: center; padding: 12px; font-size: 11px; color: #fff;
     background: var(--navy);
@@ -357,11 +393,14 @@ export function renderReportHtml(params: {
 <main>
   <div class="tabla-scroll">
     <table>
-      <thead><tr><th>Concepto</th>${encabezadosPeriodo}</tr></thead>
+      <thead>
+        <tr><th${conColumnaN ? ' rowspan="2"' : ""}>Concepto</th>${encabezadosPeriodo}</tr>
+        ${subEncabezadosPeriodo}
+      </thead>
       <tbody>${filaDotacion}${filasTabla}${filaUf}</tbody>
     </table>
   </div>
-  <p style="font-size:11px;color:#94a3b8;margin-top:8px;"><i>Cursiva</i> = proyectado, no dato real ingerido.</p>
+  <p style="font-size:11px;color:#94a3b8;margin-top:8px;"><i>Cursiva</i> = proyectado, no dato real ingerido.${conColumnaN ? " La columna “N°” muestra la dotación (cabezas) que explica el monto RG/RP de esa fila." : ""}</p>
 </main>
 <footer><span class="badge">Uso interno — Grupo Maestra</span></footer>
 <script type="application/json" id="cash-flow-data">${JSON.stringify({ serie, kpis, periodoDesde, periodoHasta })}</script>

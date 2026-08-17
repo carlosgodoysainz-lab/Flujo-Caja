@@ -73,3 +73,65 @@ describe("renderReportHtml", () => {
     expect(html).toContain("100.000.000");
   });
 });
+
+describe("renderReportHtml — columna N° (dotación RG/RP)", () => {
+  const htmlSinColumnaN = renderReportHtml({
+    serie: [
+      {
+        periodo: "2026-07-01",
+        concepto: "anticipo_rg",
+        monto: 50_000_000,
+        esReal: true,
+        metodoCalculo: null,
+      },
+    ],
+    kpis: KPIS,
+    periodoDesde: "2026-07-01",
+    periodoHasta: "2026-07-01",
+    generadoEn: new Date(2026, 7, 4),
+  });
+
+  it("sin dotacionRgRpPorPeriodo, no agrega columnas N° (comportamiento previo)", () => {
+    expect(htmlSinColumnaN).not.toContain('colspan="2"');
+    expect(htmlSinColumnaN).not.toContain('<th class="n-sub">');
+    expect(htmlSinColumnaN).not.toContain('<td class="n-col">');
+  });
+
+  const htmlConColumnaN = renderReportHtml({
+    serie: [
+      {
+        periodo: "2026-07-01",
+        concepto: "anticipo_rg",
+        monto: 50_000_000,
+        esReal: true,
+        metodoCalculo: null,
+      },
+      {
+        periodo: "2026-07-01",
+        concepto: "total_nomina",
+        monto: 100_000_000,
+        esReal: true,
+        metodoCalculo: null,
+      },
+    ],
+    dotacionRgRpPorPeriodo: new Map([["2026-07-01", { rg: 650, rp: 190 }]]),
+    kpis: KPIS,
+    periodoDesde: "2026-07-01",
+    periodoHasta: "2026-07-01",
+    generadoEn: new Date(2026, 7, 4),
+  });
+
+  it("con dotacionRgRpPorPeriodo, cada período usa colspan=2 en el header", () => {
+    expect(htmlConColumnaN).toContain('colspan="2"');
+  });
+
+  it("muestra la dotación real en la sub-fila RG de Anticipo", () => {
+    expect(htmlConColumnaN).toContain(">650<");
+  });
+
+  it("deja la columna N° vacía en filas sin desglose RG/RP (ej. Total Nómina)", () => {
+    // La celda N° de una fila sin `dotacion` (como Total Nómina) es un
+    // <td class="n-col"></td> vacío — nunca repite un número ahí.
+    expect(htmlConColumnaN).toContain('<td class="n-col"></td>');
+  });
+});

@@ -7,7 +7,10 @@ import {
   getResumenKpis,
   getUfPorPeriodo,
 } from "@/features/cash-flow/services/queries";
-import { getDotacionTotalPorPeriodo } from "@/features/headcount/services/dotacion-total";
+import {
+  getDotacionTotalPorPeriodo,
+  getDotacionRgRpPorPeriodo,
+} from "@/features/headcount/services/dotacion-total";
 import { getPlanObraConDotacion } from "@/features/headcount/services/plan-obra-dotacion";
 import { renderReportHtml } from "./render";
 import { renderReportExcel } from "./render-excel";
@@ -52,6 +55,13 @@ export async function exportReportAsHtml(
       periodoDesde,
       periodoHasta,
     );
+    // Columna N° por sub-fila RG/RP de Anticipo/Remuneración — mismo
+    // formato del Excel real de Finanzas, pedido explícito del usuario
+    // 17-ago-2026, en los 3 formatos (app en vivo, HTML y Excel).
+    const dotacionRgRpPorPeriodo = await getDotacionRgRpPorPeriodo(
+      periodoDesde,
+      periodoHasta,
+    );
     // Solo para la hoja "Plan de Obra" del Excel — pedido explícito del
     // usuario, no aplica al HTML.
     const planObraDotacion = await getPlanObraConDotacion(
@@ -65,6 +75,7 @@ export async function exportReportAsHtml(
       kpis,
       ufPorPeriodo,
       dotacionPorPeriodo,
+      dotacionRgRpPorPeriodo,
       periodoDesde: periodoDesde.toISOString().slice(0, 10),
       periodoHasta: periodoHasta.toISOString().slice(0, 10),
       generadoEn,

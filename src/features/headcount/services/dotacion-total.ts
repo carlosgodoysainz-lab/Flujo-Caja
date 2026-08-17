@@ -161,3 +161,127 @@ export async function getDotacionTotalPorPeriodo(
 
   return resultado;
 }
+
+export interface DotacionRgRpPunto {
+  rg: number;
+  rp: number;
+}
+
+/**
+ * Razón real Remuneración RG / Remuneración total, promediada de los
+ * últimos N meses reales — para "aperturar" la dotación TOTAL en RG/RP
+ * también en los meses PROYECTADOS (pedido explícito del usuario, "como
+ * en el Excel"), ya que el modelo costo-por-cabeza solo proyecta el
+ * total combinado. `null` si no hay ningún mes real con el desglose
+ * todavía. Movida acá desde `refresh.ts` (17-ago-2026) para que la
+ * página del reporte pueda mostrar la misma columna N° por RG/RP que ya
+ * usa el motor de cálculo, sin duplicar la lógica en 2 lugares.
+ */
+export async function proporcionRgHistorica(
+  supabase: ReturnType<typeof createServiceClient>,
+  antesDe: Date,
+  n = 3,
+): Promise<number | null> {
+  const { data } = await supabase
+    .from("cash_flow_monthly")
+    .select("periodo, monto")
+    .eq("concepto", "remuneracion_rg")
+    .eq("es_real", true)
+    .lt("periodo", antesDe.toISOString().slice(0, 10))
+    .order("periodo", { ascending: false })
+    .limit(n);
+
+  if (!data || data.length === 0) return null;
+
+  let sumaRg = 0;
+  let sumaTotal = 0;
+  for (const fila of data) {
+    const { data: totalFila } = await supabase
+      .from("cash_flow_monthly")
+      .select("monto")
+      .eq("periodo", fila.periodo)
+      .eq("concepto", "remuneracion")
+      .maybeSingle();
+    if (!totalFila) continue;
+    sumaRg += Number(fila.monto);
+    sumaTotal += Number(totalFila.monto);
+  }
+  return sumaTotal > 0 ? sumaRg / sumaTotal : null;
+}
+
+/**
+ * Dotación RG/RP del mes — reutiliza EXACTAMENTE la dimensión que ya
+ * existe para Anticipo/Remuneración (pedido explícito del usuario: "las
+ * personas sindicalizadas son solo de la constructora [Rol General], el
+ * resto se rige por el anexo"). Real desde `dotacion_mensual` (columnas
+ * rg/rp del Excel histórico) cuando el mes ya está cerrado; si no, se
+ * deriva de la dotación TOTAL ya calculada aplicando la razón histórica
+ * RG/(RG+RP). Movida desde `refresh.ts` (17-ago-2026) — ver
+ * `proporcionRgHistorica`.
+ */
+export async function dotacionRgRpDelMes(
+  supabase: ReturnType<typeof createServiceClient>,
+  mes: Date,
+  dotacionPorPeriodo: Map<string, DotacionTotalPunto>,
+): Promise<DotacionRgRpPunto> {
+  const periodoStr = mes.toISOString().slice(0, 10);
+  const { data } = await supabase
+    .from("dotacion_mensual")
+    .select("rg, rp")
+    .eq("periodo", periodoStr)
+    .maybeSingle();
+  if (data?.rg != null && data?.rp != null) {
+    return { rg: data.rg, rp: data.rp };
+  }
+
+  const total = dotacionPorPeriodo.get(periodoStr)?.total ?? 0;
+  if (total === 0) return { rg: 0, rp: 0 };
+  const proporcionRg = await proporcionRgHistorica(supabase, mes);
+  if (proporcionRg == null) return { rg: 0, rp: 0 };
+  const rg = Math.round(total * proporcionRg);
+  return { rg, rp: total - rg };
+}
+
+/**
+ * Versión "para todo el rango de una vez" de `dotacionRgRpDelMes` — usada
+ * por la tabla de detalle y los 3 formatos de export (columna N° bajo
+ * cada sub-fila RG/RP de Anticipo y Remuneración, igual al formato del
+ * Excel real de Finanzas, pedido explícito del usuario 17-ago-2026:
+ * "mantén ese formato para ver cómo va cambiando el input principal que
+ * corresponde a dotación").
+ */
+export async function getDotacionRgRpPorPeriodo(
+  periodoDesde: Date,
+  periodoHasta: Date,
+): Promise<Map<string, DotacionRgRpPunto>> {
+  const supabase = createServiceClient();
+  const dotacionPorPeriodo = await getDotacionTotalPorPeriodo(
+    periodoDesde,
+    periodoHasta,
+  );
+
+  const resultado = new Map<string, DotacionRgRpPunto>();
+  const cursor = new Date(
+    periodoDesde.getFullYear(),
+    periodoDesde.getMonth(),
+    1,
+  );
+  const hasta = new Date(
+    periodoHasta.getFullYear(),
+    periodoHasta.getMonth(),
+    1,
+  );
+  // Tope defensivo — nunca debería iterar más de ~240 meses (20 años).
+  let guard = 0;
+  while (cursor <= hasta && guard < 240) {
+    const punto = await dotacionRgRpDelMes(
+      supabase,
+      cursor,
+      dotacionPorPeriodo,
+    );
+    resultado.set(cursor.toISOString().slice(0, 10), punto);
+    cursor.setMonth(cursor.getMonth() + 1);
+    guard++;
+  }
+  return resultado;
+}
