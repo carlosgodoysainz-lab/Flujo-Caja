@@ -221,7 +221,13 @@ export async function syncCotizacionPrevired(
         periodo: periodoLabel,
         comprobantesProcesados,
         montoTotal,
+        // Antes solo se guardaba el CONTEO de errores, nunca el texto —
+        // imposible diagnosticar por qué fallaba sin volver a correrlo con
+        // logging manual. Se guardan los primeros 5 mensajes completos
+        // (suficiente para diagnosticar un patrón sistemático sin inflar
+        // el audit_log si hay muchos).
         errores: errores.length,
+        primerosErrores: errores.slice(0, 5),
       },
     });
 
