@@ -369,6 +369,48 @@ export async function dotacionAnticipoDelMes(
   return Math.round(dotacionTotal * proporcion);
 }
 
+/**
+ * Razón real: Anticipo RG ÷ Anticipo total (rg+rp), promediada de los
+ * últimos N meses con dato real de Anticipo — para "aperturar" en RG/RP la
+ * dotación PROPIA de Anticipo también en meses proyectados. Mismo criterio
+ * que `proporcionRgHistorica`, pero con la población PROPIA de Anticipo,
+ * nunca la de Remuneración (ver bug real 18-ago-2026 más abajo, en
+ * `getDotacionPorConceptoYPeriodo`).
+ */
+async function proporcionAnticipoRgHistorica(
+  supabase: ReturnType<typeof createServiceClient>,
+  antesDe: Date,
+  n = 3,
+): Promise<number | null> {
+  const razones: number[] = [];
+  let mesesAtras = 1;
+  let guard = 0;
+  while (razones.length < n && guard < 24) {
+    const cursor = new Date(
+      antesDe.getFullYear(),
+      antesDe.getMonth() - mesesAtras,
+      1,
+    );
+    const periodoStr = cursor.toISOString().slice(0, 10);
+    const { count: countRg } = await supabase
+      .from("payroll_line_items")
+      .select("*", { count: "exact", head: true })
+      .eq("concepto", "anticipo_rg")
+      .eq("periodo", periodoStr);
+    const { count: countRp } = await supabase
+      .from("payroll_line_items")
+      .select("*", { count: "exact", head: true })
+      .eq("concepto", "anticipo_rp")
+      .eq("periodo", periodoStr);
+    const total = (countRg ?? 0) + (countRp ?? 0);
+    if (total > 0) razones.push((countRg ?? 0) / total);
+    mesesAtras++;
+    guard++;
+  }
+  if (razones.length === 0) return null;
+  return razones.reduce((a, b) => a + b, 0) / razones.length;
+}
+
 export interface DotacionPorConceptoPunto {
   anticipo_rg: number | null;
   anticipo_rp: number | null;
@@ -395,13 +437,17 @@ const CONCEPTOS_CON_DOTACION = [
  * `payroll_line_items` es grano de PERSONA (1 fila = 1 pago real a 1
  * persona, sin RUT/nombre — ver types.ts) para los meses ya ingeridos
  * de SharePoint: contar sus filas por (concepto, período) da el N°
- * REAL de gente que recibió ESE concepto específico ese mes — a
- * diferencia de la dotación total, que no distingue Anticipo de
- * Remuneración. Para meses sin ese dato real todavía (proyectados o
- * antes de que existiera la ingesta), cae al mismo estimado de
- * `dotacionRgRpDelMes` que ya se usaba (dotación total × razón RG/RP),
- * igual para las 4 sub-filas — sigue siendo un estimado razonable a
- * falta de algo mejor, pero SOLO cuando no hay dato real.
+ * REAL de gente que recibió ESE concepto específico ese mes.
+ *
+ * 2do bug real corregido 18-ago-2026 (mismo síntoma, en el FALLBACK esta
+ * vez): para meses sin dato real de Anticipo todavía (proyectados), el
+ * fallback seguía cayendo a la MISMA dotación de Remuneración (`rgRp.rg`/
+ * `rgRp.rp`) — el usuario lo detectó viendo el N° de Anticipo RG saltar de
+ * 12 (real) a 657 (proyectado), IDÉNTICO al N° de Remuneración RG del
+ * mismo mes. Ahora usa `dotacionAnticipoDelMes` (la dotación PROPIA de
+ * Anticipo — real cuando existe, o dotación total × razón histórica
+ * propia de Anticipo cuando no) partida en RG/RP con
+ * `proporcionAnticipoRgHistorica` (también propia de Anticipo).
  */
 export async function getDotacionPorConceptoYPeriodo(
   periodoDesde: Date,
@@ -409,6 +455,10 @@ export async function getDotacionPorConceptoYPeriodo(
 ): Promise<Map<string, DotacionPorConceptoPunto>> {
   const supabase = createServiceClient();
   const dotacionRgRpPorPeriodo = await getDotacionRgRpPorPeriodo(
+    periodoDesde,
+    periodoHasta,
+  );
+  const dotacionPorPeriodo = await getDotacionTotalPorPeriodo(
     periodoDesde,
     periodoHasta,
   );
@@ -437,9 +487,30 @@ export async function getDotacionPorConceptoYPeriodo(
 
   const resultado = new Map<string, DotacionPorConceptoPunto>();
   for (const [periodo, rgRp] of dotacionRgRpPorPeriodo) {
+    let anticipoRg = conteoPorClave.get(`anticipo_rg::${periodo}`) ?? null;
+    let anticipoRp = conteoPorClave.get(`anticipo_rp::${periodo}`) ?? null;
+    if (anticipoRg == null || anticipoRp == null) {
+      const [anio, mesNum] = periodo.split("-").map(Number);
+      const mesDate = new Date(anio, mesNum - 1, 1);
+      const anticipoTotal = await dotacionAnticipoDelMes(
+        supabase,
+        mesDate,
+        dotacionPorPeriodo,
+      );
+      if (anticipoTotal != null) {
+        const proporcionRg = await proporcionAnticipoRgHistorica(
+          supabase,
+          mesDate,
+        );
+        if (proporcionRg != null) {
+          anticipoRg = Math.round(anticipoTotal * proporcionRg);
+          anticipoRp = anticipoTotal - anticipoRg;
+        }
+      }
+    }
     resultado.set(periodo, {
-      anticipo_rg: conteoPorClave.get(`anticipo_rg::${periodo}`) ?? rgRp.rg,
-      anticipo_rp: conteoPorClave.get(`anticipo_rp::${periodo}`) ?? rgRp.rp,
+      anticipo_rg: anticipoRg,
+      anticipo_rp: anticipoRp,
       remuneracion_rg:
         conteoPorClave.get(`remuneracion_rg::${periodo}`) ?? rgRp.rg,
       remuneracion_rp:

@@ -129,29 +129,43 @@ export function escalarCurva(
 
 /**
  * Promedia N curvas ya escaladas, mes de avance por mes de avance,
- * ignorando los `null` de cada una. Si TODAS son null en un mes, el
- * valor es 0 pero se marca `sinDatoReferencia: true` — antes esto
- * quedaba indistinguible de un 0 real (ver Auto-Blindaje 13-ago-2026).
+ * ignorando los `null` de cada una. Si TODAS son null en un mes, se
+ * MANTIENE el último valor absoluto conocido (en vez de caer a 0) y se
+ * marca `sinDatoReferencia: true` para seguir distinguiéndolo de un 0
+ * real (ver Auto-Blindaje 13-ago-2026).
+ *
+ * Bug real corregido 18-ago-2026: antes el valor caía a 0 en cada mes sin
+ * dato de referencia — como `aVariacionNeta` calcula la variación como
+ * delta entre valores ABSOLUTOS consecutivos, un mes real rodeado de
+ * meses sin dato generaba un salto artificial (ej. "+214" seguido de
+ * "-214" al mes siguiente: el 0 fantasma antes y después del dato real),
+ * confirmado por el usuario viendo el Excel de Plan de Obra ("no aparece
+ * un flujo mensual"). Manteniendo el último valor conocido, el hueco sin
+ * dato queda con variación 0 (correcto: no hay información para asumir
+ * cambio) y el salto real solo aparece UNA vez, en el mes donde
+ * efectivamente hay dato.
  */
 export function promediarCurvas(
   curvas: (number | null)[][],
   duracion: number,
 ): PuntoCurva[] {
   const resultado: PuntoCurva[] = [];
+  let ultimoValorConocido = 0;
   for (let mes = 0; mes < duracion; mes++) {
     const valores = curvas
       .map((c) => c[mes])
       .filter((v): v is number => v != null);
-    resultado.push(
-      valores.length > 0
-        ? {
-            valor: Math.round(
-              valores.reduce((a, b) => a + b, 0) / valores.length,
-            ),
-            sinDatoReferencia: false,
-          }
-        : { valor: 0, sinDatoReferencia: true },
-    );
+    if (valores.length > 0) {
+      ultimoValorConocido = Math.round(
+        valores.reduce((a, b) => a + b, 0) / valores.length,
+      );
+      resultado.push({ valor: ultimoValorConocido, sinDatoReferencia: false });
+    } else {
+      resultado.push({
+        valor: ultimoValorConocido,
+        sinDatoReferencia: true,
+      });
+    }
   }
   return resultado;
 }

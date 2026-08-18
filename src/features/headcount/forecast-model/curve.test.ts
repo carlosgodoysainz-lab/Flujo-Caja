@@ -134,6 +134,23 @@ describe("promediarCurvas", () => {
       { valor: 0, sinDatoReferencia: true },
     ]);
   });
+
+  it("bug real corregido 18-ago-2026: mantiene el último valor conocido en los huecos sin dato, no vuelve a 0 — evita el salto artificial +X seguido de -X que veía el usuario en Plan de Obra", () => {
+    // Antes: un dato real (214) rodeado de meses sin ninguna obra de
+    // referencia caía a 0 antes Y después — la variación resultante era
+    // [0, 0, +214, -214], un salto fantasma sin sentido de negocio (nadie
+    // contrata 214 personas y las despide al mes siguiente).
+    const curvas = [[null, null, 214, null]];
+    const resultado = promediarCurvas(curvas, 4);
+    expect(resultado).toEqual([
+      { valor: 0, sinDatoReferencia: true },
+      { valor: 0, sinDatoReferencia: true },
+      { valor: 214, sinDatoReferencia: false },
+      { valor: 214, sinDatoReferencia: true },
+    ]);
+    const variaciones = aVariacionNeta(resultado).map((r) => r.variacion);
+    expect(variaciones).toEqual([0, 0, 214, 0]);
+  });
 });
 
 describe("aVariacionNeta", () => {
