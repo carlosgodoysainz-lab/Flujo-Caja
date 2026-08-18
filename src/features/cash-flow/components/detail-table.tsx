@@ -10,7 +10,7 @@ import {
 import type { CashFlowSeriePunto } from "../services/queries";
 import type {
   DotacionTotalPunto,
-  DotacionRgRpPunto,
+  DotacionPorConceptoPunto,
 } from "@/features/headcount/services/dotacion-total";
 import { SenceEditableCell } from "./sence-editable-cell";
 import { FILAS_DETALLE as FILAS } from "../lib/filas-detalle";
@@ -33,7 +33,7 @@ export function DetailTable({
   serie,
   ufPorPeriodo,
   dotacionPorPeriodo,
-  dotacionRgRpPorPeriodo,
+  dotacionPorConceptoYPeriodo,
 }: {
   serie: CashFlowSeriePunto[];
   /** Valor UF por período (mismo formato YYYY-MM-DD que `periodo`) — ver uf-sync.ts. Fila "Total Nómina (UF)" solo aparece si hay dato. */
@@ -41,19 +41,21 @@ export function DetailTable({
   /** Dotación total (N°) por período — ver dotacion-total.ts. Fila "Dotación" solo aparece si hay dato. */
   dotacionPorPeriodo?: Map<string, DotacionTotalPunto>;
   /**
-   * Dotación (N°) RG/RP por período — misma columna que el Excel real de
-   * Finanzas trae al lado de cada sub-fila RG/RP de Anticipo/Remuneración
-   * (pedido explícito del usuario 17-ago-2026). Si no se provee, la
-   * tabla queda con una sola columna por período (comportamiento previo).
+   * N° (dotación) por período, ESPECÍFICO de cada sub-fila RG/RP de
+   * Anticipo/Remuneración — mismo formato del Excel real de Finanzas
+   * (pedido explícito del usuario 17-ago-2026). Real desde
+   * `payroll_line_items` (grano de persona) cuando existe; si no,
+   * estimado desde la dotación total. Si no se provee, la tabla queda
+   * con una sola columna por período (comportamiento previo).
    */
-  dotacionRgRpPorPeriodo?: Map<string, DotacionRgRpPunto>;
+  dotacionPorConceptoYPeriodo?: Map<string, DotacionPorConceptoPunto>;
 }) {
   const periodos = [...new Set(serie.map((p) => p.periodo))].sort();
   const valorPorConceptoYPeriodo = new Map<string, CashFlowSeriePunto>();
   for (const punto of serie)
     valorPorConceptoYPeriodo.set(`${punto.concepto}::${punto.periodo}`, punto);
 
-  const conColumnaN = !!dotacionRgRpPorPeriodo;
+  const conColumnaN = !!dotacionPorConceptoYPeriodo;
 
   function celda(concepto: string, p: string) {
     const punto = valorPorConceptoYPeriodo.get(`${concepto}::${p}`);
@@ -72,11 +74,14 @@ export function DetailTable({
     return punto ? formatCLP(punto.monto) : "—";
   }
 
-  /** Celda "N°" — vacía salvo en las sub-filas RG/RP de Anticipo/Remuneración (ver `FilaDetalle.sub[].dotacion`). */
-  function celdaN(dotacion: "rg" | "rp" | undefined, p: string) {
-    if (!dotacion) return null;
-    const punto = dotacionRgRpPorPeriodo?.get(p);
-    const valor = punto?.[dotacion];
+  /** Celda "N°" — vacía salvo en las sub-filas marcadas con `tieneColumnaN` (ver filas-detalle.ts). */
+  function celdaN(
+    sub: { concepto: string; tieneColumnaN?: boolean },
+    p: string,
+  ) {
+    if (!sub.tieneColumnaN) return null;
+    const punto = dotacionPorConceptoYPeriodo?.get(p);
+    const valor = punto?.[sub.concepto as keyof DotacionPorConceptoPunto];
     return valor != null ? formatN(valor) : "—";
   }
 
@@ -180,7 +185,7 @@ export function DetailTable({
                         <TableCell
                           className={`text-right text-xs text-slate-400`}
                         >
-                          {celdaN(sub.dotacion, p)}
+                          {celdaN(sub, p)}
                         </TableCell>
                       </Fragment>
                     ) : (

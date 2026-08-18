@@ -7,7 +7,7 @@ import type {
 } from "@/features/cash-flow/services/queries";
 import type {
   DotacionTotalPunto,
-  DotacionRgRpPunto,
+  DotacionPorConceptoPunto,
 } from "@/features/headcount/services/dotacion-total";
 import { pathSuavizado } from "../cash-flow/lib/smooth-path";
 import { FILAS_DETALLE as FILAS } from "../cash-flow/lib/filas-detalle";
@@ -169,13 +169,14 @@ export function renderReportHtml(params: {
   /** Dotación total (N°) por período — ver dotacion-total.ts. Fila "Dotación" solo aparece si hay dato. */
   dotacionPorPeriodo?: Map<string, DotacionTotalPunto>;
   /**
-   * Dotación (N°) RG/RP por período — misma columna que el Excel real de
-   * Finanzas trae al lado de cada sub-fila RG/RP de Anticipo/
-   * Remuneración (pedido explícito del usuario 17-ago-2026). Si no se
-   * provee, la tabla queda con 1 columna por período (comportamiento
-   * previo).
+   * N° (dotación) por período, ESPECÍFICO de cada sub-fila RG/RP de
+   * Anticipo/Remuneración — mismo formato del Excel real de Finanzas
+   * (pedido explícito del usuario 17-ago-2026). Real desde
+   * `payroll_line_items` cuando existe, estimado desde la dotación
+   * total cuando no. Si no se provee, la tabla queda con 1 columna por
+   * período (comportamiento previo).
    */
-  dotacionRgRpPorPeriodo?: Map<string, DotacionRgRpPunto>;
+  dotacionPorConceptoYPeriodo?: Map<string, DotacionPorConceptoPunto>;
   periodoDesde: string;
   periodoHasta: string;
   generadoEn: Date;
@@ -185,7 +186,7 @@ export function renderReportHtml(params: {
     kpis,
     ufPorPeriodo,
     dotacionPorPeriodo,
-    dotacionRgRpPorPeriodo,
+    dotacionPorConceptoYPeriodo,
     periodoDesde,
     periodoHasta,
     generadoEn,
@@ -196,12 +197,15 @@ export function renderReportHtml(params: {
   for (const punto of serie)
     valorPorConceptoYPeriodo.set(`${punto.concepto}::${punto.periodo}`, punto);
 
-  const conColumnaN = !!dotacionRgRpPorPeriodo;
-  /** Celda "N°" vacía, salvo en las sub-filas RG/RP de Anticipo/Remuneración — ver FILAS_DETALLE. */
-  const celdaN = (dotacion: "rg" | "rp" | undefined, p: string): string => {
+  const conColumnaN = !!dotacionPorConceptoYPeriodo;
+  /** Celda "N°" vacía, salvo en las sub-filas marcadas con `tieneColumnaN` — ver FILAS_DETALLE. */
+  const celdaN = (concepto: string | undefined, p: string): string => {
     if (!conColumnaN) return "";
-    if (!dotacion) return `<td class="n-col"></td>`;
-    const valor = dotacionRgRpPorPeriodo?.get(p)?.[dotacion];
+    if (!concepto) return `<td class="n-col"></td>`;
+    const valor =
+      dotacionPorConceptoYPeriodo?.get(p)?.[
+        concepto as keyof DotacionPorConceptoPunto
+      ];
     return `<td class="n-col">${valor != null ? new Intl.NumberFormat("es-CL").format(valor) : "—"}</td>`;
   };
 
@@ -232,7 +236,7 @@ export function renderReportHtml(params: {
           .map((p) => {
             const punto = valorPorConceptoYPeriodo.get(`${sub.concepto}::${p}`);
             const clase = punto && !punto.esReal ? ' class="proyectado"' : "";
-            return `<td${clase}>${punto ? formatCLP(punto.monto) : "—"}</td>${celdaN(sub.dotacion, p)}`;
+            return `<td${clase}>${punto ? formatCLP(punto.monto) : "—"}</td>${celdaN(sub.tieneColumnaN ? sub.concepto : undefined, p)}`;
           })
           .join("");
         return `<tr class="sub"><td>${sub.label}</td>${celdasSub}</tr>`;

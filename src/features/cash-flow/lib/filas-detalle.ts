@@ -24,8 +24,15 @@ export interface FilaDetalle {
      * Anticipo/Remuneración RG-RP la llevan — Finiquito, Reliquidación,
      * Cotización, SENCE y Total Nómina quedan sin columna N° (igual que
      * en el Excel original, esa columna queda vacía para esas filas).
+     *
+     * El N° de CADA sub-fila es específico de su propio concepto (ver
+     * `getDotacionPorConceptoYPeriodo` en dotacion-total.ts) — bug real
+     * corregido 17-ago-2026: antes se reutilizaba la misma dotación
+     * total RG/RP para las 4 sub-filas, mostrando el mismo N° en
+     * Anticipo que en Remuneración, pese a que mucha menos gente pide
+     * Anticipo que la que recibe Remuneración completa.
      */
-    dotacion?: "rg" | "rp";
+    tieneColumnaN?: boolean;
   }[];
 }
 
@@ -34,16 +41,16 @@ export const FILAS_DETALLE: FilaDetalle[] = [
     concepto: "anticipo",
     label: "Anticipo",
     sub: [
-      { concepto: "anticipo_rg", label: "RG", dotacion: "rg" },
-      { concepto: "anticipo_rp", label: "RP", dotacion: "rp" },
+      { concepto: "anticipo_rg", label: "RG", tieneColumnaN: true },
+      { concepto: "anticipo_rp", label: "RP", tieneColumnaN: true },
     ],
   },
   {
     concepto: "remuneracion",
     label: "Remuneración",
     sub: [
-      { concepto: "remuneracion_rg", label: "RG", dotacion: "rg" },
-      { concepto: "remuneracion_rp", label: "RP", dotacion: "rp" },
+      { concepto: "remuneracion_rg", label: "RG", tieneColumnaN: true },
+      { concepto: "remuneracion_rp", label: "RP", tieneColumnaN: true },
     ],
   },
   { concepto: "finiquito", label: "Finiquito" },

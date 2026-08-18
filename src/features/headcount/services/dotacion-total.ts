@@ -285,3 +285,83 @@ export async function getDotacionRgRpPorPeriodo(
   }
   return resultado;
 }
+
+export interface DotacionPorConceptoPunto {
+  anticipo_rg: number | null;
+  anticipo_rp: number | null;
+  remuneracion_rg: number | null;
+  remuneracion_rp: number | null;
+}
+
+const CONCEPTOS_CON_DOTACION = [
+  "anticipo_rg",
+  "anticipo_rp",
+  "remuneracion_rg",
+  "remuneracion_rp",
+] as const;
+
+/**
+ * N° (dotación) por CADA sub-fila RG/RP de Anticipo y Remuneración por
+ * separado — bug real corregido 17-ago-2026: antes se reutilizaba la
+ * MISMA dotación total (RG/RP) para las 4 sub-filas, mostrando el mismo
+ * N° en Anticipo que en Remuneración — pero mucha menos gente pide
+ * Anticipo que la que recibe Remuneración completa (confirmado por el
+ * usuario viendo el Excel real: "las personas que reciben anticipos son
+ * muchos menos").
+ *
+ * `payroll_line_items` es grano de PERSONA (1 fila = 1 pago real a 1
+ * persona, sin RUT/nombre — ver types.ts) para los meses ya ingeridos
+ * de SharePoint: contar sus filas por (concepto, período) da el N°
+ * REAL de gente que recibió ESE concepto específico ese mes — a
+ * diferencia de la dotación total, que no distingue Anticipo de
+ * Remuneración. Para meses sin ese dato real todavía (proyectados o
+ * antes de que existiera la ingesta), cae al mismo estimado de
+ * `dotacionRgRpDelMes` que ya se usaba (dotación total × razón RG/RP),
+ * igual para las 4 sub-filas — sigue siendo un estimado razonable a
+ * falta de algo mejor, pero SOLO cuando no hay dato real.
+ */
+export async function getDotacionPorConceptoYPeriodo(
+  periodoDesde: Date,
+  periodoHasta: Date,
+): Promise<Map<string, DotacionPorConceptoPunto>> {
+  const supabase = createServiceClient();
+  const dotacionRgRpPorPeriodo = await getDotacionRgRpPorPeriodo(
+    periodoDesde,
+    periodoHasta,
+  );
+
+  // Paginado con `.range()` — mismo motivo ya documentado 2 veces en
+  // este archivo: PostgREST trunca a su tope server-side (~1000 filas)
+  // sin avisar, y esta tabla es grano de persona (puede haber cientos
+  // de filas por mes).
+  const conteoPorClave = new Map<string, number>();
+  const TAMANO_PAGINA = 1000;
+  for (let desde = 0; ; desde += TAMANO_PAGINA) {
+    const { data: pagina } = await supabase
+      .from("payroll_line_items")
+      .select("periodo, concepto")
+      .in("concepto", CONCEPTOS_CON_DOTACION)
+      .gte("periodo", periodoDesde.toISOString().slice(0, 10))
+      .lte("periodo", periodoHasta.toISOString().slice(0, 10))
+      .range(desde, desde + TAMANO_PAGINA - 1);
+    if (!pagina || pagina.length === 0) break;
+    for (const fila of pagina) {
+      const clave = `${fila.concepto}::${fila.periodo}`;
+      conteoPorClave.set(clave, (conteoPorClave.get(clave) ?? 0) + 1);
+    }
+    if (pagina.length < TAMANO_PAGINA) break;
+  }
+
+  const resultado = new Map<string, DotacionPorConceptoPunto>();
+  for (const [periodo, rgRp] of dotacionRgRpPorPeriodo) {
+    resultado.set(periodo, {
+      anticipo_rg: conteoPorClave.get(`anticipo_rg::${periodo}`) ?? rgRp.rg,
+      anticipo_rp: conteoPorClave.get(`anticipo_rp::${periodo}`) ?? rgRp.rp,
+      remuneracion_rg:
+        conteoPorClave.get(`remuneracion_rg::${periodo}`) ?? rgRp.rg,
+      remuneracion_rp:
+        conteoPorClave.get(`remuneracion_rp::${periodo}`) ?? rgRp.rp,
+    });
+  }
+  return resultado;
+}

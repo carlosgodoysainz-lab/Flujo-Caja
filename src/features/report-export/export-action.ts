@@ -9,7 +9,7 @@ import {
 } from "@/features/cash-flow/services/queries";
 import {
   getDotacionTotalPorPeriodo,
-  getDotacionRgRpPorPeriodo,
+  getDotacionPorConceptoYPeriodo,
 } from "@/features/headcount/services/dotacion-total";
 import { getPlanObraConDotacion } from "@/features/headcount/services/plan-obra-dotacion";
 import { renderReportHtml } from "./render";
@@ -57,8 +57,12 @@ export async function exportReportAsHtml(
     );
     // Columna N° por sub-fila RG/RP de Anticipo/Remuneración — mismo
     // formato del Excel real de Finanzas, pedido explícito del usuario
-    // 17-ago-2026, en los 3 formatos (app en vivo, HTML y Excel).
-    const dotacionRgRpPorPeriodo = await getDotacionRgRpPorPeriodo(
+    // 17-ago-2026, en los 3 formatos (app en vivo, HTML y Excel). Real
+    // por concepto específico (payroll_line_items) cuando existe — bug
+    // real corregido 17-ago-2026: antes se reutilizaba la misma
+    // dotación para Anticipo y Remuneración, pese a que mucha menos
+    // gente pide Anticipo.
+    const dotacionPorConceptoYPeriodo = await getDotacionPorConceptoYPeriodo(
       periodoDesde,
       periodoHasta,
     );
@@ -92,10 +96,8 @@ export async function exportReportAsHtml(
       desdeExcel,
       periodoHasta,
     );
-    const dotacionRgRpPorPeriodoExcel = await getDotacionRgRpPorPeriodo(
-      desdeExcel,
-      periodoHasta,
-    );
+    const dotacionPorConceptoYPeriodoExcel =
+      await getDotacionPorConceptoYPeriodo(desdeExcel, periodoHasta);
 
     const generadoEn = new Date();
     const periodoDesdeStr = periodoDesde.toISOString().slice(0, 10);
@@ -105,7 +107,7 @@ export async function exportReportAsHtml(
       kpis,
       ufPorPeriodo,
       dotacionPorPeriodo,
-      dotacionRgRpPorPeriodo,
+      dotacionPorConceptoYPeriodo,
       periodoDesde: periodoDesdeStr,
       periodoHasta: periodoHastaStr,
       generadoEn,
@@ -117,7 +119,7 @@ export async function exportReportAsHtml(
       kpis,
       ufPorPeriodo: ufPorPeriodoExcel,
       dotacionPorPeriodo: dotacionPorPeriodoExcel,
-      dotacionRgRpPorPeriodo: dotacionRgRpPorPeriodoExcel,
+      dotacionPorConceptoYPeriodo: dotacionPorConceptoYPeriodoExcel,
       periodoDesde: periodoDesdeStr,
       periodoHasta: periodoHastaStr,
       // Todo lo anterior a este período queda agrupado/colapsado en

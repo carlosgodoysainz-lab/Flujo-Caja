@@ -91,7 +91,7 @@ describe("renderReportHtml — columna N° (dotación RG/RP)", () => {
     generadoEn: new Date(2026, 7, 4),
   });
 
-  it("sin dotacionRgRpPorPeriodo, no agrega columnas N° (comportamiento previo)", () => {
+  it("sin dotacionPorConceptoYPeriodo, no agrega columnas N° (comportamiento previo)", () => {
     expect(htmlSinColumnaN).not.toContain('colspan="2"');
     expect(htmlSinColumnaN).not.toContain('<th class="n-sub">');
     expect(htmlSinColumnaN).not.toContain('<td class="n-col">');
@@ -114,14 +114,24 @@ describe("renderReportHtml — columna N° (dotación RG/RP)", () => {
         metodoCalculo: null,
       },
     ],
-    dotacionRgRpPorPeriodo: new Map([["2026-07-01", { rg: 650, rp: 190 }]]),
+    dotacionPorConceptoYPeriodo: new Map([
+      [
+        "2026-07-01",
+        {
+          anticipo_rg: 650,
+          anticipo_rp: 190,
+          remuneracion_rg: 752,
+          remuneracion_rp: 205,
+        },
+      ],
+    ]),
     kpis: KPIS,
     periodoDesde: "2026-07-01",
     periodoHasta: "2026-07-01",
     generadoEn: new Date(2026, 7, 4),
   });
 
-  it("con dotacionRgRpPorPeriodo, cada período usa colspan=2 en el header", () => {
+  it("con dotacionPorConceptoYPeriodo, cada período usa colspan=2 en el header", () => {
     expect(htmlConColumnaN).toContain('colspan="2"');
   });
 

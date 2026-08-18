@@ -8,7 +8,7 @@ import type {
 } from "@/features/cash-flow/services/queries";
 import type {
   DotacionTotalPunto,
-  DotacionRgRpPunto,
+  DotacionPorConceptoPunto,
 } from "@/features/headcount/services/dotacion-total";
 import type { PlanObraDotacionFila } from "@/features/headcount/services/plan-obra-dotacion";
 import { FILAS_DETALLE as FILAS } from "@/features/cash-flow/lib/filas-detalle";
@@ -71,14 +71,18 @@ export async function renderReportExcel(params: {
   /** Dotación total (N°) por período — ver dotacion-total.ts. Fila "Dotación" solo aparece si hay dato. */
   dotacionPorPeriodo?: Map<string, DotacionTotalPunto>;
   /**
-   * Dotación (N°) RG/RP por período — misma columna que el Excel real de
-   * Finanzas trae al lado de cada sub-fila RG/RP de Anticipo/
-   * Remuneración (pedido explícito del usuario 17-ago-2026: "el flujo de
-   * caja que yo realizaba en Excel colocaba la dotación en los
-   * subgrupos, mantén ese formato"). Si no se provee, la hoja "Detalle"
-   * queda con 1 columna por período (comportamiento previo).
+   * N° (dotación) por período, ESPECÍFICO de cada sub-fila RG/RP de
+   * Anticipo/Remuneración — mismo formato del Excel real de Finanzas
+   * (pedido explícito del usuario 17-ago-2026: "el flujo de caja que yo
+   * realizaba en Excel colocaba la dotación en los subgrupos, mantén
+   * ese formato"). Real desde `payroll_line_items` cuando existe,
+   * estimado desde la dotación total cuando no — bug real corregido
+   * 17-ago-2026: antes se reutilizaba la MISMA dotación para Anticipo y
+   * Remuneración, mostrando el mismo N° pese a que mucha menos gente
+   * pide Anticipo. Si no se provee, la hoja "Detalle" queda con 1
+   * columna por período (comportamiento previo).
    */
-  dotacionRgRpPorPeriodo?: Map<string, DotacionRgRpPunto>;
+  dotacionPorConceptoYPeriodo?: Map<string, DotacionPorConceptoPunto>;
   /** Plan de obra (Gespro) + dotación real (Buk) + flujo estimado por obra — ver plan-obra-dotacion.ts. Hoja "Plan de Obra" solo aparece si hay filas. */
   planObraDotacion?: PlanObraDotacionFila[];
   /**
@@ -102,14 +106,14 @@ export async function renderReportExcel(params: {
     kpis,
     ufPorPeriodo,
     dotacionPorPeriodo,
-    dotacionRgRpPorPeriodo,
+    dotacionPorConceptoYPeriodo,
     planObraDotacion,
     columnasAgrupadasHastaPeriodo,
     periodoDesde,
     periodoHasta,
     generadoEn,
   } = params;
-  const conColumnaN = !!dotacionRgRpPorPeriodo;
+  const conColumnaN = !!dotacionPorConceptoYPeriodo;
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Flujo de Caja Nómina — Grupo Maestra";
@@ -217,6 +221,21 @@ export async function renderReportExcel(params: {
   const detalle = workbook.addWorksheet("Detalle");
   /** Columna 1-indexada de la celda de VALOR del período i (1=Concepto). La celda "N°" vecina es col+1 cuando `conColumnaN`. */
   const colValor = (i: number) => (conColumnaN ? 2 : 1) * i + 2;
+  /** Número de columna (1-indexado) -> letra de columna Excel ("A", "Z", "AA", ...). */
+  function columnaALetra(col: number): string {
+    let letra = "";
+    let n = col;
+    while (n > 0) {
+      const resto = (n - 1) % 26;
+      letra = String.fromCharCode(65 + resto) + letra;
+      n = Math.floor((n - 1) / 26);
+    }
+    return letra;
+  }
+  /** Referencia de celda Excel ("AB12") para (columna 1-indexada, fila 1-indexada). */
+  function refCelda(col: number, fila: number): string {
+    return `${columnaALetra(col)}${fila}`;
+  }
 
   if (conColumnaN) {
     const fila1: (string | number)[] = ["Concepto"];
@@ -261,6 +280,7 @@ export async function renderReportExcel(params: {
   // antes de los conceptos monetarios. Ocupa igual las 2 columnas del
   // período (deja la 2da en blanco) para no desalinear el resto de la
   // tabla cuando hay columnas de a pares.
+  let filaDotacionNumero: number | null = null;
   if (dotacionPorPeriodo && dotacionPorPeriodo.size > 0) {
     const filaDotacion: (string | number)[] = ["Dotación (N°)"];
     const celdasProyectadas: number[] = [];
@@ -271,6 +291,7 @@ export async function renderReportExcel(params: {
       if (punto && !punto.esReal) celdasProyectadas.push(colValor(i));
     });
     const row = detalle.addRow(filaDotacion);
+    filaDotacionNumero = row.number;
     row.font = { name: FUENTE_MARCA, color: { argb: "FF475569" } };
     for (const colNum of celdasProyectadas)
       row.getCell(colNum).fill = FILL_PROYECTADO;
@@ -279,21 +300,162 @@ export async function renderReportExcel(params: {
     });
   }
 
+  // Fila de cada concepto ANTES de escribir ninguna — así una fórmula
+  // puede referenciar una fila que todavía no se escribió (ej. Anticipo
+  // referencia a Remuneración, que va más abajo en FILAS_DETALLE).
+  // Derivado de `detalle.rowCount` real (headers + Dotación ya
+  // escritos), nunca re-calculado a mano — evita que se desincronice
+  // con el orden real de escritura.
+  const filaNumeroPorConcepto = new Map<string, number>();
+  {
+    let cursor = detalle.rowCount;
+    for (const fila of FILAS) {
+      cursor++;
+      filaNumeroPorConcepto.set(fila.concepto, cursor);
+      for (const sub of fila.sub ?? []) {
+        cursor++;
+        filaNumeroPorConcepto.set(sub.concepto, cursor);
+      }
+    }
+  }
+
+  /**
+   * Fórmula real de Excel (con link a otras celdas) para un concepto
+   * PROYECTADO — pedido explícito del usuario 17-ago-2026: "me gustaría
+   * que existiera un link en la fórmula en el Excel, ya que al parecer
+   * el cálculo de los flujos no está considerando la dotación". Se
+   * escribe SIEMPRE con `result` = el monto ya calculado (mismo número
+   * que antes) para que se vea correcto sin depender de que Excel
+   * recalcule al abrir — pero ahora es una fórmula real, clickeable,
+   * que sí referencia la celda de Dotación/Remuneración correspondiente.
+   * `null` si no hay una fórmula segura de construir (ej. primer
+   * período del rango, sin columna anterior de dónde tomar el link).
+   */
+  function formulaProyectada(
+    concepto: string,
+    monto: number,
+    metodoCalculo: string | null,
+    i: number,
+  ): { formula: string; result: number } | null {
+    const col = colValor(i);
+    if (concepto === "anticipo") {
+      const filaRemun = filaNumeroPorConcepto.get("remuneracion");
+      if (!filaRemun) return null;
+      return {
+        formula: `=${refCelda(col, filaRemun)}*0.24`,
+        result: monto,
+      };
+    }
+    if (concepto === "reliquidacion") {
+      const filaRemun = filaNumeroPorConcepto.get("remuneracion");
+      if (!filaRemun) return null;
+      return {
+        formula: `=${refCelda(col, filaRemun)}*0.01`,
+        result: monto,
+      };
+    }
+    if (concepto === "cotizacion") {
+      const filaAnt = filaNumeroPorConcepto.get("anticipo");
+      const filaRemun = filaNumeroPorConcepto.get("remuneracion");
+      const filaRelq = filaNumeroPorConcepto.get("reliquidacion");
+      if (!filaAnt || !filaRemun || !filaRelq) return null;
+      return {
+        formula: `=(${refCelda(col, filaAnt)}+${refCelda(col, filaRemun)}+${refCelda(col, filaRelq)})*0.3`,
+        result: monto,
+      };
+    }
+    if (concepto === "total_nomina") {
+      const filas = [
+        "anticipo",
+        "remuneracion",
+        "finiquito",
+        "reliquidacion",
+        "cotizacion",
+        "sence",
+      ].map((c) => filaNumeroPorConcepto.get(c));
+      if (filas.some((f) => !f)) return null;
+      return {
+        formula: `=${filas.map((f) => refCelda(col, f!)).join("+")}`,
+        result: monto,
+      };
+    }
+    if (
+      concepto === "remuneracion" &&
+      metodoCalculo === "costo_por_cabeza_x_dotacion"
+    ) {
+      // Único caso con dependencia de OTRO período: costo promedio por
+      // cabeza del mes anterior × dotación actual. Sin columna anterior
+      // en este mismo sheet (primer período del rango) no hay celda a
+      // la que enlazar — se deja como valor plano en ese caso.
+      if (i === 0 || !filaDotacionNumero) return null;
+      const colAnterior = colValor(i - 1);
+      const remunAnteriorPunto = valorPorConceptoYPeriodo.get(
+        `remuneracion::${periodos[i - 1]}`,
+      );
+      const dotacionAnteriorPunto = dotacionPorPeriodo?.get(periodos[i - 1]);
+      const dotacionActualPunto = dotacionPorPeriodo?.get(periodos[i]);
+      if (
+        !remunAnteriorPunto ||
+        !dotacionAnteriorPunto?.total ||
+        !dotacionActualPunto?.total
+      )
+        return null;
+      // Residual = Beneficios/Bonos del mes (se suman de forma implícita
+      // dentro de Remuneración, ver engine.ts) — no tiene su propia celda
+      // linkeable, así que queda como número fijo sumado a la fórmula:
+      // la parte costo-por-cabeza × dotación SÍ queda viva (cambia si se
+      // edita la Dotación), el residual de Beneficios es una foto fija.
+      const baseFormula =
+        (remunAnteriorPunto.monto / dotacionAnteriorPunto.total) *
+        dotacionActualPunto.total;
+      const residual = Math.round(monto - baseFormula);
+      const refRemunAnterior = refCelda(
+        colAnterior,
+        filaNumeroPorConcepto.get("remuneracion")!,
+      );
+      const refDotacionAnterior = refCelda(colAnterior, filaDotacionNumero);
+      const refDotacionActual = refCelda(col, filaDotacionNumero);
+      const sufijoResidual =
+        residual !== 0 ? `${residual >= 0 ? "+" : ""}${residual}` : "";
+      return {
+        formula: `=${refRemunAnterior}/${refDotacionAnterior}*${refDotacionActual}${sufijoResidual}`,
+        result: monto,
+      };
+    }
+    return null;
+  }
+
   function agregarFilaConcepto(
     concepto: string,
     label: string,
     negrita: boolean,
-    dotacion?: "rg" | "rp",
+    tieneColumnaN?: boolean,
   ) {
-    const fila: (string | number)[] = [label];
+    const fila: (string | number | { formula: string; result: number })[] = [
+      label,
+    ];
     const celdasProyectadas: number[] = [];
     periodos.forEach((p, i) => {
       const punto = valorPorConceptoYPeriodo.get(`${concepto}::${p}`);
-      fila.push(punto ? punto.monto : "");
-      if (punto && !punto.esReal) celdasProyectadas.push(colValor(i));
+      if (!punto) {
+        fila.push("");
+      } else if (!punto.esReal) {
+        celdasProyectadas.push(colValor(i));
+        const conFormula = formulaProyectada(
+          concepto,
+          punto.monto,
+          punto.metodoCalculo,
+          i,
+        );
+        fila.push(conFormula ?? punto.monto);
+      } else {
+        fila.push(punto.monto);
+      }
       if (conColumnaN) {
-        const n = dotacion
-          ? dotacionRgRpPorPeriodo?.get(p)?.[dotacion]
+        const n = tieneColumnaN
+          ? dotacionPorConceptoYPeriodo?.get(p)?.[
+              concepto as keyof DotacionPorConceptoPunto
+            ]
           : undefined;
         fila.push(n ?? "");
       }
@@ -317,7 +479,7 @@ export async function renderReportExcel(params: {
       fila.concepto === "total_nomina",
     );
     for (const sub of fila.sub ?? []) {
-      agregarFilaConcepto(sub.concepto, sub.label, false, sub.dotacion);
+      agregarFilaConcepto(sub.concepto, sub.label, false, sub.tieneColumnaN);
     }
   }
 

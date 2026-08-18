@@ -6,7 +6,7 @@ import {
 } from "@/features/cash-flow/services/queries";
 import {
   getDotacionTotalPorPeriodo,
-  getDotacionRgRpPorPeriodo,
+  getDotacionPorConceptoYPeriodo,
 } from "@/features/headcount/services/dotacion-total";
 import { HeroConsolidado } from "@/features/cash-flow/components/hero-consolidado";
 import { DetailTable } from "@/features/cash-flow/components/detail-table";
@@ -43,7 +43,10 @@ export default async function ReportePage() {
   const periodosDelDetalle = [...new Set(serie.map((p) => p.periodo))];
   const ufPorPeriodo = await getUfPorPeriodo(periodosDelDetalle);
   const dotacionPorPeriodo = await getDotacionTotalPorPeriodo(desde, hasta);
-  const dotacionRgRpPorPeriodo = await getDotacionRgRpPorPeriodo(desde, hasta);
+  const dotacionPorConceptoYPeriodo = await getDotacionPorConceptoYPeriodo(
+    desde,
+    hasta,
+  );
 
   return (
     // El hero navy va FULL-BLEED (ancho completo de la página, igual que
@@ -86,7 +89,7 @@ export default async function ReportePage() {
             serie={serie}
             ufPorPeriodo={ufPorPeriodo}
             dotacionPorPeriodo={dotacionPorPeriodo}
-            dotacionRgRpPorPeriodo={dotacionRgRpPorPeriodo}
+            dotacionPorConceptoYPeriodo={dotacionPorConceptoYPeriodo}
           />
         </section>
 
