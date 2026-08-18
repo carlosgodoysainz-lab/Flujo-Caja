@@ -14,6 +14,7 @@ import {
   getDotacionTotalPorPeriodo,
   dotacionRgRpDelMes,
   proporcionRgHistorica,
+  dotacionAnticipoDelMes,
 } from "@/features/headcount/services/dotacion-total";
 import { runForecastModel } from "@/features/headcount/forecast-model/run";
 import { runBukSnapshot } from "@/features/headcount/buk-sync/sync";
@@ -477,6 +478,31 @@ export async function refreshCashFlowReport(
     const remuneracionFallbackPromedioHistorico =
       await promedioRemuneracionReal(supabase, mes);
 
+    // Anticipo: mismo modelo costo-por-cabeza que Remuneración, pero con
+    // su PROPIA dotación (gente que efectivamente pide Anticipo, mucha
+    // menos que la que recibe Remuneración completa) — pedido explícito
+    // del usuario 18-ago-2026: "la dotación se debe ir proyectando por
+    // concepto". Ver `dotacionAnticipoDelMes`/`calcularAnticipoPorCabeza`.
+    const anticipoMesAnterior = await montoCashFlow(
+      supabase,
+      anterior,
+      "anticipo",
+    );
+    const dotacionAnticipoMesAnterior = await dotacionAnticipoDelMes(
+      supabase,
+      anterior,
+      dotacionPorPeriodo,
+    );
+    const dotacionAnticipoActual = await dotacionAnticipoDelMes(
+      supabase,
+      mes,
+      dotacionPorPeriodo,
+    );
+    const costoPromedioAnticipoPorCabezaMesAnterior =
+      anticipoMesAnterior != null && dotacionAnticipoMesAnterior
+        ? anticipoMesAnterior / dotacionAnticipoMesAnterior
+        : null;
+
     // Finiquito: si la dotación TOTAL proyecta una baja NETA este mes
     // (curva de cierre de obra ya conocida), correlaciona con el costo
     // promedio histórico por baja neta — pedido explícito del usuario
@@ -563,6 +589,8 @@ export async function refreshCashFlowReport(
       costoPromedioPorCabezaMesAnterior,
       dotacionActual,
       remuneracionFallbackPromedioHistorico,
+      costoPromedioAnticipoPorCabezaMesAnterior,
+      dotacionAnticipoActual,
       finiquitoFallback,
       beneficiosRg: beneficiosCalculado.rg,
       beneficiosRp: beneficiosCalculado.rp,

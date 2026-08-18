@@ -339,6 +339,56 @@ export async function renderReportExcel(params: {
   ): { formula: string; result: number } | null {
     const col = colValor(i);
     if (concepto === "anticipo") {
+      // Modelo primario desde 18-ago-2026: costo-por-cabeza × dotación
+      // PROPIA de Anticipo (rg+rp) — pedido explícito del usuario, "la
+      // dotación se debe ir proyectando por concepto". No hay una celda
+      // "Anticipo N° total" (solo N° por sub-fila RG/RP), así que la
+      // "cantidad" queda como SUMA de las 2 celdas N° vecinas. Requiere
+      // columna N° (conColumnaN) y período anterior — si no hay alguno de
+      // los 2, cae al link simple del 24% de Remuneración (aproximación
+      // razonable, sigue siendo un link real, no un número plano).
+      if (i > 0 && conColumnaN) {
+        const colAnterior = colValor(i - 1);
+        const filaAntTotal = filaNumeroPorConcepto.get("anticipo");
+        const filaAntRg = filaNumeroPorConcepto.get("anticipo_rg");
+        const filaAntRp = filaNumeroPorConcepto.get("anticipo_rp");
+        const antAnteriorPunto = valorPorConceptoYPeriodo.get(
+          `anticipo::${periodos[i - 1]}`,
+        );
+        const dotAnteriorPunto = dotacionPorConceptoYPeriodo?.get(
+          periodos[i - 1],
+        );
+        const dotActualPunto = dotacionPorConceptoYPeriodo?.get(periodos[i]);
+        const dotAnteriorTotal =
+          (dotAnteriorPunto?.anticipo_rg ?? 0) +
+          (dotAnteriorPunto?.anticipo_rp ?? 0);
+        const dotActualTotal =
+          (dotActualPunto?.anticipo_rg ?? 0) +
+          (dotActualPunto?.anticipo_rp ?? 0);
+        if (
+          filaAntTotal &&
+          filaAntRg &&
+          filaAntRp &&
+          antAnteriorPunto &&
+          dotAnteriorTotal > 0 &&
+          dotActualTotal > 0
+        ) {
+          const baseFormula =
+            (antAnteriorPunto.monto / dotAnteriorTotal) * dotActualTotal;
+          const residual = Math.round(monto - baseFormula);
+          const refAntAnterior = refCelda(colAnterior, filaAntTotal);
+          const refDotAnteriorRg = refCelda(colAnterior + 1, filaAntRg);
+          const refDotAnteriorRp = refCelda(colAnterior + 1, filaAntRp);
+          const refDotActualRg = refCelda(col + 1, filaAntRg);
+          const refDotActualRp = refCelda(col + 1, filaAntRp);
+          const sufijoResidual =
+            residual !== 0 ? `${residual >= 0 ? "+" : ""}${residual}` : "";
+          return {
+            formula: `=${refAntAnterior}/(${refDotAnteriorRg}+${refDotAnteriorRp})*(${refDotActualRg}+${refDotActualRp})${sufijoResidual}`,
+            result: monto,
+          };
+        }
+      }
       const filaRemun = filaNumeroPorConcepto.get("remuneracion");
       if (!filaRemun) return null;
       return {

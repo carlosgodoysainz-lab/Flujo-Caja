@@ -13,7 +13,7 @@ export const CONCEPTOS_METODOLOGIA = [
     fuenteReal:
       'Real desde 2 fuentes, en orden de prioridad: (1) el Excel MAESTRO de Flujo de Caja (carpeta "Flujo de Caja", Finanzas) para meses ya cerrados — la más completa históricamente; (2) "solicitud requerimientos anticipo <mes> <año>.xlsx" ingerido de SharePoint para meses recientes que el Excel maestro todavía no cierra. Ambas ya traen RG/RP separado, sin RUT ni nombre de persona.',
     formula:
-      "Si no hay dato real: 24% × Remuneración del mismo mes (total); el desglose RG/RP proyectado aplica esa misma fórmula solo a la porción RG de Remuneración, y el residual va a RP.",
+      "Si no hay dato real: costo promedio por cabeza del mes anterior (Anticipo$ mes anterior ÷ dotación PROPIA de Anticipo de ese mes) × dotación de Anticipo del mes actual — su PROPIA cantidad, no la de Remuneración (rediseñado 18-ago-2026: mucha menos gente pide Anticipo que la que recibe Remuneración completa). La dotación de Anticipo es real (N° de personas con pago de Anticipo ingerido ese mes) o, si no hay dato real todavía, dotación total × razón histórica propia de Anticipo. Si tampoco hay dotación de Anticipo disponible: cae a 24% × Remuneración del mismo mes (último fallback). El desglose RG/RP proyectado sigue aplicando el 24% a la porción RG de Remuneración, con el residual a RP.",
   },
   {
     concepto: "Remuneración (RG/RP)",
@@ -80,7 +80,7 @@ export const MOTOR_CAMBIO_MENSUAL = [
   {
     concepto: "Anticipo",
     explicacion:
-      "Sigue a Remuneración del mismo mes (24% de ella) — sube o baja en la MISMA dirección y proporción, nunca tiene un movimiento propio distinto.",
+      "Sube o baja principalmente porque cambia su PROPIA dotación (gente que efectivamente pide Anticipo, no toda la dotación de Remuneración): Anticipo ≈ costo promedio por cabeza del mes anterior × dotación de Anticipo del mes actual. Solo cuando no hay dotación de Anticipo disponible cae a seguir a Remuneración (24% de ella).",
   },
   {
     concepto: "Reliquidación",

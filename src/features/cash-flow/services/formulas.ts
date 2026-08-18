@@ -8,7 +8,9 @@
  *
  *   Concepto        | Excel real          | Metodología redefinida (usada acá)
  *   ----------------|----------------------|-------------------------------------
- *   Anticipo        | 24% × Remun. (RG)    | 24% × Remuneración (igual, confirmado)
+ *   Anticipo        | 24% × Remun. (RG)    | Costo-por-cabeza × dotación PROPIA de Anticipo (rediseñado 18-ago-2026,
+ *                                              ver `calcularAnticipoPorCabeza`); cae a 24% × Remuneración solo si no
+ *                                              hay dotación de Anticipo disponible todavía
  *   Remuneración     | (prevMonto/prevHC)×HC | Igual — modelo costo-por-cabeza × dotación (ver dotacion-total.ts)
  *   Finiquito        | 7% × Remuneración    | Promedio de los ÚLTIMOS 6 MESES REALES (decisión explícita del usuario)
  *   Reliquidación    | 1% × Remuneración    | Igual (el usuario confirmó mantener la fórmula del Excel)
@@ -31,9 +33,53 @@ function round(value: number): number {
   return Math.round(value);
 }
 
-/** Anticipo proyectado ≈ 24% de Remuneración del mismo mes (fallback cuando no hay dato real ingerido de la carpeta "Pagos Mensuales/Anticipo"). */
+/** Anticipo proyectado ≈ 24% de Remuneración del mismo mes — último fallback cuando ni hay dato real ingerido ni dotación de Anticipo disponible (ver `calcularAnticipoPorCabeza`, el modelo primario desde 18-ago-2026). */
 export function calcularAnticipoProyectado(remuneracion: number): number {
   return round(remuneracion * ANTICIPO_PCT);
+}
+
+/**
+ * Anticipo proyectado = costo promedio por cabeza del mes anterior × la
+ * dotación PROPIA de Anticipo del mes actual (NO la dotación de
+ * Remuneración) — mismo modelo "precio × cantidad" que Remuneración, pero
+ * con su propia "cantidad": bastante menos gente pide Anticipo que la que
+ * recibe Remuneración completa (confirmado por el usuario viendo el Excel
+ * real, 17-ago-2026). Pedido explícito del usuario 18-ago-2026: "para
+ * efectos de la proyección de anticipos... la dotación se debe ir
+ * proyectando por concepto". `costoPromedioAnticipoPorCabezaMesAnterior`
+ * viene de dividir el Anticipo real (o ya proyectado) del mes anterior por
+ * la dotación de Anticipo de ese mismo mes anterior (ver
+ * `dotacionAnticipoDelMes` en `dotacion-total.ts`). Si no hay dotación de
+ * Anticipo disponible todavía, cae al fallback de 24% × Remuneración
+ * (`calcularAnticipoProyectado`) — degradación explícita, nunca un error
+ * duro. Reliquidación queda SIN cambios (decisión explícita del usuario:
+ * "No, solo Anticipo") — sigue en 1% × Remuneración.
+ */
+export function calcularAnticipoPorCabeza(params: {
+  costoPromedioAnticipoPorCabezaMesAnterior: number | null;
+  dotacionAnticipoActual: number | null;
+  fallbackRemuneracion: number;
+}): { monto: number; metodoCalculo: string } {
+  const {
+    costoPromedioAnticipoPorCabezaMesAnterior,
+    dotacionAnticipoActual,
+    fallbackRemuneracion,
+  } = params;
+  if (
+    costoPromedioAnticipoPorCabezaMesAnterior != null &&
+    dotacionAnticipoActual != null
+  ) {
+    return {
+      monto: round(
+        costoPromedioAnticipoPorCabezaMesAnterior * dotacionAnticipoActual,
+      ),
+      metodoCalculo: "costo_por_cabeza_x_dotacion_anticipo",
+    };
+  }
+  return {
+    monto: calcularAnticipoProyectado(fallbackRemuneracion),
+    metodoCalculo: "formula_24pct_remuneracion",
+  };
 }
 
 /** Reliquidaciones proyectadas ≈ 1% de Remuneraciones del mismo mes (fallback). Fórmula del Excel, confirmada por el usuario. */

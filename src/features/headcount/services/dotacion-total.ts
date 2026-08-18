@@ -286,6 +286,89 @@ export async function getDotacionRgRpPorPeriodo(
   return resultado;
 }
 
+/**
+ * N° REAL de gente que recibió Anticipo (rg+rp) en un período específico —
+ * cuenta filas de `payroll_line_items` (grano de persona). `null` si no hay
+ * ningún dato real ingerido todavía para ese período. Solo `count` (sin
+ * traer filas) — no hay riesgo de truncamiento de PostgREST con este patrón.
+ */
+async function dotacionAnticipoRealDelMes(
+  supabase: ReturnType<typeof createServiceClient>,
+  periodoStr: string,
+): Promise<number | null> {
+  const { count } = await supabase
+    .from("payroll_line_items")
+    .select("*", { count: "exact", head: true })
+    .in("concepto", ["anticipo_rg", "anticipo_rp"])
+    .eq("periodo", periodoStr);
+  return count && count > 0 ? count : null;
+}
+
+/**
+ * Razón real: dotación de Anticipo (gente que efectivamente lo recibe) ÷
+ * dotación TOTAL de la compañía, promediada de los últimos N meses con dato
+ * real de Anticipo — para proyectar la dotación PROPIA de Anticipo en meses
+ * sin ingesta real todavía. Pedido explícito del usuario 18-ago-2026: "para
+ * efectos de la proyección de anticipos... la dotación se debe ir
+ * proyectando por concepto" — Anticipo NO puede reutilizar la dotación (ni
+ * la razón histórica) de Remuneración, son poblaciones distintas (mucha
+ * menos gente pide Anticipo, ver Auto-Blindaje 17-ago-2026 en
+ * `getDotacionPorConceptoYPeriodo`).
+ *
+ * Independiente del rango que esté iterando el caller — trae su propia
+ * ventana de dotación TOTAL (24 meses atrás) vía `getDotacionTotalPorPeriodo`,
+ * mismo criterio de `proporcionRgHistorica` (que tampoco depende del mapa
+ * del caller).
+ */
+export async function proporcionAnticipoHistorica(
+  supabase: ReturnType<typeof createServiceClient>,
+  antesDe: Date,
+  n = 3,
+): Promise<number | null> {
+  const desde = new Date(antesDe.getFullYear(), antesDe.getMonth() - 24, 1);
+  const hasta = new Date(antesDe.getFullYear(), antesDe.getMonth() - 1, 1);
+  const dotacionPorPeriodo = await getDotacionTotalPorPeriodo(desde, hasta);
+
+  const razones: number[] = [];
+  const periodos = [...dotacionPorPeriodo.keys()].sort().reverse();
+  for (const periodo of periodos) {
+    if (razones.length >= n) break;
+    const dotacionTotal = dotacionPorPeriodo.get(periodo)!.total;
+    const conteoAnticipo = await dotacionAnticipoRealDelMes(supabase, periodo);
+    if (conteoAnticipo != null && dotacionTotal) {
+      razones.push(conteoAnticipo / dotacionTotal);
+    }
+  }
+  if (razones.length === 0) return null;
+  return razones.reduce((a, b) => a + b, 0) / razones.length;
+}
+
+/**
+ * Dotación de Anticipo (N° de gente que lo recibe, no la dotación total ni
+ * la de Remuneración) del mes — real desde `payroll_line_items` cuando ya
+ * hay ingesta para ese período; si no, se deriva de la dotación TOTAL
+ * aplicando la razón histórica PROPIA de Anticipo (ver
+ * `proporcionAnticipoHistorica`). Es la variable "Q" del modelo
+ * costo-por-cabeza aplicado a Anticipo (ver `calcularAnticipoPorCabeza` en
+ * `formulas.ts`) — mismo patrón que `dotacionRgRpDelMes`, pero con la
+ * dotación propia del concepto en vez de la razón RG/RP.
+ */
+export async function dotacionAnticipoDelMes(
+  supabase: ReturnType<typeof createServiceClient>,
+  mes: Date,
+  dotacionPorPeriodo: Map<string, DotacionTotalPunto>,
+): Promise<number | null> {
+  const periodoStr = mes.toISOString().slice(0, 10);
+  const real = await dotacionAnticipoRealDelMes(supabase, periodoStr);
+  if (real != null) return real;
+
+  const dotacionTotal = dotacionPorPeriodo.get(periodoStr)?.total;
+  if (!dotacionTotal) return null;
+  const proporcion = await proporcionAnticipoHistorica(supabase, mes);
+  if (proporcion == null) return null;
+  return Math.round(dotacionTotal * proporcion);
+}
+
 export interface DotacionPorConceptoPunto {
   anticipo_rg: number | null;
   anticipo_rp: number | null;
