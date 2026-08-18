@@ -1,5 +1,5 @@
 import {
-  calcularAnticipoPorCabeza,
+  calcularAnticipoProyectado,
   calcularCotizacion,
   calcularReliquidacionProyectada,
   calcularRemuneracionProyectada,
@@ -51,17 +51,6 @@ export interface CashFlowInputs {
    * provisto por el caller.
    */
   remuneracionFallbackPromedioHistorico: number;
-  /**
-   * Costo promedio de Anticipo por cabeza del MES ANTERIOR (Anticipo$ ÷
-   * dotación de Anticipo de ese mismo mes anterior), para proyectar
-   * Anticipo con su PROPIO modelo precio×cantidad — misma idea que
-   * Remuneración, pero con la dotación PROPIA de Anticipo (no la de
-   * Remuneración, ver `dotacion-total.ts`). `null` si no hay dotación de
-   * Anticipo disponible para el mes anterior — ver `calcularAnticipoPorCabeza`.
-   */
-  costoPromedioAnticipoPorCabezaMesAnterior: number | null;
-  /** Dotación de Anticipo (real o proyectada) del mes ACTUAL — la "cantidad" propia de Anticipo, distinta de `dotacionActual` (que es la dotación TOTAL de la compañía). */
-  dotacionAnticipoActual: number | null;
   /**
    * Fallback de Finiquito cuando no hay dato real — ya resuelto por el
    * caller (`refresh.ts`) con la mejor metodología disponible: si la
@@ -154,15 +143,11 @@ export function calcularMesCashFlow(
           esReal: true,
           metodoCalculo: "ingesta_real",
         }
-      : (() => {
-          const { monto, metodoCalculo } = calcularAnticipoPorCabeza({
-            costoPromedioAnticipoPorCabezaMesAnterior:
-              inputs.costoPromedioAnticipoPorCabezaMesAnterior,
-            dotacionAnticipoActual: inputs.dotacionAnticipoActual,
-            fallbackRemuneracion: remuneracion.monto,
-          });
-          return { monto, esReal: false, metodoCalculo };
-        })();
+      : {
+          monto: calcularAnticipoProyectado(remuneracion.monto),
+          esReal: false,
+          metodoCalculo: "formula_24pct_remuneracion",
+        };
 
   const reliquidacion: CashFlowConceptoCalculado =
     inputs.reliquidacionReal !== null

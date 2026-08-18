@@ -18,8 +18,6 @@ const BASE: CashFlowInputs = {
   costoPromedioPorCabezaMesAnterior: null,
   dotacionActual: null,
   remuneracionFallbackPromedioHistorico: 0,
-  costoPromedioAnticipoPorCabezaMesAnterior: null,
-  dotacionAnticipoActual: null,
   finiquitoFallback: {
     monto: 0,
     metodoCalculo: "promedio_ultimos_6_meses_reales",
@@ -86,7 +84,7 @@ describe("calcularMesCashFlow", () => {
     expect(result.anticipo.esReal).toBe(true);
   });
 
-  it("sin dato real de anticipo NI dotación propia de anticipo, cae a la fórmula del 24% de remuneración", () => {
+  it("sin dato real de anticipo, cae a la fórmula del 24% de remuneración", () => {
     const result = calcularMesCashFlow({
       ...BASE,
       remuneracionReal: 100_000_000,
@@ -95,25 +93,6 @@ describe("calcularMesCashFlow", () => {
     expect(result.anticipo.monto).toBe(24_000_000);
     expect(result.anticipo.esReal).toBe(false);
     expect(result.anticipo.metodoCalculo).toBe("formula_24pct_remuneracion");
-  });
-
-  it("con dotación PROPIA de anticipo disponible, proyecta anticipo con costo-por-cabeza (no el 24%)", () => {
-    // Pedido explícito del usuario 18-ago-2026: la dotación de Anticipo es
-    // su PROPIA cantidad (mucha menos gente que Remuneración) — el costo
-    // por cabeza (100.000) × su propia dotación (50) da 5.000.000, muy
-    // distinto al 24% de Remuneración que daría la fórmula anterior.
-    const result = calcularMesCashFlow({
-      ...BASE,
-      remuneracionReal: 100_000_000,
-      costoPromedioAnticipoPorCabezaMesAnterior: 100_000,
-      dotacionAnticipoActual: 50,
-    });
-
-    expect(result.anticipo.monto).toBe(5_000_000);
-    expect(result.anticipo.esReal).toBe(false);
-    expect(result.anticipo.metodoCalculo).toBe(
-      "costo_por_cabeza_x_dotacion_anticipo",
-    );
   });
 
   it("sin dato real de reliquidación, cae a la fórmula del 1% de remuneración", () => {

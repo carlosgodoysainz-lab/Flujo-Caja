@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   calcularAnticipoProyectado,
-  calcularAnticipoPorCabeza,
   calcularCotizacion,
   calcularReliquidacionProyectada,
   calcularRemuneracionProyectada,
@@ -13,38 +12,6 @@ describe("calcularAnticipoProyectado", () => {
   });
   it("remuneración cero da anticipo cero", () => {
     expect(calcularAnticipoProyectado(0)).toBe(0);
-  });
-});
-
-describe("calcularAnticipoPorCabeza", () => {
-  it("es costo promedio por cabeza del mes anterior × dotación de Anticipo actual (no la de Remuneración)", () => {
-    const result = calcularAnticipoPorCabeza({
-      costoPromedioAnticipoPorCabezaMesAnterior: 100_000,
-      dotacionAnticipoActual: 340,
-      fallbackRemuneracion: 999_999_999, // no debe usarse
-    });
-    expect(result.monto).toBe(34_000_000);
-    expect(result.metodoCalculo).toBe("costo_por_cabeza_x_dotacion_anticipo");
-  });
-
-  it("cae al 24% de Remuneración si no hay costo por cabeza del mes anterior", () => {
-    const result = calcularAnticipoPorCabeza({
-      costoPromedioAnticipoPorCabezaMesAnterior: null,
-      dotacionAnticipoActual: 340,
-      fallbackRemuneracion: 100_000_000,
-    });
-    expect(result.monto).toBe(24_000_000);
-    expect(result.metodoCalculo).toBe("formula_24pct_remuneracion");
-  });
-
-  it("cae al 24% de Remuneración si no hay dotación de Anticipo actual", () => {
-    const result = calcularAnticipoPorCabeza({
-      costoPromedioAnticipoPorCabezaMesAnterior: 100_000,
-      dotacionAnticipoActual: null,
-      fallbackRemuneracion: 100_000_000,
-    });
-    expect(result.monto).toBe(24_000_000);
-    expect(result.metodoCalculo).toBe("formula_24pct_remuneracion");
   });
 });
 
