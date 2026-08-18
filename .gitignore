@@ -66,3 +66,11 @@ supabase/.temp
 
 # Forge — commit .forge/manifest.json (forge update needs it), ignore backups
 .forge/backups/
+
+# Documentos fuente sensibles (convenios, bonos, beneficios) — nunca al repo
+/Beneficios/
+
+# Dev server local (Windows, ver CLAUDE.md/PRP)
+.dev-server.out.log
+.dev-server.err.log
+.dev-server.pid
