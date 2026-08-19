@@ -59,7 +59,7 @@ export function SenceEditableCell({
           setValor(String(Math.round(monto)));
           setEditando(true);
         }}
-        className={`w-full text-right ${esReal ? "" : "text-slate-400 italic"} hover:underline`}
+        className={`w-full text-right ${esReal ? "" : "text-slate-500 italic"} hover:underline`}
         title="Click para ingresar el Aporte SENCE de este mes (dato manual)"
       >
         {texto}

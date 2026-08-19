@@ -107,10 +107,10 @@ export function DetailTable({
             <TableRow>
               {periodos.map((p) => (
                 <Fragment key={p}>
-                  <TableHead className="text-right text-[10px] font-normal text-slate-400">
+                  <TableHead className="text-right text-[10px] font-normal text-slate-500">
                     $
                   </TableHead>
-                  <TableHead className="text-right text-[10px] font-normal text-slate-400">
+                  <TableHead className="text-right text-[10px] font-normal text-slate-500">
                     N°
                   </TableHead>
                 </Fragment>
@@ -126,7 +126,7 @@ export function DetailTable({
               </TableCell>
               {periodos.map((p) => {
                 const punto = dotacionPorPeriodo.get(p);
-                const clase = `text-right ${punto && !punto.esReal ? "text-slate-400 italic" : ""}`;
+                const clase = `text-right ${punto && !punto.esReal ? "text-slate-500 italic" : ""}`;
                 return conColumnaN ? (
                   <Fragment key={p}>
                     <TableCell className={clase}>
@@ -154,7 +154,7 @@ export function DetailTable({
                   const punto = valorPorConceptoYPeriodo.get(
                     `${fila.concepto}::${p}`,
                   );
-                  const clase = `text-right ${punto && !punto.esReal ? "text-slate-400 italic" : ""}`;
+                  const clase = `text-right ${punto && !punto.esReal ? "text-slate-500 italic" : ""}`;
                   return conColumnaN ? (
                     <Fragment key={p}>
                       <TableCell className={clase}>
@@ -183,7 +183,7 @@ export function DetailTable({
                           {punto ? formatCLP(punto.monto) : "—"}
                         </TableCell>
                         <TableCell
-                          className={`text-right text-xs text-slate-400`}
+                          className={`text-right text-xs text-slate-500`}
                         >
                           {celdaN(sub, p)}
                         </TableCell>
@@ -226,7 +226,7 @@ export function DetailTable({
         </TableBody>
       </Table>
       {ufPorPeriodo.size === 0 && (
-        <p className="mt-2 text-xs text-slate-400">
+        <p className="mt-2 text-xs text-slate-500">
           Serie UF no sincronizada todavía — se actualiza junto con "Actualizar
           reporte".
         </p>

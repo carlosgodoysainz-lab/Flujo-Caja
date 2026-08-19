@@ -75,7 +75,7 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
 
   if (puntos.length === 0) {
     return (
-      <p className="text-sm text-slate-400">
+      <p className="text-sm text-slate-500">
         Sin datos calculados todavía — usa &quot;Actualizar reporte&quot;.
       </p>
     );

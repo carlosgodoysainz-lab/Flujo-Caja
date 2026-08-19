@@ -24,7 +24,10 @@
   --fucsia: #db0a5b;
   --gold: #b89a5a;
   --ok: #2e7d32;
-  --warn: #b8860b;
+  /* Oscurecido 18-ago-2026 (auditoría /temple): #b8860b daba ≈3.25:1 de
+     contraste sobre blanco, falla WCAG 1.4.3 (mínimo 4.5:1) — este valor
+     da ≈6.91:1. */
+  --warn: #7a5209;
   --err: #c62828;
 
   /*

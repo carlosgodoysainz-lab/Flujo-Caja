@@ -72,13 +72,13 @@ export default async function FuentesPage() {
         <h2 className="font-medium text-slate-900">
           Auditoría — últimas 20 acciones
         </h2>
-        <p className="mt-1 text-xs text-slate-400">
+        <p className="mt-1 text-xs text-slate-500">
           Registro inmutable (solo INSERT) de sincronizaciones, estimaciones y
           overrides manuales — ver TECH-SPEC §6.4.
         </p>
         <div className="mt-3 space-y-1 text-xs">
           {(auditLog ?? []).length === 0 && (
-            <p className="text-slate-400">Sin actividad registrada todavía.</p>
+            <p className="text-slate-500">Sin actividad registrada todavía.</p>
           )}
           {(auditLog ?? []).map((entry, i) => (
             <div
@@ -89,9 +89,9 @@ export default async function FuentesPage() {
                 <span className="font-medium text-slate-700">
                   {entry.accion}
                 </span>{" "}
-                <span className="text-slate-400">sobre {entry.entidad}</span>
+                <span className="text-slate-500">sobre {entry.entidad}</span>
               </div>
-              <span className="text-slate-400">
+              <span className="text-slate-500">
                 {new Date(entry.created_at).toLocaleString("es-CL")}
               </span>
             </div>

@@ -23,12 +23,14 @@ export async function AlertPanel() {
     // (modificador de opacidad de Tailwind sobre una variable CSS definida
     // como hex, no como canales RGB separados) falla en silencio y deja el
     // fondo transparente. Mismo bug real que rompía el nav (ver
-    // Auto-Blindaje) — rgb(184,134,11) = var(--warn) = #b8860b.
+    // Auto-Blindaje) — rgb(122,82,9) = var(--warn) = #7a5209 (oscurecido
+    // 18-ago-2026, auditoría /temple — el valor viejo #b8860b fallaba
+    // contraste WCAG).
     <div
       className="rounded-lg border p-4"
       style={{
-        borderColor: "rgba(184, 134, 11, 0.3)",
-        backgroundColor: "rgba(184, 134, 11, 0.05)",
+        borderColor: "rgba(122, 82, 9, 0.3)",
+        backgroundColor: "rgba(122, 82, 9, 0.05)",
       }}
     >
       <p className="text-sm font-medium text-[var(--warn)]">

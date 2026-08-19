@@ -44,7 +44,7 @@ export function MetodologiaCalculo() {
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left">
             <thead>
-              <tr className="border-b border-slate-200 text-xs text-slate-400">
+              <tr className="border-b border-slate-200 text-xs text-slate-500">
                 <th className="py-1.5 pr-3">Concepto</th>
                 <th className="py-1.5 pr-3">Fuente real</th>
                 <th className="py-1.5">Fórmula (si no hay dato real)</th>
@@ -71,7 +71,7 @@ export function MetodologiaCalculo() {
             </tbody>
           </table>
         </div>
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-slate-500">
           Fila "Dotación (N°)" de la tabla de detalle: real desde el Excel
           maestro de Flujo de Caja o snapshots de Buk; proyectada acumulando
           altas−bajas por obra hacia adelante — sube en el arranque, se
@@ -84,7 +84,7 @@ export function MetodologiaCalculo() {
           <h3 className="text-sm font-medium text-slate-700">
             ¿Por qué sube o baja cada concepto de un mes al siguiente?
           </h3>
-          <p className="mt-1 text-xs text-slate-400">
+          <p className="mt-1 text-xs text-slate-500">
             La tabla de arriba explica QUÉ fórmula usa cada concepto — esto
             explica el MOTOR detrás del movimiento mes a mes: qué lo hace subir
             o bajar, y por qué casi todo se mueve en la misma dirección que la

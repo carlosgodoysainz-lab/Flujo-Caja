@@ -2,6 +2,7 @@
 
 import { auth } from "@/lib/auth";
 import { createServiceClient } from "@/lib/supabase/service";
+import { overrideSchema } from "./override-schema";
 
 export interface OverrideResult {
   estado: "ok" | "error";
@@ -25,21 +26,29 @@ export async function overrideCashFlowValue(
     return { estado: "error", errores: ["Sesión no disponible."] };
   }
 
+  const parsed = overrideSchema.safeParse({ periodo, concepto, monto });
+  if (!parsed.success) {
+    return {
+      estado: "error",
+      errores: parsed.error.issues.map((i) => i.message),
+    };
+  }
+
   const supabase = createServiceClient();
-  const periodoStr = periodo.toISOString().slice(0, 10);
+  const periodoStr = parsed.data.periodo.toISOString().slice(0, 10);
 
   const { data: anterior } = await supabase
     .from("cash_flow_monthly")
     .select("monto, es_real, metodo_calculo")
     .eq("periodo", periodoStr)
-    .eq("concepto", concepto)
+    .eq("concepto", parsed.data.concepto)
     .maybeSingle();
 
   const { error } = await supabase.from("cash_flow_monthly").upsert(
     {
       periodo: periodoStr,
-      concepto,
-      monto,
+      concepto: parsed.data.concepto,
+      monto: parsed.data.monto,
       es_real: true,
       metodo_calculo: "manual_override",
       overridden_by: session.user.id,
@@ -58,10 +67,10 @@ export async function overrideCashFlowValue(
     entidad: "cash_flow_monthly",
     metadata: {
       periodo: periodoStr,
-      concepto,
+      concepto: parsed.data.concepto,
       montoAnterior: anterior?.monto ?? null,
       metodoAnterior: anterior?.metodo_calculo ?? null,
-      montoNuevo: monto,
+      montoNuevo: parsed.data.monto,
     },
   });
 

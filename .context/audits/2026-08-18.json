@@ -1,0 +1,30 @@
+{
+  "date": "2026-08-18",
+  "composite": 79,
+  "dimensions": {
+    "seguridad": 80,
+    "datos": 90,
+    "cache": 93,
+    "web": 47
+  },
+  "findings": {
+    "critical": 0,
+    "high": 3,
+    "medium": 11,
+    "low": 12
+  },
+  "coverage": {
+    "owasp": "9/10",
+    "threatdb_run": "20/77",
+    "rls_tables": "14/14"
+  },
+  "deep_layer": {
+    "ran": false,
+    "resilience_score": null
+  },
+  "notes": {
+    "false_positive_corrected": "db-architect subagent reportó CRITICAL por falta de middleware.ts — Next.js 16 lo renombró a proxy.ts, que sí existe y protege todas las rutas. Retirado del score.",
+    "supabase_mcp_connected": false,
+    "codex_available": false
+  }
+}
