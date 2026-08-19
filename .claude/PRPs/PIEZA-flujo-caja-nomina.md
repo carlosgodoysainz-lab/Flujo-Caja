@@ -439,6 +439,14 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 - **Verificado**: `npx tsc --noEmit`, `npx vitest run` (117/117, bajó de 121 al eliminar los 4 tests del modelo revertido) y `npm run build` limpios.
 - **Aplicar en**: antes de introducir un modelo "costo-por-cabeza × dotación" para un concepto nuevo, confirmar primero si ese concepto es conceptualmente un COSTO FIJO por persona (Remuneración, Beneficios) o un PORCENTAJE de otro concepto ya existente (Anticipo, Reliquidación, Cotización) — el segundo caso NUNCA necesita su propia dotación, por diseño de negocio, no por falta de dato.
 
+### 2026-08-18: Proyección de UF a +0,5% mensual cuando mindicador.cl no tiene el dato (antes quedaba "—")
+
+- **Pedido del usuario**: "la proyección de la UF debe considerar un 0,5% de incremento cuando no encuentre la UF para efectos de la proyección".
+- **Antes**: `getUfPorPeriodo` (queries.ts) solo devolvía UF real de `uf_series` (sincronizada desde mindicador.cl, que no publica meses futuros) — cualquier período sin dato real quedaba fuera del Map, y la fila "Total Nómina (UF)" mostraba "—" para todo el horizonte proyectado (visible en captura del usuario: UF real hasta el 3er mes, "—" en el resto).
+- **Fix**: `getUfPorPeriodo` ahora, para los períodos sin dato real, toma el ÚLTIMO UF real conocido (`es_real=true`, el más reciente, sin importar si está o no en la lista de períodos pedida) y compone `UF_CRECIMIENTO_MENSUAL_PROYECTADO` (0,5%) mes a mes (`ultimoValorReal * (1.005)^mesesDeDistancia`) — reemplaza el placeholder de +1% mensual que tenía el Excel original (marcado ahí mismo como "no real, falta dato SII", ver TECH-SPEC §7). Nunca proyecta hacia ATRÁS de la última UF real.
+- **Sin cambios en UI**: `detail-table.tsx`/`render.ts`/`render-excel.ts` ya consumían el Map de `getUfPorPeriodo` tal cual — al llenarse las celdas faltantes, el "—" desaparece solo, sin tocar esos 3 archivos.
+- **Verificado**: `npx tsc --noEmit`, `npx vitest run` (117/117) y `npm run build` limpios. Sin test unitario dedicado (mismo criterio que `dotacion-total.ts`: funciones que solo hacen queries a Supabase, no hay archivo de test en este repo para ese tipo de servicio).
+
 ---
 
 ## Gotchas (Antes de Implementar)

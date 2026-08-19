@@ -38,10 +38,24 @@ export async function getCashFlowSeries(
   }));
 }
 
+/** Crecimiento mensual asumido para proyectar la UF cuando todavía no hay dato real (mindicador.cl no publica meses futuros) — pedido explícito del usuario 18-ago-2026, reemplaza el placeholder de +1% mensual del Excel original (ver TECH-SPEC §7). */
+export const UF_CRECIMIENTO_MENSUAL_PROYECTADO = 0.005;
+
+function mesesEntrePeriodos(desde: string, hasta: string): number {
+  const [anioDesde, mesDesde] = desde.split("-").map(Number);
+  const [anioHasta, mesHasta] = hasta.split("-").map(Number);
+  return (anioHasta - anioDesde) * 12 + (mesHasta - mesDesde);
+}
+
 /**
  * Valor de UF para el día exacto de cada período (siempre el 1° del mes,
  * mismo formato que `cash_flow_monthly.periodo`). Usado para la fila
  * "Total Nómina (UF)" de la tabla de detalle — ver `uf-sync.ts`.
+ *
+ * Real cuando `uf_series` ya tiene el dato (mindicador.cl); para períodos
+ * futuros sin dato real todavía, proyecta desde el último UF real conocido
+ * componiendo `UF_CRECIMIENTO_MENSUAL_PROYECTADO` (0,5%) mes a mes — pedido
+ * explícito del usuario 18-ago-2026, en vez de dejar la celda vacía ("—").
  */
 export async function getUfPorPeriodo(
   periodos: string[],
@@ -53,7 +67,35 @@ export async function getUfPorPeriodo(
     .select("fecha, valor_uf")
     .in("fecha", periodos);
 
-  return new Map((data ?? []).map((d) => [d.fecha, Number(d.valor_uf)]));
+  const resultado = new Map<string, number>(
+    (data ?? []).map((d) => [d.fecha, Number(d.valor_uf)]),
+  );
+
+  const periodosFaltantes = periodos.filter((p) => !resultado.has(p));
+  if (periodosFaltantes.length === 0) return resultado;
+
+  const { data: ultimoReal } = await supabase
+    .from("uf_series")
+    .select("fecha, valor_uf")
+    .eq("es_real", true)
+    .order("fecha", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!ultimoReal) return resultado; // sin ningún UF real todavía — nada desde dónde proyectar
+
+  const ultimaFechaReal = ultimoReal.fecha;
+  const ultimoValorReal = Number(ultimoReal.valor_uf);
+
+  for (const periodo of periodosFaltantes) {
+    const meses = mesesEntrePeriodos(ultimaFechaReal, periodo);
+    if (meses <= 0) continue; // no proyectar hacia atrás de la última UF real
+    resultado.set(
+      periodo,
+      ultimoValorReal * Math.pow(1 + UF_CRECIMIENTO_MENSUAL_PROYECTADO, meses),
+    );
+  }
+
+  return resultado;
 }
 
 export interface ResumenKpis {
