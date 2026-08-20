@@ -9,7 +9,6 @@ import { syncUfSeries } from "./uf-sync";
 import { getUfPorPeriodo } from "./queries";
 import { syncFlujoCajaHistorico } from "./sync-flujo-caja-historico";
 import { calcularMesCashFlow, type CashFlowConceptoCalculado } from "./engine";
-import { ANTICIPO_PCT } from "./formulas";
 import {
   getDotacionTotalPorPeriodo,
   dotacionRgRpDelMes,
@@ -155,6 +154,39 @@ async function promedioRemuneracionReal(
     .from("cash_flow_monthly")
     .select("monto")
     .eq("concepto", "remuneracion")
+    .eq("es_real", true)
+    .lt("periodo", antesDe.toISOString().slice(0, 10))
+    .order("periodo", { ascending: false })
+    .limit(n);
+
+  if (!data || data.length === 0) return 0;
+  return data.reduce((acc, row) => acc + Number(row.monto), 0) / data.length;
+}
+
+/**
+ * Promedio de los últimos N meses REALES de Anticipo RP — mismo patrón que
+ * `promedioRemuneracionReal`/`promedioFiniquitoReal6m`. Bug real corregido
+ * 20-ago-2026: el split de Anticipo RG/RP proyectado calculaba RP como
+ * RESIDUAL (Total − RG), y como RG = 24% × Remuneración_RG, ese residual
+ * equivale matemáticamente a 24% × Remuneración_RP también — pero la gente
+ * que realmente pide Anticipo en RP (Anexo Oficina Central) es un grupo
+ * chico y ESTABLE (~4 personas), no escala con toda la planilla RP.
+ * Confirmado contra el Excel real de Finanzas: su Anticipo RP se mantiene
+ * PLANO (~5,5M) en todos los meses proyectados, mientras el residual de
+ * este código saltaba a 66M+ (usuario: "los anticipos del RP aumentan sin
+ * lógica en la proyección... deberían mantener la constante"). Ahora RP
+ * es el ANCLA (promedio histórico real) y RG absorbe el residual — al
+ * revés de antes.
+ */
+async function promedioAnticipoRpReal(
+  supabase: ReturnType<typeof createServiceClient>,
+  antesDe: Date,
+  n = 3,
+): Promise<number> {
+  const { data } = await supabase
+    .from("cash_flow_monthly")
+    .select("monto")
+    .eq("concepto", "anticipo_rp")
     .eq("es_real", true)
     .lt("periodo", antesDe.toISOString().slice(0, 10))
     .order("periodo", { ascending: false })
@@ -668,20 +700,22 @@ export async function refreshCashFlowReport(
         esReal: true,
         metodoCalculo: "ingesta_real",
       };
-    } else if (remuneracionRgFila) {
-      // Misma fórmula que calcularAnticipoProyectado, pero aplicada solo
-      // a la porción RG de Remuneración — el residual va a RP para que
-      // RG+RP siga sumando exacto el Anticipo total ya calculado.
-      const rg = Math.round(remuneracionRgFila.monto * ANTICIPO_PCT);
-      anticipoRgFila = {
-        monto: rg,
-        esReal: false,
-        metodoCalculo: "formula_24pct_remuneracion_rg",
-      };
+    } else {
+      // RP es el ANCLA (promedio de los últimos meses reales, ver
+      // `promedioAnticipoRpReal`) y RG absorbe el residual — al revés de
+      // como era antes (bug real corregido 20-ago-2026, ver comentario de
+      // esa función). RG+RP sigue sumando exacto el Anticipo total ya
+      // calculado (24% × Remuneración, ver engine.ts).
+      const rp = Math.round(await promedioAnticipoRpReal(supabase, mes));
       anticipoRpFila = {
-        monto: calculadoPorConcepto.anticipo.monto - rg,
+        monto: rp,
         esReal: false,
-        metodoCalculo: "residual_anticipo_total_menos_rg",
+        metodoCalculo: "promedio_ultimos_3_meses_reales",
+      };
+      anticipoRgFila = {
+        monto: calculadoPorConcepto.anticipo.monto - rp,
+        esReal: false,
+        metodoCalculo: "residual_anticipo_total_menos_rp",
       };
     }
 
