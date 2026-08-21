@@ -19,12 +19,13 @@ function formatMesLargo(periodo: string): string {
 }
 
 /**
- * Hero consolidado — mismo patrón visual que "Carta Gantt Plan de Obras"
- * (fondo navy, headline + subtítulo, fila de KPIs, gráfico de escala
- * debajo). KPIs elegidos por relevancia real de flujo de caja de nómina,
- * no solo "lo que teníamos calculado": la pregunta que un flujo de caja
- * de nómina debe responder es "¿cuánta caja necesito reservar los
- * próximos N meses?", no solo "¿cuánto fue el mes pasado?".
+ * Hero consolidado — fondo Carbón (Marca Personal CGS, reemplaza el navy
+ * de Marca Maestra, decisión explícita del usuario 21-ago-2026), headline
+ * + subtítulo, fila de KPIs, gráfico de escala debajo. KPIs elegidos por
+ * relevancia real de flujo de caja de nómina, no solo "lo que teníamos
+ * calculado": la pregunta que un flujo de caja de nómina debe responder
+ * es "¿cuánta caja necesito reservar los próximos N meses?", no solo
+ * "¿cuánto fue el mes pasado?".
  */
 export function HeroConsolidado({
   kpis,
@@ -43,11 +44,10 @@ export function HeroConsolidado({
       : `${kpis.variacionPct >= 0 ? "▲" : "▼"} ${Math.abs(kpis.variacionPct).toFixed(1)}%`;
 
   return (
-    // Full-bleed: fondo navy a lo ANCHO COMPLETO de la página (como la
-    // banda del Carta Gantt de referencia); el contenido interno sí se
-    // acota a max-w-6xl y se centra, para alinear con el resto de la
-    // página de abajo.
-    <section className="relative w-full bg-[var(--navy)] text-white">
+    // Full-bleed: fondo Carbón a lo ANCHO COMPLETO de la página; el
+    // contenido interno sí se acota a max-w-6xl y se centra, para alinear
+    // con el resto de la página de abajo.
+    <section className="relative w-full bg-cgs-carbon text-cgs-text">
       {/* Posicionado respecto al hero completo (full-bleed), no al
           contenedor centrado max-w-6xl de abajo — pedido explícito
           ("quede en la esquina superior derecha"): dentro del div
@@ -56,7 +56,7 @@ export function HeroConsolidado({
         <form action={onCerrarSesion} className="absolute top-4 right-6 z-10">
           <button
             type="submit"
-            className="text-xs text-white/50 hover:text-white hover:underline"
+            className="text-xs text-cgs-text-muted hover:text-cgs-text hover:underline"
           >
             Cerrar sesión
           </button>
@@ -64,14 +64,17 @@ export function HeroConsolidado({
       )}
       <div className="mx-auto max-w-6xl px-6 py-6">
         {sesionEmail && (
-          <p className="mb-4 text-xs text-white/50">Sesión: {sesionEmail}</p>
+          <p className="mb-4 text-xs text-cgs-text-muted">
+            Sesión: {sesionEmail}
+          </p>
         )}
 
-        <h1 className="text-2xl font-semibold">
+        <h1 className="font-display text-2xl font-bold">
           Flujo de Caja Nómina:{" "}
-          <span className="text-[var(--gold)]">efectivo requerido</span> por mes
+          <span className="text-[var(--cgs-signal)]">efectivo requerido</span>{" "}
+          por mes
         </h1>
-        <p className="mt-1 max-w-2xl text-sm text-white/70">
+        <p className="mt-1 max-w-2xl text-sm text-cgs-text-muted">
           Proyección de anticipos, remuneraciones, finiquitos, reliquidaciones,
           cotizaciones y SENCE — real hasta el mes actual, proyectado desde ahí.
           Actualiza abajo para traer los datos más recientes.
@@ -93,7 +96,7 @@ export function HeroConsolidado({
             valor={variacionTexto}
             colorClass={
               kpis.variacionPct === null
-                ? "text-white/50"
+                ? "text-cgs-text-muted"
                 : kpis.variacionPct >= 0
                   ? "text-[var(--err)]"
                   : "text-[var(--ok)]"
@@ -108,20 +111,20 @@ export function HeroConsolidado({
             }
             colorClass={
               kpis.dotacionMesActual != null && !kpis.dotacionMesActualEsReal
-                ? "text-white/60"
+                ? "text-cgs-text-muted"
                 : undefined
             }
           />
         </div>
 
         {kpis.mesPico && (
-          <p className="mt-3 text-xs text-white/60">
+          <p className="mt-3 text-xs text-cgs-text-muted">
             📈 El mes de mayor requerimiento proyectado es{" "}
-            <strong className="text-white">
+            <strong className="text-cgs-text">
               {formatMesLargo(kpis.mesPico.periodo)}
             </strong>{" "}
             con{" "}
-            <strong className="text-white">
+            <strong className="text-cgs-text">
               {formatCLP(kpis.mesPico.monto)}
             </strong>{" "}
             — {kpis.mesesProyectadosEnRango} de los meses en el rango son
@@ -137,7 +140,7 @@ export function HeroConsolidado({
           dashboard. */}
       <div className="mx-auto max-w-[1600px] px-4 pb-6">
         <div className="rounded-md bg-white/5 p-3">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/50">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-cgs-text-muted">
             Total Nómina mensual — real y proyectado
           </p>
           <CashFlowAreaChart serie={serie} />
@@ -160,9 +163,11 @@ function KpiTile({
 }) {
   return (
     <div className={`rounded-md p-3 ${destacado ? "bg-white/10" : ""}`}>
-      <p className="text-[11px] text-white/60">{label}</p>
+      <p className="font-body text-[11px] font-bold tracking-wide uppercase text-cgs-text-muted">
+        {label}
+      </p>
       <p
-        className={`mt-0.5 text-lg font-semibold ${colorClass ?? "text-[var(--gold)]"}`}
+        className={`font-mono-cgs mt-0.5 text-lg font-medium ${colorClass ?? "text-[var(--cgs-signal)]"}`}
       >
         {valor}
       </p>

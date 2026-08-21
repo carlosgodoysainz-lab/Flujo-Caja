@@ -49,14 +49,13 @@ export default async function ReportePage() {
   );
 
   return (
-    // El hero navy va FULL-BLEED (ancho completo de la página, igual que
-    // la banda navy del Carta Gantt de referencia) — a propósito FUERA del
-    // contenedor centrado de abajo, que sigue acotado a max-w-6xl. Bug de
-    // diseño real reportado: antes todo (incluido el hero) vivía dentro
-    // de un único `mx-auto max-w-6xl`, así que en pantallas anchas el azul
-    // quedaba como una caja angosta con blanco a los lados en vez de
-    // ocupar todo el ancho como en la referencia.
-    <div>
+    // El hero (fondo Carbón, Marca Personal CGS) va FULL-BLEED (ancho
+    // completo de la página) — a propósito FUERA del contenedor centrado
+    // de abajo, que sigue acotado a max-w-6xl. Bug de diseño real
+    // reportado: antes todo (incluido el hero) vivía dentro de un único
+    // `mx-auto max-w-6xl`, así que en pantallas anchas quedaba como una
+    // caja angosta con blanco a los lados en vez de ocupar todo el ancho.
+    <div className="bg-cgs-carbon">
       <HeroConsolidado
         kpis={kpis}
         serie={serie}
@@ -82,7 +81,7 @@ export default async function ReportePage() {
         <AlertPanel />
 
         <section>
-          <h2 className="mb-2 text-sm font-medium text-slate-700">
+          <h2 className="font-display mb-2 text-sm font-semibold text-cgs-text">
             Detalle por concepto
           </h2>
           <DetailTable

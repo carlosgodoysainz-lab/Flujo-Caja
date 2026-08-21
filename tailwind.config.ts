@@ -1,8 +1,9 @@
 import type { Config } from "tailwindcss";
 
-// Tokens de Marca Maestra — confirmados en los dashboards de referencia
-// (Minuta GESPRO Comparativo, Carta Gantt Plan de Obras). Ver
-// BLUEPRINT-flujo-caja-nomina.md → "Sistema de Diseño (Marca Maestra)".
+// Tokens de Marca Personal CGS (Carlos Sebastián Godoy Sainz, skill
+// marca-carlos-godoy) — reemplaza Marca Maestra, decisión explícita del
+// usuario 21-ago-2026. Ver Auto-Blindaje en el PRP para el detalle de
+// verificación WCAG de cada color.
 //
 // El bloque `colors` base (border/input/ring/background/primary/etc.) es
 // el setup estándar de shadcn/ui (style "new-york", ver components.json) —
@@ -14,12 +15,22 @@ const config: Config = {
   content: ["./src/**/*.{js,ts,jsx,tsx,mdx}"],
   theme: {
     extend: {
+      fontFamily: {
+        display: ["var(--font-display)", "Segoe UI Semibold", "sans-serif"],
+        body: ["var(--font-body)", "Segoe UI", "sans-serif"],
+        "mono-cgs": ["var(--font-mono-cgs)", "Consolas", "monospace"],
+      },
       colors: {
-        maestra: {
-          navy: "var(--navy)",
-          "navy-brand": "var(--navy-brand)",
-          fucsia: "var(--fucsia)",
-          gold: "var(--gold)",
+        cgs: {
+          carbon: "var(--cgs-carbon)",
+          signal: "var(--cgs-signal)",
+          structure: "var(--cgs-structure)",
+          disrupt: "var(--cgs-disrupt)",
+          surface: "var(--cgs-surface)",
+          "surface-2": "var(--cgs-surface-2)",
+          line: "var(--cgs-line)",
+          text: "var(--cgs-text)",
+          "text-muted": "var(--cgs-text-muted)",
           ok: "var(--ok)",
           warn: "var(--warn)",
           err: "var(--err)",

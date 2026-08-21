@@ -59,7 +59,7 @@ export function SenceEditableCell({
           setValor(String(Math.round(monto)));
           setEditando(true);
         }}
-        className={`w-full text-right ${esReal ? "" : "text-slate-500 italic"} hover:underline`}
+        className={`w-full text-right ${esReal ? "text-cgs-text" : "text-cgs-text-muted italic"} hover:underline`}
         title="Click para ingresar el Aporte SENCE de este mes (dato manual)"
       >
         {texto}
@@ -90,12 +90,16 @@ export function SenceEditableCell({
           if (e.key === "Escape") setEditando(false);
         }}
         disabled={isPending}
-        className="w-24 rounded border border-slate-300 px-1 py-0.5 text-right text-sm"
+        className="font-mono-cgs w-24 rounded border px-1 py-0.5 text-right text-sm text-cgs-text"
+        style={{
+          borderColor: "var(--cgs-line)",
+          backgroundColor: "var(--cgs-surface-2)",
+        }}
       />
       <button
         type="submit"
         disabled={isPending}
-        className="text-xs text-[var(--navy-brand)]"
+        className="text-xs font-semibold text-cgs-signal"
       >
         ✓
       </button>

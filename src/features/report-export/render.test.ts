@@ -49,7 +49,8 @@ describe("renderReportHtml", () => {
     expect(html).not.toMatch(/<script[^>]+src=/i);
   });
 
-  it("incluye el logo SVG inline, no una <img>", () => {
+  it("incluye el wordmark CGS y el gráfico como SVG inline, no una <img>", () => {
+    expect(html).toContain(">CGS<");
     expect(html).toContain("<svg");
     expect(html).not.toContain("<img");
   });

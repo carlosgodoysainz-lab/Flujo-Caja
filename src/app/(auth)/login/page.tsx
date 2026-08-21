@@ -1,16 +1,24 @@
 import { signIn } from "@/lib/auth";
-import { MaestraLogo } from "@/shared/ui/maestra-logo";
+import { CgsWordmark } from "@/shared/ui/cgs-wordmark";
 
 export default function LoginPage() {
   return (
-    <div className="flex min-h-[100dvh] items-center justify-center bg-[var(--navy)] px-4">
-      <div className="w-full max-w-md space-y-8 rounded-lg border border-white/10 bg-[var(--navy-brand)] p-8 text-center shadow-xl">
-        <MaestraLogo className="mx-auto h-8 w-auto" />
+    <div className="flex min-h-[100dvh] items-center justify-center bg-cgs-carbon px-4">
+      <div
+        className="w-full max-w-md space-y-8 rounded-lg border p-8 text-center shadow-xl"
+        style={{
+          borderColor: "var(--cgs-line)",
+          backgroundColor: "var(--cgs-surface)",
+        }}
+      >
+        <CgsWordmark className="mx-auto h-8" />
         <div className="space-y-2">
-          <h1 className="text-2xl font-semibold text-white">
+          <h1 className="font-display text-2xl font-semibold text-cgs-text">
             Flujo de Caja Nómina
           </h1>
-          <p className="text-sm text-white/60">Uso interno — Grupo Maestra</p>
+          <p className="text-sm text-cgs-text-muted">
+            Uso interno — Grupo Maestra
+          </p>
         </div>
         <form
           action={async () => {
@@ -20,12 +28,12 @@ export default function LoginPage() {
         >
           <button
             type="submit"
-            className="w-full rounded-md bg-white px-4 py-2.5 text-sm font-medium text-[var(--navy)] transition hover:bg-white/90"
+            className="w-full rounded-md bg-cgs-signal px-4 py-2.5 text-sm font-medium text-cgs-carbon transition hover:opacity-90"
           >
             Conectar con Microsoft
           </button>
         </form>
-        <p className="text-xs text-white/40">
+        <p className="text-xs text-cgs-text-muted/70">
           Solo cuentas @maestra.cl. Tu login también autoriza el acceso a los
           archivos de SharePoint que ya puedes ver.
         </p>

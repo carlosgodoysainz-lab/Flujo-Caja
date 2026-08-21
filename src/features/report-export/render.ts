@@ -13,11 +13,15 @@ import { pathSuavizado } from "../cash-flow/lib/smooth-path";
 import { FILAS_DETALLE as FILAS } from "../cash-flow/lib/filas-detalle";
 import { SELLO_AUTOR_BASE64 } from "../cash-flow/lib/watermark";
 
-const MAESTRA_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 275 50" height="24">
-  <path fill="#db0a5b" d="M30.87,48.94,24,42.06a2.64,2.64,0,0,1,0-3.73L44.83,17.48a2.64,2.64,0,0,1,3.73,0l6.88,6.88a2.67,2.67,0,0,1,0,3.74L34.61,48.94a2.65,2.65,0,0,1-3.74,0"/>
-  <path fill="#ffcd00" d="M16.94,35l-6.87-6.88a2.64,2.64,0,0,1,0-3.73l6.87-6.88a2.65,2.65,0,0,1,3.74,0l6.87,6.88a2.64,2.64,0,0,1,0,3.73L20.68,35a2.65,2.65,0,0,1-3.74,0"/>
-  <path fill="#ffffff" d="M51.53,3.86l-2.8-2.79a2.8,2.8,0,0,0-3.86,0L34.61,11.18a2.63,2.63,0,0,1-3.76.06L23.48,3.86h0L20.68,1.07a2.65,2.65,0,0,0-3.74,0L0,18l2.94,2.94A2.66,2.66,0,0,0,6.69,21L16.94,10.76a2.65,2.65,0,0,1,3.74,0l2.77,2.79h0L30.85,21a2.64,2.64,0,0,0,3.32.32,2.61,2.61,0,0,0,.44-.38L44.87,10.76a2.8,2.8,0,0,1,3.86,0L58.88,20.93a2.63,2.63,0,0,0,3.72,0l3-3Z"/>
-</svg>`;
+// Wordmark CGS — Marca Personal Carlos Sebastián Godoy Sainz (skill
+// marca-carlos-godoy), reemplaza el logo de Maestra en este HTML
+// autocontenido (decisión explícita del usuario 21-ago-2026). Wordmark
+// tipográfico puro: "CGS" en Unbounded 800 + subrayado de Combustión que
+// corta antes del final (nunca completo, ver references/wordmark.md).
+const CGS_WORDMARK_HTML = `<span style="display:inline-flex;flex-direction:column;font-family:'Segoe UI Semibold','Segoe UI',sans-serif;letter-spacing:-0.02em;">
+  <span style="font-size:18px;line-height:1;font-weight:800;color:#F5F3EF;">CGS</span>
+  <span style="display:block;margin-top:2px;height:2px;width:90%;background:#FF5A1F;"></span>
+</span>`;
 
 function formatCLP(monto: number): string {
   return new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(
@@ -109,11 +113,11 @@ function renderChartSvg(serie: CashFlowSeriePunto[]): string {
 
   const lineaProyectadaSvg =
     idxCorte !== -1
-      ? `<path d="${lineaProyectada}" fill="none" stroke="#b89a5a" stroke-width="2.25" stroke-dasharray="5 4" stroke-linejoin="round" stroke-linecap="round" filter="url(#chart-linea-glow)"/>`
+      ? `<path d="${lineaProyectada}" fill="none" stroke="#FF5A1F" stroke-width="2.25" stroke-dasharray="5 4" stroke-linejoin="round" stroke-linecap="round" filter="url(#chart-linea-glow)"/>`
       : "";
   const hoyLine =
     idxCorte > 0
-      ? `<line x1="${x(idxCorte)}" x2="${x(idxCorte)}" y1="${PADDING.top}" y2="${HEIGHT - PADDING.bottom}" stroke="#db0a5b" stroke-width="1.5"/>`
+      ? `<line x1="${x(idxCorte)}" x2="${x(idxCorte)}" y1="${PADDING.top}" y2="${HEIGHT - PADDING.bottom}" stroke="#C6FF3D" stroke-width="1.5"/>`
       : "";
 
   return `
@@ -122,8 +126,8 @@ function renderChartSvg(serie: CashFlowSeriePunto[]): string {
     <svg viewBox="0 0 ${WIDTH} ${HEIGHT}" style="width:100%;height:auto;display:block;" role="img" aria-label="Gráfico de área: Total Nómina mensual requerido, real y proyectado">
       <defs>
         <linearGradient id="chart-area-gradiente" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#b89a5a" stop-opacity="0.5"/>
-          <stop offset="100%" stop-color="#b89a5a" stop-opacity="0.02"/>
+          <stop offset="0%" stop-color="#FF5A1F" stop-opacity="0.5"/>
+          <stop offset="100%" stop-color="#FF5A1F" stop-opacity="0.02"/>
         </linearGradient>
         <filter id="chart-linea-glow" x="-30%" y="-60%" width="160%" height="220%">
           <feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#000" flood-opacity="0.35"/>
@@ -134,16 +138,16 @@ function renderChartSvg(serie: CashFlowSeriePunto[]): string {
       <clipPath id="clipProyectado"><rect x="${x(corte)}" y="0" width="${WIDTH - x(corte)}" height="${HEIGHT}"/></clipPath>
       <path d="${areaPath}" fill="url(#chart-area-gradiente)" clip-path="url(#clipReal)"/>
       <path d="${areaPath}" fill="url(#chart-area-gradiente)" opacity="0.4" clip-path="url(#clipProyectado)"/>
-      <path d="${lineaReal}" fill="none" stroke="#b89a5a" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round" filter="url(#chart-linea-glow)"/>
+      <path d="${lineaReal}" fill="none" stroke="#FF5A1F" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round" filter="url(#chart-linea-glow)"/>
       ${lineaProyectadaSvg}
       ${hoyLine}
       ${labelsX}
       <image href="${SELLO_AUTOR_BASE64}" x="${WIDTH - 40}" y="${HEIGHT - 40}" width="30" height="30" opacity="0.22" style="pointer-events:none;"/>
     </svg>
     <div style="margin-top:6px;display:flex;gap:16px;font-size:11px;color:rgba(255,255,255,0.5);">
-      <span><span style="display:inline-block;width:12px;height:2px;background:#b89a5a;vertical-align:middle;margin-right:4px;"></span>Real</span>
-      <span><span style="display:inline-block;width:12px;height:0;border-top:2px dashed #b89a5a;vertical-align:middle;margin-right:4px;"></span>Proyectado</span>
-      <span><span style="display:inline-block;width:2px;height:10px;background:#db0a5b;vertical-align:middle;margin-right:4px;"></span>Hoy</span>
+      <span><span style="display:inline-block;width:12px;height:2px;background:#FF5A1F;vertical-align:middle;margin-right:4px;"></span>Real</span>
+      <span><span style="display:inline-block;width:12px;height:0;border-top:2px dashed #FF5A1F;vertical-align:middle;margin-right:4px;"></span>Proyectado</span>
+      <span><span style="display:inline-block;width:2px;height:10px;background:#C6FF3D;vertical-align:middle;margin-right:4px;"></span>Hoy</span>
     </div>
   </div>`;
 }
@@ -296,39 +300,51 @@ export function renderReportHtml(params: {
 <meta charset="utf-8" />
 <title>Flujo de Caja Nómina — ${periodoDesde} a ${periodoHasta}</title>
 <style>
+  /* Marca Personal CGS (Carlos Sebastián Godoy Sainz, skill
+     marca-carlos-godoy) — reemplaza Marca Maestra, decisión explícita del
+     usuario 21-ago-2026. Pares texto/fondo verificados WCAG AA — ver
+     Auto-Blindaje en el PRP (Voltio Azul da solo 3.37:1 sobre Carbón: se
+     usa acá SOLO como borde, nunca como color de texto).
+     Tipografía "Office-safe" (Segoe UI/Consolas, no Google Fonts vía
+     <link>) — este documento debe seguir siendo 100% autocontenido para
+     poder adjuntarlo a un correo (requisito explícito y testeado, ver
+     render.test.ts "sin <link> ni <script src> externos"), y muchos
+     clientes de correo bloquean/ignoran <link> de todas formas. */
   :root {
-    --navy: #0a1f3c; --navy-brand: #003865; --fucsia: #db0a5b; --gold: #b89a5a;
-    --ok: #2e7d32; --warn: #b8860b; --err: #c62828;
+    --carbon: #0B0B0D; --signal: #FF5A1F; --structure: #1554F3; --disrupt: #C6FF3D;
+    --surface: #17151A; --surface-2: #1E1A20; --line: rgba(245,243,239,0.16);
+    --text: #F5F3EF; --text-muted: #9A96A6;
+    --ok: #4CAF50; --warn: #F5A623; --err: #EF5350;
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    color: #1e293b; background: #fff;
+    margin: 0; font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif;
+    color: var(--text); background: var(--carbon);
   }
-  /* Hero — mismo patrón visual que hero-consolidado.tsx en /reporte: fondo
-     navy full-bleed a lo ancho de la página, contenido acotado y centrado
-     por dentro (pedido explícito del usuario: "igual al formato que se ve
-     en la página /reporte"). */
-  .hero { background: var(--navy); color: #fff; padding-bottom: 24px; }
+  h1, .font-display { font-family: "Segoe UI Semibold", "Segoe UI", sans-serif; font-weight: 700; }
+  .valor, td, th, .font-mono { font-family: Consolas, "Courier New", monospace; font-variant-numeric: tabular-nums; }
+  /* Hero — fondo Carbón full-bleed a lo ancho de la página, contenido
+     acotado y centrado por dentro. */
+  .hero { background: var(--carbon); color: var(--text); padding-bottom: 24px; }
   .hero-topbar {
     display: flex; align-items: center; justify-content: space-between;
     max-width: 1000px; margin: 0 auto; padding: 16px 24px 0;
   }
-  .hero-topbar .fecha { font-size: 12px; color: rgba(255,255,255,0.6); }
+  .hero-topbar .fecha { font-size: 12px; color: var(--text-muted); font-family: "Segoe UI", sans-serif; }
   .hero-content { max-width: 1000px; margin: 0 auto; padding: 12px 24px 0; }
-  .hero h1 { font-size: 22px; font-weight: 600; margin: 8px 0 4px; }
-  .hero h1 .accent { color: var(--gold); }
-  .hero .subtitle { font-size: 13px; color: rgba(255,255,255,0.7); max-width: 640px; margin: 4px 0 0; }
+  .hero h1 { font-size: 22px; font-weight: 700; margin: 8px 0 4px; }
+  .hero h1 .accent { color: var(--signal); }
+  .hero .subtitle { font-size: 13px; color: var(--text-muted); max-width: 640px; margin: 4px 0 0; font-family: "Segoe UI", sans-serif; }
   .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top: 18px; }
   .kpi { border-radius: 8px; padding: 12px; }
-  .kpi.destacado { background: rgba(255,255,255,0.1); }
-  .kpi .label { font-size: 11px; color: rgba(255,255,255,0.6); }
-  .kpi .valor { font-size: 17px; font-weight: 600; margin-top: 3px; color: var(--gold); }
+  .kpi.destacado { background: rgba(255,255,255,0.06); }
+  .kpi .label { font-size: 11px; color: var(--text-muted); font-family: "Segoe UI", sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+  .kpi .valor { font-size: 17px; font-weight: 500; margin-top: 3px; color: var(--signal); }
   .kpi .valor.ok { color: var(--ok); }
   .kpi .valor.err { color: var(--err); }
-  .kpi .valor.muted { color: rgba(255,255,255,0.6); }
-  .mes-pico { font-size: 12px; color: rgba(255,255,255,0.6); margin: 10px 0 0; }
-  .mes-pico strong { color: #fff; }
+  .kpi .valor.muted { color: var(--text-muted); }
+  .mes-pico { font-size: 12px; color: var(--text-muted); margin: 10px 0 0; font-family: "Segoe UI", sans-serif; }
+  .mes-pico strong { color: var(--text); }
   /* Mismo max-width y padding horizontal que .hero-content — a diferencia
      de /reporte en vivo (donde el gráfico es intencionalmente más ancho,
      ver hero-consolidado.tsx), en el HTML descargado el usuario pidió que
@@ -345,30 +361,34 @@ export function renderReportHtml(params: {
      en toda la página. */
   .tabla-scroll { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 16px; }
-  th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid #eef2f6; }
+  th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--line); }
+  th { color: var(--text-muted); font-family: "Segoe UI", sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; font-size: 11px; }
   th:first-child, td:first-child { text-align: left; }
-  tr.total { font-weight: 600; border-top: 2px solid var(--navy-brand); }
-  tr.uf { color: var(--navy-brand); font-weight: 500; }
-  tr.dotacion { color: #475569; font-weight: 500; border-bottom: 2px solid #e2e8f0; }
-  tr.sub td { color: #94a3b8; font-size: 11px; }
-  tr.sub td:first-child { padding-left: 22px; }
-  td.proyectado { color: #94a3b8; font-style: italic; }
+  /* Voltio Azul SOLO como borde (pasa el umbral 3:1 de UI/no-texto) — como
+     color de TEXTO sobre Carbón falla WCAG AA (3.37:1), por eso el texto
+     de estas 2 filas va en Combustión. */
+  tr.total { font-weight: 600; color: var(--signal); border-top: 2px solid var(--structure); }
+  tr.uf { color: var(--signal); font-weight: 500; border-top: 2px solid var(--structure); }
+  tr.dotacion { color: var(--text-muted); font-weight: 500; border-bottom: 2px solid var(--line); }
+  tr.sub td { color: var(--text-muted); font-size: 11px; }
+  tr.sub td:first-child { padding-left: 22px; font-family: "Segoe UI", sans-serif; }
+  td.proyectado { color: var(--text-muted); font-style: italic; }
   /* Columna N° (dotación) por sub-fila RG/RP — mismo formato del Excel
      real de Finanzas (columnas de a pares por mes), pedido explícito
      del usuario 17-ago-2026. */
-  td.n-col, th.n-sub { color: #94a3b8; font-size: 11px; padding-left: 6px; padding-right: 6px; }
+  td.n-col, th.n-sub { color: var(--text-muted); font-size: 11px; padding-left: 6px; padding-right: 6px; }
   th.n-sub { font-weight: 400; text-transform: none; }
   footer {
-    text-align: center; padding: 12px; font-size: 11px; color: #fff;
-    background: var(--navy);
+    text-align: center; padding: 12px; font-size: 11px; color: var(--text-muted);
+    background: var(--surface);
   }
-  .badge { display: inline-block; background: var(--navy); color: #fff; border-radius: 999px; padding: 2px 10px; font-size: 11px; }
+  .badge { display: inline-block; background: var(--surface-2); color: var(--text-muted); border-radius: 999px; padding: 2px 10px; font-size: 11px; font-family: "Segoe UI", sans-serif; }
 </style>
 </head>
 <body>
 <section class="hero">
   <div class="hero-topbar">
-    ${MAESTRA_LOGO_SVG}
+    ${CGS_WORDMARK_HTML}
     <span class="fecha">Generado: ${generadoEn.toLocaleString("es-CL")} · Período ${periodoDesde} a ${periodoHasta}</span>
   </div>
   <div class="hero-content">
@@ -404,7 +424,7 @@ export function renderReportHtml(params: {
       <tbody>${filaDotacion}${filasTabla}${filaUf}</tbody>
     </table>
   </div>
-  <p style="font-size:11px;color:#94a3b8;margin-top:8px;"><i>Cursiva</i> = proyectado, no dato real ingerido.${conColumnaN ? " La columna “N°” muestra la dotación (cabezas) que explica el monto RG/RP de esa fila." : ""}</p>
+  <p style="font-size:11px;color:var(--text-muted);margin-top:8px;font-family:'Segoe UI',sans-serif;"><i>Cursiva</i> = proyectado, no dato real ingerido.${conColumnaN ? " La columna “N°” muestra la dotación (cabezas) que explica el monto RG/RP de esa fila." : ""}</p>
 </main>
 <footer><span class="badge">Uso interno — Grupo Maestra</span></footer>
 <script type="application/json" id="cash-flow-data">${JSON.stringify({ serie, kpis, periodoDesde, periodoHasta })}</script>

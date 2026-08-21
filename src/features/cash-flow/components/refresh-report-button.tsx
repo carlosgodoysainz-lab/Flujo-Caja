@@ -47,7 +47,13 @@ export function RefreshReportButton({
         </Button>
       </form>
       {result && (
-        <div className="rounded-md border border-slate-200 p-3 text-sm">
+        <div
+          className="font-body rounded-md border p-3 text-sm text-cgs-text"
+          style={{
+            borderColor: "var(--cgs-line)",
+            backgroundColor: "var(--cgs-surface)",
+          }}
+        >
           <p
             className={
               result.estado === "ok"
