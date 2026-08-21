@@ -27,7 +27,7 @@ export const CONCEPTOS_METODOLOGIA = [
     fuenteReal:
       'Real cuando existe dato ingerido (incluye cuotas de finiquito que vienen dentro de los mismos archivos de remuneración, ej. "Finiquito RP cuota 4/5").',
     formula:
-      "Si no hay dato real: cuando la dotación total proyecta una BAJA NETA ese mes (curva de cierre de obra), se correlaciona con el costo promedio histórico por baja neta; si no hay baja neta ese mes o no hay histórico suficiente para calibrar, cae al promedio de los últimos 6 meses con Finiquito real (0 si todavía no hay 6 meses de historial).",
+      "Si no hay dato real: promedio de los últimos 6 meses con Finiquito real (0 si todavía no hay 6 meses de historial). Se evaluó un modelo correlacionado con bajas netas de dotación (13-ago-2026, curva de cierre de obra) y se simplificó de vuelta a este promedio (21-ago-2026, pedido explícito del usuario).",
   },
   {
     concepto: "Reliquidación",
@@ -90,7 +90,7 @@ export const MOTOR_CAMBIO_MENSUAL = [
   {
     concepto: "Finiquito",
     explicacion:
-      "Es la excepción — no sigue a Remuneración, sigue a las BAJAS de dotación. Sube en los meses donde la dotación total cae (cierre de obra, desvinculaciones); en meses sin caída neta se mantiene estable en torno al promedio histórico.",
+      "Es la excepción — no sigue a Remuneración ni a la dotación: se mantiene estable en torno al promedio de los últimos 6 meses reales, sin importar si ese mes hay alta o baja neta de dotación.",
   },
   {
     concepto: "Cotización",

@@ -290,55 +290,6 @@ async function promedioFiniquitoReal6m(
 }
 
 /**
- * Costo promedio de Finiquito por CADA unidad de baja neta de dotación
- * (dotación total del mes − dotación total del mes anterior, cuando es
- * negativa) — calibrado sobre meses REALES donde ambos datos existen
- * (Finiquito real + dotación total de ese mes y el anterior). Pedido
- * explícito del usuario: correlacionar Finiquito con la curva de cierre
- * de obra en vez de un promedio ciego a la dotación. `null` si no hay
- * ningún mes real calibrable todavía (cae al promedio de 6 meses).
- */
-async function costoPromedioFiniquitoPorBajaNeta(
-  supabase: ReturnType<typeof createServiceClient>,
-  antesDe: Date,
-): Promise<number | null> {
-  const { data: finiquitosReales } = await supabase
-    .from("cash_flow_monthly")
-    .select("periodo, monto")
-    .eq("concepto", "finiquito")
-    .eq("es_real", true)
-    .lt("periodo", antesDe.toISOString().slice(0, 10))
-    .order("periodo", { ascending: false })
-    .limit(24);
-
-  if (!finiquitosReales || finiquitosReales.length === 0) return null;
-
-  const fechasPeriodos = finiquitosReales.map((f) => new Date(f.periodo));
-  const desdeVentana = mesAnteriorA(
-    new Date(Math.min(...fechasPeriodos.map((f) => f.getTime()))),
-  );
-  const dotacionVentana = await getDotacionTotalPorPeriodo(
-    desdeVentana,
-    antesDe,
-  );
-
-  const ratios: number[] = [];
-  for (const f of finiquitosReales) {
-    const periodo = new Date(f.periodo);
-    const periodoStr = periodo.toISOString().slice(0, 10);
-    const anteriorStr = mesAnteriorA(periodo).toISOString().slice(0, 10);
-    const totalActual = dotacionVentana.get(periodoStr)?.total;
-    const totalAnterior = dotacionVentana.get(anteriorStr)?.total;
-    if (totalActual == null || totalAnterior == null) continue;
-    const netVariacion = totalActual - totalAnterior;
-    if (netVariacion < 0) ratios.push(Number(f.monto) / Math.abs(netVariacion));
-  }
-
-  if (ratios.length === 0) return null;
-  return ratios.reduce((a, b) => a + b, 0) / ratios.length;
-}
-
-/**
  * El refresh completo del reporte — botón "Actualizar reporte" en /reporte
  * (ver TECH-SPEC §3.4). Orquesta: sync de obras (Fase 3) + sync de pagos
  * mensuales (Fase 4, incluye Anticipo desde Fase 10) + recálculo del motor
@@ -509,41 +460,14 @@ export async function refreshCashFlowReport(
     const remuneracionFallbackPromedioHistorico =
       await promedioRemuneracionReal(supabase, mes);
 
-    // Finiquito: si la dotación TOTAL proyecta una baja NETA este mes
-    // (curva de cierre de obra ya conocida), correlaciona con el costo
-    // promedio histórico por baja neta — pedido explícito del usuario
-    // ("lo que más me interesa es que el flujo de dotación sea el
-    // correcto", 13-ago-2026). Si no hay baja neta ese mes, o no hay
-    // histórico calibrable todavía, cae al promedio de 6 meses (metodología
-    // original, sin cambios de comportamiento para el caso base).
-    const netVariacionEsteMes =
-      dotacionActual != null && dotacionMesAnterior != null
-        ? dotacionActual - dotacionMesAnterior
-        : null;
-    let finiquitoFallback: { monto: number; metodoCalculo: string };
-    if (netVariacionEsteMes != null && netVariacionEsteMes < 0) {
-      const costoPorBajaNeta = await costoPromedioFiniquitoPorBajaNeta(
-        supabase,
-        mes,
-      );
-      finiquitoFallback =
-        costoPorBajaNeta != null
-          ? {
-              monto: Math.round(
-                costoPorBajaNeta * Math.abs(netVariacionEsteMes),
-              ),
-              metodoCalculo: "correlacionado_bajas_netas_dotacion",
-            }
-          : {
-              monto: await promedioFiniquitoReal6m(supabase, mes),
-              metodoCalculo: "promedio_ultimos_6_meses_reales",
-            };
-    } else {
-      finiquitoFallback = {
-        monto: await promedioFiniquitoReal6m(supabase, mes),
-        metodoCalculo: "promedio_ultimos_6_meses_reales",
-      };
-    }
+    // Finiquito: SIEMPRE promedio de los últimos 6 meses reales — pedido
+    // explícito del usuario 21-ago-2026, simplificando el modelo anterior
+    // (correlación con bajas netas de dotación, pedido explícito del
+    // 13-ago-2026, revertido el mismo día que se confirmó esto).
+    const finiquitoFallback: { monto: number; metodoCalculo: string } = {
+      monto: await promedioFiniquitoReal6m(supabase, mes),
+      metodoCalculo: "promedio_ultimos_6_meses_reales",
+    };
 
     // Aporte SENCE: SIEMPRE manual — si ya hay un valor cargado a mano
     // para este mes (override o carga anterior con dato real), se

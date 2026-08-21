@@ -53,14 +53,11 @@ export interface CashFlowInputs {
   remuneracionFallbackPromedioHistorico: number;
   /**
    * Fallback de Finiquito cuando no hay dato real — ya resuelto por el
-   * caller (`refresh.ts`) con la mejor metodología disponible: si la
-   * dotación TOTAL proyecta una baja neta este mes, correlaciona con el
-   * costo promedio histórico por baja neta (curva de cierre de obra —
-   * pedido explícito del usuario: "lo que más me interesa es que el
-   * flujo de dotación sea el correcto", 13-ago-2026); si no hay baja
-   * neta ese mes o no hay suficiente histórico para calibrar la razón,
-   * cae al promedio de los últimos 6 meses reales (metodología
-   * original). Siempre `esReal=false` — es una proyección.
+   * caller (`refresh.ts`): siempre el promedio de los últimos 6 meses
+   * reales. Se evaluó un modelo correlacionado con bajas netas de
+   * dotación (13-ago-2026) y se simplificó de vuelta a esto (21-ago-2026,
+   * pedido explícito del usuario). Siempre `esReal=false` — es una
+   * proyección.
    */
   finiquitoFallback: { monto: number; metodoCalculo: string };
   /**

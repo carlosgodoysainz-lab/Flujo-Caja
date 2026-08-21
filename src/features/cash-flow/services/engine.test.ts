@@ -122,23 +122,6 @@ describe("calcularMesCashFlow", () => {
     );
   });
 
-  it("sin dato real de finiquito pero con dotación en baja neta, usa la correlación con bajas (no el promedio)", () => {
-    const result = calcularMesCashFlow({
-      ...BASE,
-      remuneracionReal: 100_000_000,
-      finiquitoFallback: {
-        monto: 12_000_000,
-        metodoCalculo: "correlacionado_bajas_netas_dotacion",
-      },
-    });
-
-    expect(result.finiquito.monto).toBe(12_000_000);
-    expect(result.finiquito.esReal).toBe(false);
-    expect(result.finiquito.metodoCalculo).toBe(
-      "correlacionado_bajas_netas_dotacion",
-    );
-  });
-
   it("sin cotización real, cae a la fórmula 30% de (anticipo + remuneración + reliquidación)", () => {
     const result = calcularMesCashFlow({
       ...BASE,
