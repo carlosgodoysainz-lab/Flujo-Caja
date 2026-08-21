@@ -418,36 +418,45 @@ export interface DotacionPorConceptoPunto {
   remuneracion_rp: number | null;
 }
 
-const CONCEPTOS_CON_DOTACION = [
-  "anticipo_rg",
-  "anticipo_rp",
-  "remuneracion_rg",
-  "remuneracion_rp",
-] as const;
+// Solo Anticipo — Remuneración RG/RP ya NUNCA lee payroll_line_items
+// (ver comentario de getDotacionPorConceptoYPeriodo), así que pedirlos
+// acá sería trabajo/datos descartados.
+const CONCEPTOS_CON_DOTACION = ["anticipo_rg", "anticipo_rp"] as const;
 
 /**
  * N° (dotación) por CADA sub-fila RG/RP de Anticipo y Remuneración por
- * separado — bug real corregido 17-ago-2026: antes se reutilizaba la
- * MISMA dotación total (RG/RP) para las 4 sub-filas, mostrando el mismo
- * N° en Anticipo que en Remuneración — pero mucha menos gente pide
- * Anticipo que la que recibe Remuneración completa (confirmado por el
- * usuario viendo el Excel real: "las personas que reciben anticipos son
- * muchos menos").
+ * separado.
  *
- * `payroll_line_items` es grano de PERSONA (1 fila = 1 pago real a 1
- * persona, sin RUT/nombre — ver types.ts) para los meses ya ingeridos
- * de SharePoint: contar sus filas por (concepto, período) da el N°
- * REAL de gente que recibió ESE concepto específico ese mes.
+ * Bug real corregido 21-ago-2026 (invalida una premisa de los 2 fixes
+ * anteriores, 17 y 18-ago): `payroll_line_items` NO es grano de persona
+ * — es grano de (sociedad, división/obra). Confirmado con datos reales
+ * (usuario: "la sumatoria de dotación no cuadra... debería sumar la
+ * dotación de sueldos"): para mayo-2026 el archivo real de Remuneración
+ * RG solo tenía 20 filas totales para TODA la compañía (Dotación total
+ * = 790), y una fila de Anticipo real tenía monto $37.590.000 — imposible
+ * que sea 1 sola persona. El archivo es un REQUERIMIENTO DE TRANSFERENCIA
+ * agregado por división/centro de costo (para que Finanzas pida el giro
+ * al banco), no un listado persona por persona — Buk (no este archivo)
+ * es el único sistema con el detalle real por persona, y no se integra
+ * acá (ver regla de nunca persistir RUT/nombre).
  *
- * 2do bug real corregido 18-ago-2026 (mismo síntoma, en el FALLBACK esta
- * vez): para meses sin dato real de Anticipo todavía (proyectados), el
- * fallback seguía cayendo a la MISMA dotación de Remuneración (`rgRp.rg`/
- * `rgRp.rp`) — el usuario lo detectó viendo el N° de Anticipo RG saltar de
- * 12 (real) a 657 (proyectado), IDÉNTICO al N° de Remuneración RG del
- * mismo mes. Ahora usa `dotacionAnticipoDelMes` (la dotación PROPIA de
- * Anticipo — real cuando existe, o dotación total × razón histórica
- * propia de Anticipo cuando no) partida en RG/RP con
- * `proporcionAnticipoRgHistorica` (también propia de Anticipo).
+ * Por esto, **Remuneración RG/RP NUNCA usa el conteo de
+ * `payroll_line_items`** — siempre usa `rgRp.rg`/`rgRp.rp` (dotación
+ * TOTAL real/proyectada × razón histórica RG/RP en $, ver
+ * `dotacionRgRpDelMes`), que es lo que realmente reconcilia con la fila
+ * "Dotación (N°)" (RG+RP = total) — igual que el Excel real de
+ * Finanzas (confirmado 18-ago-2026: su N° de Remuneración RG/RP también
+ * suma al total de dotación, no al conteo de filas del archivo).
+ *
+ * **Anticipo RG/RP SÍ sigue usando el conteo de `payroll_line_items`**
+ * — decisión explícita del usuario (18-ago-2026, vía AskUserQuestion:
+ * "Personas que efectivamente cobraron anticipo") tomada ANTES de
+ * descubrir que ese conteo en realidad mide "N° de divisiones/obras con
+ * un pago de Anticipo ese mes", no "N° de personas". Sigue siendo un
+ * número mucho más chico y más volátil que la dotación total (lo que el
+ * usuario pidió visualmente), pero la etiqueta "personas" ya no es
+ * exacta — pendiente de decisión del usuario si quiere mantenerlo así,
+ * relabearlo, o buscar una fuente real de headcount por persona.
  */
 export async function getDotacionPorConceptoYPeriodo(
   periodoDesde: Date,
@@ -511,10 +520,11 @@ export async function getDotacionPorConceptoYPeriodo(
     resultado.set(periodo, {
       anticipo_rg: anticipoRg,
       anticipo_rp: anticipoRp,
-      remuneracion_rg:
-        conteoPorClave.get(`remuneracion_rg::${periodo}`) ?? rgRp.rg,
-      remuneracion_rp:
-        conteoPorClave.get(`remuneracion_rp::${periodo}`) ?? rgRp.rp,
+      // Remuneración SIEMPRE usa la dotación total×razón — nunca el
+      // conteo de payroll_line_items (no es grano de persona, ver
+      // comentario de la función). RG+RP reconcilia con "Dotación (N°)".
+      remuneracion_rg: rgRp.rg,
+      remuneracion_rp: rgRp.rp,
     });
   }
   return resultado;
