@@ -576,6 +576,14 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 - **Verificado**: `npx tsc --noEmit`, `npx vitest run` (139/139, sin regresión) y `npm run build` limpios.
 - **Aplicar en**: cuando un split RG/RP (o cualquier partición de 2 poblaciones con tamaños muy distintos) se calcula como residual de una razón aplicada al total, y una de las 2 poblaciones es conocida como chica/estable por naturaleza de negocio, esa población SIEMPRE debe ser el ancla (promedio real) — nunca el residual — sin importar si es $ o N°; el patrón ya usado para Anticipo RP debía haberse generalizado desde un principio a Remuneración y Dotación.
 
+### 2026-08-24: "Proyección Headcount" pasa a ordenar obras por proximidad a HOY (no por fecha de inicio ascendente)
+
+- **Pedido del usuario**, viendo la hoja recién agregada: "ordenes las obras en función a la fecha de obra más próxima" — antes ordenaba ascendente por `inicioObra` crudo, dejando obras iniciadas hace mucho arriba (ej. una obra de 2025 con cierre en 2026) aunque ya estuvieran cerca de cerrar, y obras futuras lejos abajo sin distinguir cuál arranca antes.
+- **Fix real**: nueva `proximidadAHoy(obra, hoy)` en `render-excel.ts` — distancia en días (siempre positiva) entre HOY y el próximo hito relevante de la obra: si todavía no empieza, su `inicioObra`; si ya está en curso, su `finObra` (o `inicioObra` si no hay fecha de cierre). `obrasOrdenadas` ahora ordena ascendente por esa distancia en vez de por `inicioObra` crudo. `renderProyeccionHeadcount` recibe `generadoEn` (ya disponible en el caller) como "hoy", en vez de fabricar una fecha nueva.
+- **Alcance**: solo la hoja Excel "Proyección Headcount" — `/dotacion` es una vista de gestión (alfabética, para encontrar y accionar una obra puntual), no una vista temporal, no se tocó.
+- **Verificado**: `npx tsc --noEmit`, `npx vitest run` (140/140) y `npm run build` limpios. Test nuevo con 3 obras sintéticas que demuestran la reordenación real (una obra "vieja" que con el orden anterior habría quedado primera, ahora queda última).
+- **Aplicar en**: cuando una fecha "de referencia" para ordenar algo temporalmente puede ser tanto un inicio como un fin según el estado del ítem (¿ya empezó o no?), la fecha correcta a usar es siempre el PRÓXIMO hito relevante, no una sola columna fija — ordenar solo por `inicio` mezcla ítems activos con ítems ya lejanos en el tiempo.
+
 ---
 
 ## Gotchas (Antes de Implementar)

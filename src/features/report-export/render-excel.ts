@@ -684,7 +684,7 @@ export async function renderReportExcel(params: {
   // exactamente los mismos `planObraDotacion` de la hoja "Plan de Obra",
   // solo reorganizados — ambas hojas nunca pueden desincronizarse entre sí.
   if (planObraDotacion && planObraDotacion.length > 0) {
-    renderProyeccionHeadcount(workbook, planObraDotacion);
+    renderProyeccionHeadcount(workbook, planObraDotacion, generadoEn);
   }
 
   const buffer = await workbook.xlsx.writeBuffer();
@@ -712,6 +712,36 @@ function etiquetaPeriodoCorta(periodo: string): string {
   return `${MESES_CORTOS[mes - 1]}-${String(anio).slice(2)}`;
 }
 
+/** Días entre 2 fechas "YYYY-MM-DD" — parseo manual vía `Date.UTC` (nunca `new Date(str)` directo, mismo motivo de periodo.ts). */
+function diasEntre(fechaA: string, fechaB: string): number {
+  const [ay, am, ad] = fechaA.slice(0, 10).split("-").map(Number);
+  const [by, bm, bd] = fechaB.slice(0, 10).split("-").map(Number);
+  const msA = Date.UTC(ay, am - 1, ad);
+  const msB = Date.UTC(by, bm - 1, bd);
+  return Math.round((msA - msB) / 86_400_000);
+}
+
+/**
+ * Distancia (en días, siempre ≥0) entre HOY y el próximo hito relevante de
+ * la obra — pedido explícito del usuario 24-ago-2026: "ordena las obras en
+ * función a la fecha de obra más próxima" (antes: ascendente por
+ * `inicioObra` crudo, dejaba obras iniciadas hace mucho arriba aunque ya
+ * estuvieran cerca de cerrar). Si la obra todavía no empieza, el hito es
+ * su `inicioObra`; si ya está en curso, su `finObra` (o `inicioObra` si no
+ * hay fecha de cierre cargada). Sin ninguna fecha, va al final.
+ */
+function proximidadAHoy(
+  obra: { inicioObra: string | null; finObra: string | null },
+  hoy: string,
+): number {
+  const inicio = obra.inicioObra ?? "";
+  const fin = obra.finObra ?? "";
+  const yaEmpezo = inicio !== "" && inicio <= hoy;
+  const hito = yaEmpezo ? fin || inicio : inicio;
+  if (!hito) return Number.POSITIVE_INFINITY;
+  return Math.abs(diasEntre(hito, hoy));
+}
+
 /**
  * Hoja "Proyección Headcount" — pivotea `planObraDotacion` (tidy, 1 fila
  * por obra/mes) al layout ANCHO del Excel maestro original ("Headcount
@@ -722,6 +752,7 @@ function etiquetaPeriodoCorta(periodo: string): string {
 function renderProyeccionHeadcount(
   workbook: ExcelJS.Workbook,
   planObraDotacion: PlanObraDotacionFila[],
+  generadoEn: Date,
 ): void {
   const periodos = [...new Set(planObraDotacion.map((f) => f.periodo))].sort();
   if (periodos.length === 0) return;
@@ -763,8 +794,9 @@ function renderProyeccionHeadcount(
     });
   }
 
-  const obrasOrdenadas = [...obrasPorId.entries()].sort(([, a], [, b]) =>
-    (a.inicioObra ?? "").localeCompare(b.inicioObra ?? ""),
+  const hoyStr = generadoEn.toISOString().slice(0, 10);
+  const obrasOrdenadas = [...obrasPorId.entries()].sort(
+    ([, a], [, b]) => proximidadAHoy(a, hoyStr) - proximidadAHoy(b, hoyStr),
   );
 
   const headcount = workbook.addWorksheet("Proyección Headcount");

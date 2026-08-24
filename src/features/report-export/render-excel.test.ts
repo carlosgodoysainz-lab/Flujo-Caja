@@ -378,6 +378,91 @@ describe("renderReportExcel", () => {
     expect(filaTotal.getCell(10).value).toBe(15);
   });
 
+  it("ordena las obras de 'Proyección Headcount' por proximidad a HOY (próximo hito: inicio si no ha empezado, fin si ya está en curso) — no por fecha de inicio ascendente", async () => {
+    const hoy = new Date(2026, 7, 24); // 24-ago-2026
+
+    const PLAN_OBRA_DOTACION: PlanObraDotacionFila[] = [
+      // Empezó hace mucho (2020) y sigue en curso, cierra muy lejos (2035)
+      // — el orden VIEJO (ascendente por inicio) la pondría PRIMERA; por
+      // proximidad a hoy debe quedar AL FINAL.
+      {
+        obraId: "vieja",
+        obraNombre: "Obra Vieja",
+        comuna: null,
+        tipo: "DS19",
+        cliente: "Maestra",
+        unidades: 100,
+        inicioObra: "2020-01-01",
+        finObra: "2035-01-01",
+        durObraMeses: 180,
+        periodo: "2026-08-01",
+        dotacionReal: 200,
+        dotacionProyectada: 200,
+        variacionNeta: 5,
+        origenVariacion: "buk_real",
+      },
+      // Ya en curso, cierra el mes que viene — debe quedar PRIMERA.
+      {
+        obraId: "cierra-pronto",
+        obraNombre: "Obra Cierra Pronto",
+        comuna: null,
+        tipo: "DS19",
+        cliente: "Maestra",
+        unidades: 50,
+        inicioObra: "2025-01-01",
+        finObra: "2026-09-01",
+        durObraMeses: 20,
+        periodo: "2026-08-01",
+        dotacionReal: 80,
+        dotacionProyectada: 80,
+        variacionNeta: -10,
+        origenVariacion: "buk_real",
+      },
+      // Todavía no empieza, arranca en ~1 mes — debe quedar SEGUNDA (más
+      // lejos que "cierra pronto", más cerca que "vieja").
+      {
+        obraId: "futura",
+        obraNombre: "Obra Futura Cercana",
+        comuna: null,
+        tipo: "DS19",
+        cliente: "Maestra",
+        unidades: 60,
+        inicioObra: "2026-10-01",
+        finObra: "2028-10-01",
+        durObraMeses: 24,
+        periodo: "2026-08-01",
+        dotacionReal: null,
+        dotacionProyectada: null,
+        variacionNeta: null,
+        origenVariacion: "sin_dato_referencia",
+      },
+    ];
+
+    const buffer = await renderReportExcel({
+      serie: [
+        {
+          periodo: "2026-08-01",
+          concepto: "total_nomina",
+          monto: 100_000_000,
+          esReal: true,
+          metodoCalculo: null,
+        },
+      ],
+      kpis: KPIS,
+      ufPorPeriodo: new Map(),
+      periodoDesde: "2026-08-01",
+      periodoHasta: "2026-08-01",
+      generadoEn: hoy,
+      planObraDotacion: PLAN_OBRA_DOTACION,
+    });
+
+    const wb = await leerWorkbook(buffer);
+    const headcount = wb.getWorksheet("Proyección Headcount")!;
+    expect(headcount.getRow(2).getCell(1).value).toBe("Obra Cierra Pronto");
+    expect(headcount.getRow(3).getCell(1).value).toBe("Obra Futura Cercana");
+    expect(headcount.getRow(4).getCell(1).value).toBe("Obra Vieja");
+  });
+
   it("sin planObraDotacion, NO genera la hoja 'Proyección Headcount'", async () => {
     const buffer = await renderReportExcel({
       serie: [
