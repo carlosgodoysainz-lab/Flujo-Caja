@@ -4,9 +4,12 @@ import { auth } from "@/lib/auth";
 import { createServiceClient } from "@/lib/supabase/service";
 import { obrasSimilares, type ObraParaSimilitud } from "./similarity";
 import {
+  aplicarCicloDeVida,
   aVariacionNeta,
   curvaPorAvanceConFases,
   escalarCurva,
+  interpolarHuecos,
+  mesDeCierre,
   promediarCurvas,
 } from "./curve";
 
@@ -34,6 +37,20 @@ export interface RunForecastModelResult {
  * confirmado con datos reales ("Alto Buzeta" transiciona justo a la
  * mitad de su duración) y generalizado a todas las obras por indicación
  * explícita del usuario.
+ *
+ * v3 "ciclo de vida" (24-ago-2026, pedido explícito del usuario tras ver
+ * el Excel en vivo — "Jorge Edwards" quedaba plana hasta el final sin
+ * bajas de cierre, "Vista Llacolén B" saltaba -99/+90 de un mes a otro,
+ * "General Mackenna" podía mostrar despidos justo al arrancar): el mes
+ * de "mitad" de cada obra pasa a anclarse a su `fin_obra` real (ver
+ * `mesDeCierre`) en vez de a `dur_obra_meses/2` fijo; las curvas de
+ * referencia se interpolan (`interpolarHuecos`) antes de promediarse; y
+ * la curva final pasa por `aplicarCicloDeVida` (arranque sin bajas +
+ * suavizado de saltos + rampa de desmovilización hacia el cierre) antes
+ * de convertirse a variación neta. Impacto esperado y DESEADO (confirmado
+ * por el usuario): la dotación total de la compañía —y por lo tanto el
+ * flujo de caja que la usa como input— se ajusta a la baja en los meses
+ * donde antes una obra ya cerrada seguía "plana" en vez de bajar a 0.
  */
 export async function runForecastModel(
   obraId: string,
@@ -44,7 +61,9 @@ export async function runForecastModel(
 
   const { data: obraObjetivo } = await supabase
     .from("obras")
-    .select("id, nombre, tipo, unidades, comuna, inicio_obra, dur_obra_meses")
+    .select(
+      "id, nombre, tipo, unidades, comuna, inicio_obra, fin_obra, dur_obra_meses",
+    )
     .eq("id", obraId)
     .single();
 
@@ -73,7 +92,18 @@ export async function runForecastModel(
 
   const { data: todasLasObras } = await supabase
     .from("obras")
-    .select("id, nombre, tipo, unidades, comuna, inicio_obra, dur_obra_meses");
+    .select(
+      "id, nombre, tipo, unidades, comuna, inicio_obra, fin_obra, dur_obra_meses",
+    );
+
+  // Mes de cierre REAL de la obra objetivo (ver mesDeCierre) — ancla el
+  // punto de "mitad" del modelo a fin_obra en vez de a dur/2 fijo.
+  const mesCierreObjetivo = mesDeCierre(
+    new Date(obraObjetivo.inicio_obra),
+    obraObjetivo.fin_obra ? new Date(obraObjetivo.fin_obra) : null,
+    obraObjetivo.dur_obra_meses,
+  );
+  const finFaseObraGruesa = Math.ceil((mesCierreObjetivo + 1) / 2);
 
   const objetivoParaSimilitud: ObraParaSimilitud = {
     id: obraObjetivo.id,
@@ -134,26 +164,37 @@ export async function runForecastModel(
       activos,
     }));
 
-    // Re-indexa por FASE (obra gruesa = 1ra mitad, terminaciones = 2da
-    // mitad de la duración de CADA obra) en vez de por mes calendario
-    // crudo — ver curvaPorAvanceConFases. Usa la duración PROPIA de la
-    // obra de referencia (si la tiene) para construir su curva real;
-    // si no tiene duración cargada, degrada a la del objetivo (mismo
-    // comportamiento que antes de este cambio).
+    // Re-indexa por FASE (obra gruesa / terminaciones, ancladas al mes de
+    // CIERRE REAL de cada obra — ver curvaPorAvanceConFases/mesDeCierre)
+    // en vez de por mes calendario crudo. Usa la duración y el fin_obra
+    // PROPIOS de la obra de referencia (si los tiene) para construir su
+    // curva real; si no tiene duración cargada, degrada a la del
+    // objetivo (mismo comportamiento que antes de este cambio).
+    const durObraRef = obraRef.dur_obra_meses ?? obraObjetivo.dur_obra_meses;
+    const mesCierreRef = mesDeCierre(
+      new Date(obraRef.inicio_obra),
+      obraRef.fin_obra ? new Date(obraRef.fin_obra) : null,
+      durObraRef,
+    );
     const curva = curvaPorAvanceConFases(
       puntos,
       new Date(obraRef.inicio_obra),
-      obraRef.dur_obra_meses ?? obraObjetivo.dur_obra_meses,
+      durObraRef,
       obraObjetivo.dur_obra_meses,
+      { mesCierreRef, mesCierreObjetivo },
     );
     const curvaEscalada = escalarCurva(
       curva,
       referencia.unidades,
       obraObjetivo.unidades,
     );
+    // Interpola huecos ANTES de promediar — estabiliza qué obras de
+    // referencia aportan dato cada mes (causa raíz indirecta de saltos
+    // como "Vista Llacolén B": -99 un mes, +90 al siguiente).
+    const curvaInterpolada = interpolarHuecos(curvaEscalada);
 
-    if (curvaEscalada.some((v) => v != null)) {
-      curvasEscaladas.push(curvaEscalada);
+    if (curvaInterpolada.some((v) => v != null)) {
+      curvasEscaladas.push(curvaInterpolada);
       referenciasUsadas.push(referencia.id);
     }
   }
@@ -175,7 +216,21 @@ export async function runForecastModel(
     curvasEscaladas,
     obraObjetivo.dur_obra_meses,
   );
-  const variacionNeta = aVariacionNeta(curvaPromedio);
+
+  // Cap dinámico del limitador de saltos, relativo al pico de la curva
+  // promedio (25%, con un piso de 3 personas) — evita que una obra chica
+  // quede con un cap absurdamente bajo o una obra grande con uno
+  // absurdamente alto. Guardado en `parametros` para poder ajustarlo sin
+  // tocar código si el usuario lo ve muy suave o muy brusco.
+  const pico = Math.max(0, ...curvaPromedio.map((p) => p.valor));
+  const maxDeltaPorMes = Math.max(3, Math.round(0.25 * pico));
+
+  const curvaFinal = aplicarCicloDeVida(curvaPromedio, {
+    mesCierre: mesCierreObjetivo,
+    finFaseObraGruesa,
+    maxDeltaPorMes,
+  });
+  const variacionNeta = aVariacionNeta(curvaFinal);
   const mesesSinDatoReferencia = variacionNeta.filter(
     (v) => v.sinDatoReferencia,
   ).length;
@@ -184,11 +239,15 @@ export async function runForecastModel(
     .from("headcount_forecast_runs")
     .insert({
       obra_id: obraId,
-      metodo: "similar_obras_v2_fases",
+      metodo: "similar_obras_v3_ciclo_vida",
       obras_referencia: referenciasUsadas,
       parametros: {
         rangoUnidadesPct: 30,
         duracionMeses: obraObjetivo.dur_obra_meses,
+        finObra: obraObjetivo.fin_obra,
+        mesCierre: mesCierreObjetivo,
+        finFaseObraGruesa,
+        maxDeltaPorMes,
       },
       ejecutado_por: session?.user?.id ?? null,
     })
@@ -219,11 +278,12 @@ export async function runForecastModel(
       obra_id: obraId,
       periodo: periodo.toISOString().slice(0, 10),
       variacion_neta: v.variacion,
-      // Dotación absoluta acumulada de la curva promedio — permite ver
-      // "cuánta gente habrá en esta obra" en vez de solo el delta mes a
-      // mes (columna `acumulado` existía en el schema desde el inicio,
-      // nunca se poblaba — ver Auto-Blindaje 13-ago-2026).
-      acumulado: curvaPromedio[mesIndex].valor,
+      // Dotación absoluta acumulada de la curva FINAL (ya con arranque +
+      // suavizado + cierre aplicados, no la curva promedio cruda) —
+      // permite ver "cuánta gente habrá en esta obra" en vez de solo el
+      // delta mes a mes (columna `acumulado` existía en el schema desde
+      // el inicio, nunca se poblaba — ver Auto-Blindaje 13-ago-2026).
+      acumulado: curvaFinal[mesIndex].valor,
       // Distingue "el modelo promedió obras de referencia reales" de
       // "no había ninguna obra de referencia con dato ese mes de avance"
       // — antes ambos casos quedaban como 'modelo_estimado' indistinguibles.
@@ -235,17 +295,38 @@ export async function runForecastModel(
     };
   });
 
-  const { error: upsertError } = await supabase
+  // Nunca pisar un período que ya tenga dato REAL/manual cargado — bug
+  // preexistente que la rampa de cierre agravaba (podía escribir una
+  // baja ficticia encima de un mes con dato real de Buk). Este check ya
+  // lo hace `estimarDotacionFaltante` (refresh.ts) al filtrar obras
+  // completas, pero el botón manual de esta página no.
+  const { data: filasProtegidas } = await supabase
     .from("headcount_by_obra")
-    .upsert(filas, { onConflict: "obra_id,periodo" });
-  if (upsertError)
-    errores.push(`Error guardando estimación: ${upsertError.message}`);
+    .select("periodo")
+    .eq("obra_id", obraId)
+    .in("origen", ["manual", "buk_real"]);
+  const periodosProtegidos = new Set(
+    (filasProtegidas ?? []).map((f) => f.periodo),
+  );
+  const filasAEscribir = filas.filter(
+    (f) => !periodosProtegidos.has(f.periodo),
+  );
+
+  if (filasAEscribir.length > 0) {
+    const { error: upsertError } = await supabase
+      .from("headcount_by_obra")
+      .upsert(filasAEscribir, { onConflict: "obra_id,periodo" });
+    if (upsertError)
+      errores.push(`Error guardando estimación: ${upsertError.message}`);
+  }
 
   return {
     estado: errores.length > 0 ? "error" : "ok",
     obraId,
     obrasReferenciaUsadas: referenciasUsadas.length,
-    mesesEstimados: filas.length,
+    // Solo los meses efectivamente escritos (excluye los protegidos por
+    // ya tener dato manual/real de Buk — ver filasAEscribir arriba).
+    mesesEstimados: filasAEscribir.length,
     mesesSinDatoReferencia,
     errores,
   };

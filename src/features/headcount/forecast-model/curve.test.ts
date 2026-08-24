@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  aplicarArranqueDeObra,
+  aplicarCicloDeVida,
+  aplicarCierreDeObra,
   aVariacionNeta,
   curvaPorAvance,
   curvaPorAvanceConFases,
   escalarCurva,
+  interpolarHuecos,
+  mesDeCierre,
   promediarCurvas,
+  suavizarSaltos,
+  type PuntoCurva,
 } from "./curve";
 
 describe("curvaPorAvance", () => {
@@ -190,5 +197,288 @@ describe("aVariacionNeta", () => {
     expect(resultado[0].sinDatoReferencia).toBe(false);
     expect(resultado[1].sinDatoReferencia).toBe(true); // depende de mes 0 (con dato) y mes 1 (sin dato)
     expect(resultado[2].sinDatoReferencia).toBe(true); // depende de mes 1 (sin dato) y mes 2 (con dato)
+  });
+});
+
+// --- Fix "ciclo de vida" (24-ago-2026): fin_obra real, suavizado de
+// saltos, arranque sin bajas, cierre progresivo. Ver Auto-Blindaje.
+
+describe("mesDeCierre", () => {
+  const inicio = new Date(2025, 0, 1); // 2025-01-01
+
+  it("con finObra real, es la diferencia en meses entre inicio y fin (Jorge Edwards: 2025-01 -> 2026-12, dur 24)", () => {
+    expect(mesDeCierre(inicio, new Date(2026, 11, 22), 24)).toBe(23);
+  });
+
+  it("sin finObra, cae al comportamiento anterior (durObraMeses - 1)", () => {
+    expect(mesDeCierre(inicio, null, 24)).toBe(23);
+  });
+
+  it("finObra más temprano que dur - 1 adelanta el cierre dentro del horizonte", () => {
+    expect(mesDeCierre(inicio, new Date(2026, 5, 30), 24)).toBe(17);
+  });
+
+  it("finObra más allá del horizonte NUNCA lo extiende (clamp a dur - 1)", () => {
+    expect(mesDeCierre(inicio, new Date(2028, 0, 1), 24)).toBe(23);
+  });
+
+  it("finObra anterior a inicioObra da 0, nunca negativo", () => {
+    expect(mesDeCierre(inicio, new Date(2024, 0, 1), 24)).toBe(0);
+  });
+});
+
+describe("curvaPorAvanceConFases con opciones de cierre", () => {
+  const inicioObraRef = new Date(2024, 0, 1);
+  const snapshots22Meses = Array.from({ length: 22 }, (_, mes) => ({
+    fecha: new Date(2024, mes, 1),
+    activos: mes * 10,
+  }));
+
+  it("sin opciones, es idéntica a la llamada con mesCierre = dur - 1 explícito (identidad)", () => {
+    const sinOpciones = curvaPorAvanceConFases(
+      snapshots22Meses,
+      inicioObraRef,
+      22,
+      12,
+    );
+    const conOpcionesDefault = curvaPorAvanceConFases(
+      snapshots22Meses,
+      inicioObraRef,
+      22,
+      12,
+      { mesCierreRef: 21, mesCierreObjetivo: 11 },
+    );
+    expect(conOpcionesDefault).toEqual(sinOpciones);
+  });
+
+  it("un cierre adelantado en la referencia mueve el inicio de terminaciones antes", () => {
+    // mesCierreRef=15 (en vez de 21) -> mitadRef = ceil(16/2) = 8.
+    // mesCierreObjetivo=11 (default) -> mitadObjetivo = ceil(12/2) = 6.
+    const curva = curvaPorAvanceConFases(
+      snapshots22Meses,
+      inicioObraRef,
+      22,
+      12,
+      { mesCierreRef: 15, mesCierreObjetivo: 11 },
+    );
+    expect(curva[6]).toBe(80); // antes (sin fin_obra) el índice 6 daba 110
+    // Los meses de la referencia posteriores a su propio cierre (16-21)
+    // se descartan porque el objetivo (default) no tiene zona post-cierre.
+    expect(curva.length).toBe(12);
+  });
+
+  it("mesCierre = 0 no divide por cero y da largo correcto", () => {
+    const curva = curvaPorAvanceConFases(
+      snapshots22Meses,
+      inicioObraRef,
+      22,
+      12,
+      {
+        mesCierreRef: 0,
+        mesCierreObjetivo: 0,
+      },
+    );
+    expect(curva.length).toBe(12);
+  });
+});
+
+describe("interpolarHuecos", () => {
+  it("interpola linealmente un hueco interno (dato real a ambos lados)", () => {
+    expect(interpolarHuecos([10, null, null, 40])).toEqual([10, 20, 30, 40]);
+  });
+
+  it("no extrapola huecos de cabeza ni de cola", () => {
+    expect(interpolarHuecos([null, null, 20, null])).toEqual([
+      null,
+      null,
+      20,
+      null,
+    ]);
+  });
+
+  it("curva sin huecos o vacía queda sin cambios", () => {
+    expect(interpolarHuecos([10, 20, 30])).toEqual([10, 20, 30]);
+    expect(interpolarHuecos([])).toEqual([]);
+    expect(interpolarHuecos([null, null])).toEqual([null, null]);
+  });
+
+  it("redondea el valor interpolado", () => {
+    expect(interpolarHuecos([10, null, 15])).toEqual([10, 13, 15]);
+  });
+
+  it("un hueco más largo que maxHuecoMeses queda sin interpolar", () => {
+    const curva = [10, ...Array(8).fill(null), 90];
+    expect(interpolarHuecos(curva, 6)).toEqual(curva);
+  });
+});
+
+describe("suavizarSaltos", () => {
+  const conDato = (valor: number): PuntoCurva => ({
+    valor,
+    sinDatoReferencia: false,
+  });
+
+  it("caso real 'Vista Llacolén B': acota el salto -99/+90 a deltas de máximo ±30", () => {
+    const curva = [conDato(100), conDato(1), conDato(91)];
+    const resultado = suavizarSaltos(curva, 30);
+    expect(resultado.map((p) => p.valor)).toEqual([100, 70, 91]);
+    expect(aVariacionNeta(resultado).map((r) => r.variacion)).toEqual([
+      100, -30, 21,
+    ]);
+  });
+
+  it("reconverge al valor objetivo en vez de quedar clipeado para siempre", () => {
+    const curva = [0, 100, 100, 100, 100].map(conDato);
+    const resultado = suavizarSaltos(curva, 30);
+    expect(resultado.map((p) => p.valor)).toEqual([0, 30, 60, 90, 100]);
+  });
+
+  it("cap 0 o negativo deja la curva intacta", () => {
+    const curva = [conDato(100), conDato(1)];
+    expect(suavizarSaltos(curva, 0)).toBe(curva);
+    expect(suavizarSaltos(curva, -5)).toBe(curva);
+  });
+
+  it("preserva sinDatoReferencia de cada mes sin tocarlo", () => {
+    const curva: PuntoCurva[] = [
+      conDato(10),
+      { valor: 200, sinDatoReferencia: true },
+    ];
+    const resultado = suavizarSaltos(curva, 5);
+    expect(resultado[1].sinDatoReferencia).toBe(true);
+  });
+
+  it("el mes 0 nunca se modifica", () => {
+    const curva = [conDato(999), conDato(0)];
+    expect(suavizarSaltos(curva, 1)[0].valor).toBe(999);
+  });
+});
+
+describe("aplicarArranqueDeObra", () => {
+  const conDato = (valor: number): PuntoCurva => ({
+    valor,
+    sinDatoReferencia: false,
+  });
+  const sinDato = (valor = 0): PuntoCurva => ({
+    valor,
+    sinDatoReferencia: true,
+  });
+
+  it("caso real 'General Mackenna': ninguna variación negativa antes del pico de obra gruesa", () => {
+    const curva = [40, 30, 55, 80, 70, 60].map(conDato);
+    const resultado = aplicarArranqueDeObra(curva, 3);
+    expect(resultado.map((p) => p.valor)).toEqual([40, 40, 55, 80, 70, 60]);
+    const variaciones = aVariacionNeta(resultado).map((r) => r.variacion);
+    expect(variaciones.slice(0, 3).every((v) => v >= 0)).toBe(true);
+  });
+
+  it("rellena los meses de arranque sin dato con una rampa hacia el primer valor real", () => {
+    const curva = [sinDato(), sinDato(), conDato(60), conDato(80)];
+    const resultado = aplicarArranqueDeObra(curva, 2);
+    expect(resultado.map((p) => p.valor)).toEqual([20, 40, 60, 80]);
+    expect(resultado[0].sinDatoReferencia).toBe(false);
+    expect(resultado[1].sinDatoReferencia).toBe(false);
+  });
+
+  it("sin ningún dato real, devuelve la curva intacta (respeta sin_dato_referencia)", () => {
+    const curva = [sinDato(), sinDato(), sinDato()];
+    expect(aplicarArranqueDeObra(curva, 2)).toEqual(curva);
+  });
+
+  it("si el pico ya pasó dentro de la ventana de obra gruesa, no fuerza monotonía después", () => {
+    const curva = [80, 60, 50].map(conDato);
+    expect(aplicarArranqueDeObra(curva, 2).map((p) => p.valor)).toEqual([
+      80, 60, 50,
+    ]);
+  });
+});
+
+describe("aplicarCierreDeObra", () => {
+  const conDato = (valor: number): PuntoCurva => ({
+    valor,
+    sinDatoReferencia: false,
+  });
+  const sinDato = (valor = 0): PuntoCurva => ({
+    valor,
+    sinDatoReferencia: true,
+  });
+
+  it("caso real 'Jorge Edwards': bajas progresivas hacia el cierre, no ceros sostenidos", () => {
+    const curva = [
+      conDato(30),
+      conDato(60),
+      conDato(90),
+      conDato(90),
+      sinDato(90),
+      sinDato(90),
+      sinDato(90),
+      sinDato(90),
+    ];
+    const resultado = aplicarCierreDeObra(curva, 7);
+    expect(resultado.map((p) => p.valor)).toEqual([
+      30, 60, 90, 90, 72, 54, 36, 18,
+    ]);
+    expect(aVariacionNeta(resultado).map((r) => r.variacion)).toEqual([
+      30, 30, 30, 0, -18, -18, -18, -18,
+    ]);
+  });
+
+  it("cierre antes del final del horizonte: los meses posteriores quedan en 0 duro", () => {
+    const curva = [
+      conDato(20),
+      conDato(40),
+      sinDato(40),
+      sinDato(40),
+      sinDato(40),
+      sinDato(40),
+    ];
+    const resultado = aplicarCierreDeObra(curva, 3);
+    expect(resultado.map((p) => p.valor)).toEqual([20, 40, 27, 13, 0, 0]);
+  });
+
+  it("nunca pisa un mes que ya tiene su propio dato real", () => {
+    const curva = [conDato(10), conDato(20), conDato(15)];
+    expect(aplicarCierreDeObra(curva, 1)).toEqual(curva);
+  });
+
+  it("sin ningún dato real, devuelve la curva intacta", () => {
+    const curva = [sinDato(), sinDato(), sinDato()];
+    expect(aplicarCierreDeObra(curva, 2)).toEqual(curva);
+  });
+});
+
+describe("aplicarCicloDeVida", () => {
+  it("integra arranque + suavizado + cierre: sin bajas antes del pico, saltos acotados, cola decreciente hacia 0", () => {
+    const conDato = (valor: number): PuntoCurva => ({
+      valor,
+      sinDatoReferencia: false,
+    });
+    const sinDato = (valor = 0): PuntoCurva => ({
+      valor,
+      sinDatoReferencia: true,
+    });
+    // Hueco de cabeza + salto abrupto en el medio + cola sin dato.
+    const curva = [
+      sinDato(),
+      conDato(120),
+      conDato(1),
+      conDato(115),
+      sinDato(115),
+      sinDato(115),
+    ];
+    const resultado = aplicarCicloDeVida(curva, {
+      mesCierre: 5,
+      finFaseObraGruesa: 2,
+      maxDeltaPorMes: 30,
+    });
+    const variaciones = aVariacionNeta(resultado).map((r) => r.variacion);
+    // (a) sin bajas antes del pico de obra gruesa (índices 0..1)
+    expect(variaciones.slice(0, 2).every((v) => v >= 0)).toBe(true);
+    // (b) el salto abrupto del medio queda acotado por el suavizado
+    expect(Math.abs(variaciones[2])).toBeLessThanOrEqual(30);
+    // (c) la rampa de cierre (estrictamente DESPUÉS del último mes con
+    // dato real, índice 3 en este caso) decrece hacia 0, nunca sube.
+    expect(variaciones.slice(4).every((v) => v <= 0)).toBe(true);
+    expect(resultado.at(-1)!.valor).toBeLessThan(resultado[3].valor);
   });
 });

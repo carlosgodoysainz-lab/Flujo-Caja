@@ -101,7 +101,17 @@ export default async function DotacionPage() {
                   <Badge variant={label.variant}>{label.text}</Badge>
                 </TableCell>
                 <TableCell>
-                  {!origen && <RunForecastButton obraId={obra.id} />}
+                  {/* Reestimable mientras no haya dato manual/real de Buk
+                      cargado — antes el botón solo aparecía con CERO
+                      filas, así que una obra ya estimada con el modelo
+                      viejo (v2) quedaba sin forma de volver a correr el
+                      modelo nuevo (v3 "ciclo de vida", 24-ago-2026) sin
+                      borrar sus filas a mano. El upsert de
+                      `runForecastModel` ya protege manual/buk_real, así
+                      que reestimar acá nunca pisa un dato real. */}
+                  {(!origen || ORIGENES_BAJA_CONFIANZA.has(origen)) && (
+                    <RunForecastButton obraId={obra.id} />
+                  )}
                 </TableCell>
               </TableRow>
             );
