@@ -60,7 +60,9 @@ function rutaDe(hit: GraphSearchHit): string {
  * uno 1 sola vez (ver Auto-Blindaje 24-ago-2026).
  *
  * El RG/RP de cada archivo se determina por la carpeta contenedora
- * ("/RG/" o "/RP/" en la ruta), NO por el nombre del archivo — más
+ * ("/RG/"/"/RP/", o la variante "Rol General"/"Rol Privado"/"Rol
+ * Particular" que usan algunos meses — ej. "anticipo abril 2026" —
+ * confirmado real 24-ago-2026), NO por el nombre del archivo — más
  * confiable, ya que el nombre solo indica sociedad/mes.
  *
  * Deliberadamente NO persiste RUT ni nombre — solo un conteo de líneas
@@ -147,8 +149,15 @@ export async function syncBeneficiariosAnticipo(
       archivosVistos.add(clave);
 
       const rutaLower = rutaDe(archivo).toLowerCase();
-      const esRp = /\/rp\//.test(rutaLower);
-      const esRg = /\/rg\//.test(rutaLower);
+      // Naming inconsistente confirmado en SharePoint (ej. "anticipo abril
+      // 2026" usa "Rol General"/"Rol Privado" en vez de "RG"/"RP" — mismo
+      // patrón de inconsistencia ya documentado para otras carpetas de
+      // "Pagos Mensuales"). Se aceptan ambas variantes.
+      const esRg = /\/rg\//.test(rutaLower) || /\/rol general/.test(rutaLower);
+      const esRp =
+        /\/rp\//.test(rutaLower) ||
+        /\/rol privado/.test(rutaLower) ||
+        /\/rol particular/.test(rutaLower);
       if (!esRp && !esRg) {
         errores.push(
           `${archivo.name}: no se pudo determinar si es RG o RP por la ruta de carpeta — se ignora.`,

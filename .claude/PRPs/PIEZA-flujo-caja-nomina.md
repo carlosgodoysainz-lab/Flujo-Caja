@@ -542,6 +542,16 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 - **Verificado**: `npx tsc --noEmit`, `npx vitest run` (139/139) y `npm run build` limpios. 2 tests nuevos en `render-excel.test.ts` (pivote correcto + ausencia de la hoja sin `planObraDotacion`).
 - **Aplicar en**: cuando se pide una vista "parecida" a una hoja de un Excel maestro que el agente no puede volver a leer en el momento, aprovechar cualquier dato ya computado/tidy que exista en la app (en este caso, `getPlanObraConDotacion` ya tenía exactamente lo necesario) — pivotear en la capa de render es más simple y más seguro (cero riesgo de desincronización) que crear una fuente de datos paralela.
 
+### 2026-08-24: "Beneficiarios Anticipo 2026-04" en rojo — la carpeta RG/RP de abril usa "Rol General"/"Rol Privado", no "RG"/"RP"
+
+- **Reportado por el usuario**: captura del panel de "Actualizar reporte" con error en rojo, "Beneficiarios Anticipo 2026-04: ...no se pudo determinar si es RG o RP por la ruta de carpeta — se ignora" repetido para las 7 sociedades de abril-2026.
+- **Confirmado con datos reales** (Microsoft Graph, `sharepoint_folder_search` + `read_resource`): la carpeta "Pagos Mensuales/anticipos/anticipo abril 2026/" tiene subcarpetas **"Rol General"** y **"Rol Privado"** (no "RG"/"RP" como marzo/mayo/agosto-2026, que sí usan "RG"/"RP") — los archivos de transferencia bancaria están DIRECTO ahí dentro, mismo formato que siempre. `sync-beneficiarios-anticipo.ts` solo reconocía `/\/rg\//` y `/\/rp\//` en la ruta, así que ignoraba TODOS los archivos de abril (0 beneficiarios contados ese mes, con error visible).
+- **Extensión de búsqueda** (`sharepoint_folder_search name:"Rol"`, 597 resultados en todo "Pagos Mensuales") confirma que "Rol General"/"Rol Privado" es una variante de nombre RECURRENTE en todo el árbol (sueldos, reliquidaciones, imposiciones, anticipos), no un caso único de abril — mismo patrón de inconsistencia de naming ya documentado para otras carpetas de "Pagos Mensuales" (ver Gotchas).
+- **Fix real**: `esRg`/`esRp` en `sync-beneficiarios-anticipo.ts` ahora aceptan también `/\/rol general/` y `/\/rol privado/`/`/\/rol particular/` (Rol Particular = sinónimo de RP visto en otras carpetas de este mismo árbol), sin cambiar el criterio de "por ruta de carpeta, no por nombre de archivo".
+- **Verificado**: `npx tsc --noEmit`, `npx vitest run` (139/139, sin test nuevo — este módulo es "use server"/Graph en vivo, mismo criterio ya aplicado a los demás `sync-*.ts` de este proyecto, que tampoco tienen test unitario) y `npm run build` limpios.
+- **Pendiente de acción del usuario**: correr "Actualizar reporte" de nuevo para que abril-2026 recupere sus beneficiarios reales de Anticipo (ya no debería salir en rojo).
+- **Aplicar en**: cuando un parser/matcher basado en ruta de carpeta falla para UN mes puntual pero funciona para otros, sospechar primero de una variante de naming real en SharePoint (confirmar con `sharepoint_folder_search`) antes de asumir que el archivo simplemente no existe ese mes — este árbol de carpetas ya tiene un historial de inconsistencias de este tipo.
+
 ---
 
 ## Gotchas (Antes de Implementar)
