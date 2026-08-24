@@ -297,16 +297,23 @@ export async function dotacionRgRpDelMes(
  * Excel real de Finanzas, pedido explícito del usuario 17-ago-2026:
  * "mantén ese formato para ver cómo va cambiando el input principal que
  * corresponde a dotación").
+ *
+ * `dotacionPorPeriodoPrefetched` (opcional): evita un 2do fetch completo
+ * de `getDotacionTotalPorPeriodo` cuando el caller ya tiene uno a mano
+ * (ver `getDotacionPorConceptoYPeriodo`, que necesita una ventana más
+ * amplia de todas formas — mismo fix de performance 24-ago-2026). Un mapa
+ * más amplio que [periodoDesde, periodoHasta] funciona igual: acá solo se
+ * hacen lookups por clave puntual, nunca se asume el límite exacto.
  */
 export async function getDotacionRgRpPorPeriodo(
   periodoDesde: Date,
   periodoHasta: Date,
+  dotacionPorPeriodoPrefetched?: Map<string, DotacionTotalPunto>,
 ): Promise<Map<string, DotacionRgRpPunto>> {
   const supabase = createServiceClient();
-  const dotacionPorPeriodo = await getDotacionTotalPorPeriodo(
-    periodoDesde,
-    periodoHasta,
-  );
+  const dotacionPorPeriodo =
+    dotacionPorPeriodoPrefetched ??
+    (await getDotacionTotalPorPeriodo(periodoDesde, periodoHasta));
 
   const resultado = new Map<string, DotacionRgRpPunto>();
   const cursor = new Date(
@@ -336,27 +343,23 @@ export async function getDotacionRgRpPorPeriodo(
 
 /**
  * N° REAL de gente que recibió Anticipo (rg+rp) en un período específico —
- * suma `payroll_beneficiarios_reales.cantidad` (conteo de líneas de los
- * archivos de transferencia bancaria, grano de persona real — ver
- * sync-beneficiarios-anticipo.ts). `null` si no hay dato real todavía.
+ * lookup PURO (sin query) sobre un mapa `payroll_beneficiarios_reales` ya
+ * prefetcheado (ver `getDotacionPorConceptoYPeriodo`). `null` si no hay
+ * dato real todavía para ese período.
  *
- * Bug real corregido 24-ago-2026: antes contaba filas de
- * `payroll_line_items` (grano de sociedad/división, NO de persona — ver
- * Auto-Blindaje 21-ago-2026), dando ~15-20 "personas" para toda la
- * compañía cuando el archivo real de transferencia bancaria de UNA sola
- * sociedad ya tiene cientos de líneas.
+ * Antes esto era 1 query por período — bug real de PERFORMANCE corregido
+ * 24-ago-2026 (mismo día del fix que introdujo esta tabla): multiplicado
+ * por los loops de razón histórica de abajo, "Actualizar reporte" y
+ * "Descargar HTML + Excel" pasaron a tardar MINUTOS (reportado por el
+ * usuario: "lleva 3 min") en vez de segundos — ver Auto-Blindaje.
  */
-async function dotacionAnticipoRealDelMes(
-  supabase: ReturnType<typeof createServiceClient>,
+function dotacionAnticipoRealDelMes(
+  beneficiariosPorClave: Map<string, number>,
   periodoStr: string,
-): Promise<number | null> {
-  const { data } = await supabase
-    .from("payroll_beneficiarios_reales")
-    .select("concepto, cantidad")
-    .in("concepto", ["anticipo_rg", "anticipo_rp"])
-    .eq("periodo", periodoStr);
-  if (!data || data.length === 0) return null;
-  const total = data.reduce((acc, fila) => acc + fila.cantidad, 0);
+): number | null {
+  const total =
+    (beneficiariosPorClave.get(`anticipo_rg::${periodoStr}`) ?? 0) +
+    (beneficiariosPorClave.get(`anticipo_rp::${periodoStr}`) ?? 0);
   return total > 0 ? total : null;
 }
 
@@ -371,26 +374,42 @@ async function dotacionAnticipoRealDelMes(
  * menos gente pide Anticipo, ver Auto-Blindaje 17-ago-2026 en
  * `getDotacionPorConceptoYPeriodo`).
  *
- * Independiente del rango que esté iterando el caller — trae su propia
- * ventana de dotación TOTAL (24 meses atrás) vía `getDotacionTotalPorPeriodo`,
- * mismo criterio de `proporcionRgHistorica` (que tampoco depende del mapa
- * del caller).
+ * PURA (sin query): recibe `dotacionPorPeriodoAmplio` ya prefetcheado
+ * cubriendo al menos los 24 meses anteriores a `antesDe` — antes esta
+ * función volvía a llamar `getDotacionTotalPorPeriodo` (que lee TODO el
+ * histórico de `buk_dotacion_snapshots`/`dotacion_mensual` sin importar el
+ * rango pedido) UNA VEZ POR CADA período sin dato real de Anticipo, el
+ * principal contribuyente al bug de performance de arriba.
  */
-export async function proporcionAnticipoHistorica(
-  supabase: ReturnType<typeof createServiceClient>,
+function proporcionAnticipoHistoricaPura(
+  dotacionPorPeriodoAmplio: Map<string, DotacionTotalPunto>,
+  beneficiariosPorClave: Map<string, number>,
   antesDe: Date,
   n = 3,
-): Promise<number | null> {
-  const desde = new Date(antesDe.getFullYear(), antesDe.getMonth() - 24, 1);
-  const hasta = new Date(antesDe.getFullYear(), antesDe.getMonth() - 1, 1);
-  const dotacionPorPeriodo = await getDotacionTotalPorPeriodo(desde, hasta);
+): number | null {
+  const desde = periodoDeFecha(
+    new Date(antesDe.getFullYear(), antesDe.getMonth() - 24, 1)
+      .toISOString()
+      .slice(0, 10),
+  );
+  const hasta = periodoDeFecha(
+    new Date(antesDe.getFullYear(), antesDe.getMonth() - 1, 1)
+      .toISOString()
+      .slice(0, 10),
+  );
+  const periodos = [...dotacionPorPeriodoAmplio.keys()]
+    .filter((p) => p >= desde && p <= hasta)
+    .sort()
+    .reverse();
 
   const razones: number[] = [];
-  const periodos = [...dotacionPorPeriodo.keys()].sort().reverse();
   for (const periodo of periodos) {
     if (razones.length >= n) break;
-    const dotacionTotal = dotacionPorPeriodo.get(periodo)!.total;
-    const conteoAnticipo = await dotacionAnticipoRealDelMes(supabase, periodo);
+    const dotacionTotal = dotacionPorPeriodoAmplio.get(periodo)!.total;
+    const conteoAnticipo = dotacionAnticipoRealDelMes(
+      beneficiariosPorClave,
+      periodo,
+    );
     if (conteoAnticipo != null && dotacionTotal) {
       razones.push(conteoAnticipo / dotacionTotal);
     }
@@ -401,26 +420,30 @@ export async function proporcionAnticipoHistorica(
 
 /**
  * Dotación de Anticipo (N° de gente que lo recibe, no la dotación total ni
- * la de Remuneración) del mes — real desde `payroll_line_items` cuando ya
- * hay ingesta para ese período; si no, se deriva de la dotación TOTAL
- * aplicando la razón histórica PROPIA de Anticipo (ver
- * `proporcionAnticipoHistorica`). Es la variable "Q" del modelo
- * costo-por-cabeza aplicado a Anticipo (ver `calcularAnticipoPorCabeza` en
- * `formulas.ts`) — mismo patrón que `dotacionRgRpDelMes`, pero con la
- * dotación propia del concepto en vez de la razón RG/RP.
+ * la de Remuneración) del mes — real desde `payroll_beneficiarios_reales`
+ * cuando ya hay ingesta para ese período; si no, se deriva de la dotación
+ * TOTAL aplicando la razón histórica PROPIA de Anticipo (ver
+ * `proporcionAnticipoHistoricaPura`). Es la variable "Q" del modelo
+ * costo-por-cabeza aplicado a Anticipo — mismo patrón que
+ * `dotacionRgRpDelMes`, pero con la dotación propia del concepto en vez de
+ * la razón RG/RP. PURA — ver comentario de performance arriba.
  */
-export async function dotacionAnticipoDelMes(
-  supabase: ReturnType<typeof createServiceClient>,
+function dotacionAnticipoDelMesPura(
+  dotacionPorPeriodoAmplio: Map<string, DotacionTotalPunto>,
+  beneficiariosPorClave: Map<string, number>,
   mes: Date,
-  dotacionPorPeriodo: Map<string, DotacionTotalPunto>,
-): Promise<number | null> {
+): number | null {
   const periodoStr = mes.toISOString().slice(0, 10);
-  const real = await dotacionAnticipoRealDelMes(supabase, periodoStr);
+  const real = dotacionAnticipoRealDelMes(beneficiariosPorClave, periodoStr);
   if (real != null) return real;
 
-  const dotacionTotal = dotacionPorPeriodo.get(periodoStr)?.total;
+  const dotacionTotal = dotacionPorPeriodoAmplio.get(periodoStr)?.total;
   if (!dotacionTotal) return null;
-  const proporcion = await proporcionAnticipoHistorica(supabase, mes);
+  const proporcion = proporcionAnticipoHistoricaPura(
+    dotacionPorPeriodoAmplio,
+    beneficiariosPorClave,
+    mes,
+  );
   if (proporcion == null) return null;
   return Math.round(dotacionTotal * proporcion);
 }
@@ -430,17 +453,14 @@ export async function dotacionAnticipoDelMes(
  * últimos N meses con dato real de Anticipo — para "aperturar" en RG/RP la
  * dotación PROPIA de Anticipo también en meses proyectados. Mismo criterio
  * que `proporcionRgHistoricaPersonas`, pero con la población PROPIA de
- * Anticipo, nunca la de Remuneración.
- *
- * Fuente: `payroll_beneficiarios_reales` (conteo real de personas desde
- * transferencia bancaria) — no `payroll_line_items` (bug real corregido
- * 24-ago-2026, ver `dotacionAnticipoRealDelMes`).
+ * Anticipo, nunca la de Remuneración. PURA — ver comentario de performance
+ * arriba (antes: 1 query por mes retrocedido, hasta 24 por llamada).
  */
-async function proporcionAnticipoRgHistorica(
-  supabase: ReturnType<typeof createServiceClient>,
+function proporcionAnticipoRgHistoricaPura(
+  beneficiariosPorClave: Map<string, number>,
   antesDe: Date,
   n = 3,
-): Promise<number | null> {
+): number | null {
   const razones: number[] = [];
   let mesesAtras = 1;
   let guard = 0;
@@ -451,15 +471,12 @@ async function proporcionAnticipoRgHistorica(
       1,
     );
     const periodoStr = cursor.toISOString().slice(0, 10);
-    const { data } = await supabase
-      .from("payroll_beneficiarios_reales")
-      .select("concepto, cantidad")
-      .in("concepto", ["anticipo_rg", "anticipo_rp"])
-      .eq("periodo", periodoStr);
-    const countRg = data?.find((f) => f.concepto === "anticipo_rg")?.cantidad;
-    const countRp = data?.find((f) => f.concepto === "anticipo_rp")?.cantidad;
-    const total = (countRg ?? 0) + (countRp ?? 0);
-    if (total > 0) razones.push((countRg ?? 0) / total);
+    const countRg =
+      beneficiariosPorClave.get(`anticipo_rg::${periodoStr}`) ?? 0;
+    const countRp =
+      beneficiariosPorClave.get(`anticipo_rp::${periodoStr}`) ?? 0;
+    const total = countRg + countRp;
+    if (total > 0) razones.push(countRg / total);
     mesesAtras++;
     guard++;
   }
@@ -514,44 +531,76 @@ export async function getDotacionPorConceptoYPeriodo(
   periodoHasta: Date,
 ): Promise<Map<string, DotacionPorConceptoPunto>> {
   const supabase = createServiceClient();
+
+  // Ventana AMPLIA (24 meses antes de periodoDesde) — cubre también la
+  // ventana histórica que necesita `proporcionAnticipoHistoricaPura` para
+  // CUALQUIER período dentro de [periodoDesde, periodoHasta]. Se calcula
+  // UNA sola vez y se reutiliza tanto para `getDotacionRgRpPorPeriodo`
+  // (evita su 2do fetch completo) como para todos los períodos del loop
+  // de abajo.
+  //
+  // BUG REAL DE PERFORMANCE corregido 24-ago-2026: antes, cada período sin
+  // dato real de Anticipo disparaba su PROPIA llamada completa a
+  // `getDotacionTotalPorPeriodo` (que lee TODO el histórico de
+  // `buk_dotacion_snapshots`/`dotacion_mensual` sin importar el rango
+  // pedido — decenas de round-trips paginados cada vez) más hasta ~48
+  // queries adicionales de razón histórica — con el rango típico de un
+  // export (12-18 meses) esto sumaba fácilmente cientos de round-trips
+  // SECUENCIALES a Supabase. Reportado por el usuario: "Actualizar
+  // reporte"/"Descargar HTML + Excel" tardaban minutos en vez de segundos.
+  // Ahora se prefetchea 1 sola vez y el resto del loop es puro (sin query).
+  const periodoDesdeAmplio = new Date(
+    periodoDesde.getFullYear(),
+    periodoDesde.getMonth() - 24,
+    1,
+  );
+  const dotacionTotalAmplio = await getDotacionTotalPorPeriodo(
+    periodoDesdeAmplio,
+    periodoHasta,
+  );
+
   const dotacionRgRpPorPeriodo = await getDotacionRgRpPorPeriodo(
     periodoDesde,
     periodoHasta,
-  );
-  const dotacionPorPeriodo = await getDotacionTotalPorPeriodo(
-    periodoDesde,
-    periodoHasta,
+    dotacionTotalAmplio,
   );
 
   // Tabla chica (1 fila por período/concepto) — sin riesgo de
   // truncamiento de PostgREST, no necesita paginar con `.range()` como
-  // sí hacía la versión anterior sobre `payroll_line_items`.
+  // sí hacía la versión anterior sobre `payroll_line_items`. Misma
+  // ventana amplia — reutilizada por las funciones puras de arriba en vez
+  // de 1 query por mes retrocedido.
   const { data: beneficiariosReales } = await supabase
     .from("payroll_beneficiarios_reales")
     .select("periodo, concepto, cantidad")
     .in("concepto", ["anticipo_rg", "anticipo_rp"])
-    .gte("periodo", periodoDesde.toISOString().slice(0, 10))
+    .gte("periodo", periodoDesdeAmplio.toISOString().slice(0, 10))
     .lte("periodo", periodoHasta.toISOString().slice(0, 10));
-  const conteoPorClave = new Map<string, number>();
+  const beneficiariosPorClave = new Map<string, number>();
   for (const fila of beneficiariosReales ?? []) {
-    conteoPorClave.set(`${fila.concepto}::${fila.periodo}`, fila.cantidad);
+    beneficiariosPorClave.set(
+      `${fila.concepto}::${fila.periodo}`,
+      fila.cantidad,
+    );
   }
 
   const resultado = new Map<string, DotacionPorConceptoPunto>();
   for (const [periodo, rgRp] of dotacionRgRpPorPeriodo) {
-    let anticipoRg = conteoPorClave.get(`anticipo_rg::${periodo}`) ?? null;
-    let anticipoRp = conteoPorClave.get(`anticipo_rp::${periodo}`) ?? null;
+    let anticipoRg =
+      beneficiariosPorClave.get(`anticipo_rg::${periodo}`) ?? null;
+    let anticipoRp =
+      beneficiariosPorClave.get(`anticipo_rp::${periodo}`) ?? null;
     if (anticipoRg == null || anticipoRp == null) {
       const [anio, mesNum] = periodo.split("-").map(Number);
       const mesDate = new Date(anio, mesNum - 1, 1);
-      const anticipoTotal = await dotacionAnticipoDelMes(
-        supabase,
+      const anticipoTotal = dotacionAnticipoDelMesPura(
+        dotacionTotalAmplio,
+        beneficiariosPorClave,
         mesDate,
-        dotacionPorPeriodo,
       );
       if (anticipoTotal != null) {
-        const proporcionRg = await proporcionAnticipoRgHistorica(
-          supabase,
+        const proporcionRg = proporcionAnticipoRgHistoricaPura(
+          beneficiariosPorClave,
           mesDate,
         );
         if (proporcionRg != null) {
