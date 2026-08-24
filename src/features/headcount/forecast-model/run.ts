@@ -10,6 +10,7 @@ import {
   escalarCurva,
   interpolarHuecos,
   mesDeCierre,
+  METODO_FORECAST_ACTUAL,
   promediarCurvas,
 } from "./curve";
 
@@ -239,7 +240,7 @@ export async function runForecastModel(
     .from("headcount_forecast_runs")
     .insert({
       obra_id: obraId,
-      metodo: "similar_obras_v3_ciclo_vida",
+      metodo: METODO_FORECAST_ACTUAL,
       obras_referencia: referenciasUsadas,
       parametros: {
         rangoUnidadesPct: 30,

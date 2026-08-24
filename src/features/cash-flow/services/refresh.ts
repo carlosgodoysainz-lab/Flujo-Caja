@@ -16,6 +16,7 @@ import {
   proporcionRgHistorica,
 } from "@/features/headcount/services/dotacion-total";
 import { runForecastModel } from "@/features/headcount/forecast-model/run";
+import { METODO_FORECAST_ACTUAL } from "@/features/headcount/forecast-model/curve";
 import { runBukSnapshot } from "@/features/headcount/buk-sync/sync";
 import { calcularBeneficiosDelMes, eventosPromedio6Meses } from "./beneficios";
 
@@ -270,16 +271,32 @@ async function promedioBeneficioReal6m(
   return data.reduce((acc, row) => acc + Number(row.monto), 0) / data.length;
 }
 
+/** Orígenes que NUNCA se re-estiman automáticamente — dato real o cargado a mano, igual criterio que la guarda de upsert de `runForecastModel`. */
+const ORIGENES_PROTEGIDOS = new Set(["manual", "buk_real"]);
+
 /**
  * Corre el modelo de estimación de dotación (curva por obra similar, ver
  * forecast-model/run.ts) para toda obra que TODAVÍA no tenga ningún dato
- * de dotación (manual/real/estimado). Antes esto era un botón manual por
- * obra en /dotacion — con 33 obras nunca se corría, y el KPI "Obras con
- * dotación estimada" quedaba en 0 siempre (bug real: confirmado
+ * de dotación (manual/real/estimado), Y TAMBIÉN para obras cuya
+ * estimación más reciente usa un `metodo` OBSOLETO (distinto de
+ * `METODO_FORECAST_ACTUAL`, ver curve.ts). Antes esto era un botón manual
+ * por obra en /dotacion — con 33 obras nunca se corría, y el KPI "Obras
+ * con dotación estimada" quedaba en 0 siempre (bug real: confirmado
  * `headcount_by_obra` con 0 filas pese a tener 524 snapshots reales de Buk
- * disponibles para comparar). Best-effort: una obra sin obras similares
- * con histórico real todavía (normal si es reciente) no cuenta como error
- * del refresh — se ve reflejado como "Sin dato" en /dotacion.
+ * disponibles para comparar).
+ *
+ * Bug real corregido 24-ago-2026: este refresh solo consideraba "obras
+ * con CERO filas" — una obra ya estimada con una versión VIEJA del
+ * modelo (`similar_obras_v1`/`similar_obras_v2_fases`) quedaba congelada
+ * ahí para siempre, sin importar cuántas mejoras se le hicieran después
+ * al modelo (confirmado en vivo: "Vista Llacolén A"/"General Mackenna"
+ * seguían con datos de hace semanas pese al fix "ciclo de vida" del
+ * mismo día). Ahora también se re-corren las obras cuya última corrida
+ * quedó obsoleta.
+ *
+ * Best-effort: una obra sin obras similares con histórico real todavía
+ * (normal si es reciente) no cuenta como error del refresh — se ve
+ * reflejado como "Sin dato" en /dotacion.
  */
 async function estimarDotacionFaltante(
   supabase: ReturnType<typeof createServiceClient>,
@@ -292,10 +309,46 @@ async function estimarDotacionFaltante(
 
   const { data: yaConDato } = await supabase
     .from("headcount_by_obra")
-    .select("obra_id");
-  const idsConDato = new Set((yaConDato ?? []).map((r) => r.obra_id));
+    .select("obra_id, origen, forecast_run_id");
 
-  const faltantes = (obras ?? []).filter((o) => !idsConDato.has(o.id));
+  const idsProtegidos = new Set(
+    (yaConDato ?? [])
+      .filter((r) => ORIGENES_PROTEGIDOS.has(r.origen))
+      .map((r) => r.obra_id),
+  );
+
+  const runIdsAResolver = [
+    ...new Set(
+      (yaConDato ?? [])
+        .filter((r) => r.forecast_run_id && !idsProtegidos.has(r.obra_id))
+        .map((r) => r.forecast_run_id as string),
+    ),
+  ];
+  const { data: runsUsados } =
+    runIdsAResolver.length > 0
+      ? await supabase
+          .from("headcount_forecast_runs")
+          .select("id, metodo")
+          .in("id", runIdsAResolver)
+      : { data: [] as { id: string; metodo: string }[] };
+  const metodoPorRunId = new Map(
+    (runsUsados ?? []).map((r) => [r.id, r.metodo]),
+  );
+
+  const idsConEstimacionVigente = new Set(
+    (yaConDato ?? [])
+      .filter(
+        (r) =>
+          !idsProtegidos.has(r.obra_id) &&
+          r.forecast_run_id &&
+          metodoPorRunId.get(r.forecast_run_id) === METODO_FORECAST_ACTUAL,
+      )
+      .map((r) => r.obra_id),
+  );
+
+  const faltantes = (obras ?? []).filter(
+    (o) => !idsProtegidos.has(o.id) && !idsConEstimacionVigente.has(o.id),
+  );
   let obrasEstimadas = 0;
   let obrasSinDatoAun = 0;
   for (const obra of faltantes) {

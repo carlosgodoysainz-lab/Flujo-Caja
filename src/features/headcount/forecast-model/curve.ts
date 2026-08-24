@@ -1,3 +1,21 @@
+/**
+ * Identificador de la versión VIGENTE del modelo de curva — fuente única
+ * de verdad tanto para `run.ts` (qué guarda en
+ * `headcount_forecast_runs.metodo`) como para `estimarDotacionFaltante`
+ * (`refresh.ts`, qué considera "obsoleto" y debe re-estimar). Vive acá
+ * (no en `run.ts`) porque `run.ts` tiene `"use server"` — Next.js exige
+ * que esos archivos solo exporten funciones async, no constantes.
+ *
+ * Bug real corregido 24-ago-2026: "Actualizar reporte" solo re-corría el
+ * modelo para obras con CERO filas en `headcount_by_obra` — una obra ya
+ * estimada con una versión VIEJA del modelo (ej. `similar_obras_v1` o
+ * `similar_obras_v2_fases`) quedaba congelada ahí para siempre, sin
+ * importar cuántas mejoras se le hicieran después al modelo. Subir este
+ * string cada vez que cambie la lógica de `run.ts` hace que
+ * `estimarDotacionFaltante` la re-corra automáticamente.
+ */
+export const METODO_FORECAST_ACTUAL = "similar_obras_v3_ciclo_vida";
+
 export interface SnapshotPunto {
   fecha: Date;
   activos: number;
