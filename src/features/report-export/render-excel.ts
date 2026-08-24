@@ -743,6 +743,28 @@ function proximidadAHoy(
 }
 
 /**
+ * Excluye una obra de "Proyección Headcount" cuando (a) su plazo de
+ * Gespro ya venció (`finObra < hoy`) Y (b) nunca tuvo NINGÚN dato real
+ * propio (ni `buk_real` ni `manual`) en toda su historia — pedido
+ * explícito del usuario 24-ago-2026: "sin Lira 1 y Lira 2, si no está en
+ * Buk y se acabó el plazo en el Gespro, se elimina". Antes esas obras
+ * aparecían como filas completamente en blanco (su rango de fechas cae
+ * fuera de la ventana visible del Excel) — confuso, sin ninguna
+ * explicación visual de por qué no tienen dato.
+ *
+ * Nunca esconde una obra con AL MENOS un dato real, aunque su plazo ya
+ * haya vencido — un dato real siempre se muestra.
+ */
+function debeExcluirseSinDato(
+  obra: { finObra: string | null },
+  tuvoAlgunDatoReal: boolean,
+  hoy: string,
+): boolean {
+  const plazoVencido = obra.finObra != null && obra.finObra < hoy;
+  return plazoVencido && !tuvoAlgunDatoReal;
+}
+
+/**
  * Hoja "Proyección Headcount" — pivotea `planObraDotacion` (tidy, 1 fila
  * por obra/mes) al layout ANCHO del Excel maestro original ("Headcount
  * Plan de Obra"): 1 fila por obra, 1 columna por mes calendario, valor =
@@ -775,6 +797,10 @@ function renderProyeccionHeadcount(
     string,
     { variacionNeta: number | null; origenVariacion: string | null }
   >();
+  // true si la obra tuvo AL MENOS un mes con dato real propio (buk_real o
+  // manual) en TODA su historia — no solo en el rango visible del Excel,
+  // ver `debeExcluirseSinDato`.
+  const tuvoDatoRealPorObra = new Map<string, boolean>();
   for (const fila of planObraDotacion) {
     if (!obrasPorId.has(fila.obraId)) {
       obrasPorId.set(fila.obraId, {
@@ -792,12 +818,28 @@ function renderProyeccionHeadcount(
       variacionNeta: fila.variacionNeta,
       origenVariacion: fila.origenVariacion,
     });
+    const yaTeniaDatoReal = tuvoDatoRealPorObra.get(fila.obraId) ?? false;
+    tuvoDatoRealPorObra.set(
+      fila.obraId,
+      yaTeniaDatoReal ||
+        fila.origenVariacion === "buk_real" ||
+        fila.origenVariacion === "manual",
+    );
   }
 
   const hoyStr = generadoEn.toISOString().slice(0, 10);
-  const obrasOrdenadas = [...obrasPorId.entries()].sort(
-    ([, a], [, b]) => proximidadAHoy(a, hoyStr) - proximidadAHoy(b, hoyStr),
-  );
+  const obrasOrdenadas = [...obrasPorId.entries()]
+    .filter(
+      ([obraId, obra]) =>
+        !debeExcluirseSinDato(
+          obra,
+          tuvoDatoRealPorObra.get(obraId) ?? false,
+          hoyStr,
+        ),
+    )
+    .sort(
+      ([, a], [, b]) => proximidadAHoy(a, hoyStr) - proximidadAHoy(b, hoyStr),
+    );
 
   const headcount = workbook.addWorksheet("Proyección Headcount");
   const COLUMNAS_FIJAS = [

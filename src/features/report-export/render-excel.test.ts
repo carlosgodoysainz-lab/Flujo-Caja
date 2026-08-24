@@ -463,6 +463,94 @@ describe("renderReportExcel", () => {
     expect(headcount.getRow(4).getCell(1).value).toBe("Obra Vieja");
   });
 
+  it("'Proyección Headcount' excluye una obra con plazo vencido y SIN ningún dato real (ej. Lira 1/2), pero nunca esconde una con al menos un dato real", async () => {
+    const hoy = new Date(2026, 7, 24); // 24-ago-2026
+
+    const PLAN_OBRA_DOTACION: PlanObraDotacionFila[] = [
+      // Plazo vencido (finObra en el pasado) y JAMÁS tuvo dato real
+      // (siempre sin_dato_referencia) — debe excluirse por completo.
+      {
+        obraId: "lira-1",
+        obraNombre: "Lira 1",
+        comuna: "San Joaquín",
+        tipo: "DS49",
+        cliente: "Terceros",
+        unidades: 262,
+        inicioObra: "2025-02-01",
+        finObra: "2026-05-27",
+        durObraMeses: 16,
+        periodo: "2026-05-01",
+        dotacionReal: null,
+        dotacionProyectada: null,
+        variacionNeta: null,
+        origenVariacion: "sin_dato_referencia",
+      },
+      // Plazo vencido TAMBIÉN, pero SÍ tuvo un dato real (buk_real) en
+      // algún mes de su historia — nunca debe esconderse un dato real.
+      {
+        obraId: "con-dato-real",
+        obraNombre: "Obra Con Dato Real",
+        comuna: null,
+        tipo: "DS19",
+        cliente: "Maestra",
+        unidades: 100,
+        inicioObra: "2025-01-01",
+        finObra: "2026-01-01",
+        durObraMeses: 12,
+        periodo: "2025-06-01",
+        dotacionReal: 50,
+        dotacionProyectada: 50,
+        variacionNeta: 50,
+        origenVariacion: "buk_real",
+      },
+      // Obra normal, en curso, para confirmar que la exclusión no afecta
+      // al resto.
+      {
+        obraId: "en-curso",
+        obraNombre: "Obra En Curso",
+        comuna: null,
+        tipo: "DS19",
+        cliente: "Maestra",
+        unidades: 100,
+        inicioObra: "2026-06-01",
+        finObra: "2027-06-01",
+        durObraMeses: 12,
+        periodo: "2026-08-01",
+        dotacionReal: 30,
+        dotacionProyectada: 30,
+        variacionNeta: 5,
+        origenVariacion: "modelo_estimado",
+      },
+    ];
+
+    const buffer = await renderReportExcel({
+      serie: [
+        {
+          periodo: "2026-08-01",
+          concepto: "total_nomina",
+          monto: 100_000_000,
+          esReal: true,
+          metodoCalculo: null,
+        },
+      ],
+      kpis: KPIS,
+      ufPorPeriodo: new Map(),
+      periodoDesde: "2025-06-01",
+      periodoHasta: "2026-08-01",
+      generadoEn: hoy,
+      planObraDotacion: PLAN_OBRA_DOTACION,
+    });
+
+    const wb = await leerWorkbook(buffer);
+    const headcount = wb.getWorksheet("Proyección Headcount")!;
+    const nombresFilas: unknown[] = [];
+    headcount.eachRow((row) => nombresFilas.push(row.getCell(1).value));
+
+    expect(nombresFilas).not.toContain("Lira 1");
+    expect(nombresFilas).toContain("Obra Con Dato Real");
+    expect(nombresFilas).toContain("Obra En Curso");
+  });
+
   it("sin planObraDotacion, NO genera la hoja 'Proyección Headcount'", async () => {
     const buffer = await renderReportExcel({
       serie: [
