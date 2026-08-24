@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import ExcelJS from "exceljs";
 import { renderReportExcel } from "./render-excel";
 import type { ResumenKpis } from "@/features/cash-flow/services/queries";
+import type { PlanObraDotacionFila } from "@/features/headcount/services/plan-obra-dotacion";
 
 const KPIS: ResumenKpis = {
   totalMesActual: 100_000_000,
@@ -276,5 +277,126 @@ describe("renderReportExcel", () => {
       `=B${filaRemuneracionNumero}/B2*C2+1500000`,
     );
     expect(celdaRemunJulio.result).toBe(104_000_000);
+  });
+
+  it("con planObraDotacion, genera la hoja 'Proyección Headcount' pivoteada (obras en fila, meses en columna)", async () => {
+    const PLAN_OBRA_DOTACION: PlanObraDotacionFila[] = [
+      {
+        obraId: "obra-1",
+        obraNombre: "Obra Alfa",
+        comuna: "Ñuñoa",
+        tipo: "DS19",
+        cliente: "Maestra",
+        unidades: 120,
+        inicioObra: "2026-06-01",
+        finObra: "2027-06-01",
+        durObraMeses: 12,
+        periodo: "2026-06-01",
+        dotacionReal: 50,
+        dotacionProyectada: 50,
+        variacionNeta: 50,
+        origenVariacion: "buk_real",
+      },
+      {
+        obraId: "obra-1",
+        obraNombre: "Obra Alfa",
+        comuna: "Ñuñoa",
+        tipo: "DS19",
+        cliente: "Maestra",
+        unidades: 120,
+        inicioObra: "2026-06-01",
+        finObra: "2027-06-01",
+        durObraMeses: 12,
+        periodo: "2026-07-01",
+        dotacionReal: null,
+        dotacionProyectada: 65,
+        variacionNeta: 15,
+        origenVariacion: "modelo_estimado",
+      },
+      {
+        obraId: "obra-2",
+        obraNombre: "Obra Beta",
+        comuna: "Maipú",
+        tipo: "Retail",
+        cliente: "Terceros",
+        unidades: 80,
+        inicioObra: "2026-07-01",
+        finObra: "2027-07-01",
+        durObraMeses: 12,
+        periodo: "2026-07-01",
+        dotacionReal: null,
+        dotacionProyectada: null,
+        variacionNeta: null,
+        origenVariacion: "sin_dato_referencia",
+      },
+    ];
+
+    const buffer = await renderReportExcel({
+      serie: [
+        {
+          periodo: "2026-07-01",
+          concepto: "total_nomina",
+          monto: 100_000_000,
+          esReal: true,
+          metodoCalculo: null,
+        },
+      ],
+      kpis: KPIS,
+      ufPorPeriodo: new Map(),
+      periodoDesde: "2026-06-01",
+      periodoHasta: "2026-07-01",
+      generadoEn: new Date(2026, 7, 4),
+      planObraDotacion: PLAN_OBRA_DOTACION,
+    });
+
+    const wb = await leerWorkbook(buffer);
+    const headcount = wb.getWorksheet("Proyección Headcount");
+    expect(headcount).toBeDefined();
+
+    // Header: 8 columnas fijas + 1 columna por período (jun-26, jul-26).
+    expect(headcount!.getRow(1).getCell(1).value).toBe("Obra");
+    expect(headcount!.getRow(1).getCell(9).value).toBe("jun-26");
+    expect(headcount!.getRow(1).getCell(10).value).toBe("jul-26");
+
+    // Obra Alfa: jun-26=50 (real), jul-26=15 (estimado).
+    const filaAlfa = headcount!.getRow(2);
+    expect(filaAlfa.getCell(1).value).toBe("Obra Alfa");
+    expect(filaAlfa.getCell(9).value).toBe(50);
+    expect(filaAlfa.getCell(10).value).toBe(15);
+
+    // Obra Beta: sin fila para jun-26 (todavía no arrancaba) → celda vacía;
+    // jul-26 sin dato de referencia → celda vacía también (variacionNeta null).
+    const filaBeta = headcount!.getRow(3);
+    expect(filaBeta.getCell(1).value).toBe("Obra Beta");
+    expect(filaBeta.getCell(9).value).toBeFalsy();
+    expect(filaBeta.getCell(10).value).toBeFalsy();
+
+    // Fila Total: jun-26 = 50 (solo Alfa), jul-26 = 15 (solo Alfa, Beta es null).
+    const filaTotal = headcount!.getRow(4);
+    expect(filaTotal.getCell(1).value).toBe("Total");
+    expect(filaTotal.getCell(9).value).toBe(50);
+    expect(filaTotal.getCell(10).value).toBe(15);
+  });
+
+  it("sin planObraDotacion, NO genera la hoja 'Proyección Headcount'", async () => {
+    const buffer = await renderReportExcel({
+      serie: [
+        {
+          periodo: "2026-07-01",
+          concepto: "total_nomina",
+          monto: 100_000_000,
+          esReal: true,
+          metodoCalculo: null,
+        },
+      ],
+      kpis: KPIS,
+      ufPorPeriodo: new Map(),
+      periodoDesde: "2026-07-01",
+      periodoHasta: "2026-07-01",
+      generadoEn: new Date(2026, 7, 4),
+    });
+
+    const wb = await leerWorkbook(buffer);
+    expect(wb.getWorksheet("Proyección Headcount")).toBeUndefined();
   });
 });

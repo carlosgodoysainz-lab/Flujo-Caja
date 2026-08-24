@@ -674,6 +674,195 @@ export async function renderReportExcel(params: {
     void notaPlanObra;
   }
 
+  // --- Hoja "Proyección Headcount" — mismo dato de "Plan de Obra" (arriba),
+  // pero PIVOTEADO al layout ancho del Excel maestro original de Finanzas
+  // (hoja "Headcount Plan de Obra": 1 fila por obra, 1 columna por mes
+  // calendario, valor = variación neta altas−bajas de ese mes) — pedido
+  // explícito del usuario 24-ago-2026: "en el excel quiero una hoja de
+  // proyección de dotación muy parecida a la que tenía en el excel que se
+  // llamaba proyección headcount". No es una consulta nueva a la BD: usa
+  // exactamente los mismos `planObraDotacion` de la hoja "Plan de Obra",
+  // solo reorganizados — ambas hojas nunca pueden desincronizarse entre sí.
+  if (planObraDotacion && planObraDotacion.length > 0) {
+    renderProyeccionHeadcount(workbook, planObraDotacion);
+  }
+
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
+}
+
+const MESES_CORTOS = [
+  "ene",
+  "feb",
+  "mar",
+  "abr",
+  "may",
+  "jun",
+  "jul",
+  "ago",
+  "sep",
+  "oct",
+  "nov",
+  "dic",
+];
+
+/** "YYYY-MM-01" → "may-26" — por string, nunca `new Date(str)` (ver periodo.ts: en un timezone detrás de UTC corre el mes). */
+function etiquetaPeriodoCorta(periodo: string): string {
+  const [anio, mes] = periodo.slice(0, 7).split("-").map(Number);
+  return `${MESES_CORTOS[mes - 1]}-${String(anio).slice(2)}`;
+}
+
+/**
+ * Hoja "Proyección Headcount" — pivotea `planObraDotacion` (tidy, 1 fila
+ * por obra/mes) al layout ANCHO del Excel maestro original ("Headcount
+ * Plan de Obra"): 1 fila por obra, 1 columna por mes calendario, valor =
+ * variación neta (altas−bajas) de esa obra ese mes, + fila "Total" al
+ * final sumando la variación neta de todas las obras por mes.
+ */
+function renderProyeccionHeadcount(
+  workbook: ExcelJS.Workbook,
+  planObraDotacion: PlanObraDotacionFila[],
+): void {
+  const periodos = [...new Set(planObraDotacion.map((f) => f.periodo))].sort();
+  if (periodos.length === 0) return;
+
+  const obrasPorId = new Map<
+    string,
+    Pick<
+      PlanObraDotacionFila,
+      | "obraNombre"
+      | "comuna"
+      | "tipo"
+      | "cliente"
+      | "unidades"
+      | "inicioObra"
+      | "finObra"
+      | "durObraMeses"
+    >
+  >();
+  const celdaPorObraYPeriodo = new Map<
+    string,
+    { variacionNeta: number | null; origenVariacion: string | null }
+  >();
+  for (const fila of planObraDotacion) {
+    if (!obrasPorId.has(fila.obraId)) {
+      obrasPorId.set(fila.obraId, {
+        obraNombre: fila.obraNombre,
+        comuna: fila.comuna,
+        tipo: fila.tipo,
+        cliente: fila.cliente,
+        unidades: fila.unidades,
+        inicioObra: fila.inicioObra,
+        finObra: fila.finObra,
+        durObraMeses: fila.durObraMeses,
+      });
+    }
+    celdaPorObraYPeriodo.set(`${fila.obraId}::${fila.periodo}`, {
+      variacionNeta: fila.variacionNeta,
+      origenVariacion: fila.origenVariacion,
+    });
+  }
+
+  const obrasOrdenadas = [...obrasPorId.entries()].sort(([, a], [, b]) =>
+    (a.inicioObra ?? "").localeCompare(b.inicioObra ?? ""),
+  );
+
+  const headcount = workbook.addWorksheet("Proyección Headcount");
+  const COLUMNAS_FIJAS = [
+    "Obra",
+    "Comuna",
+    "Tipo",
+    "Cliente",
+    "Unidades",
+    "Inicio Obra",
+    "Fin Obra",
+    "Duración (meses)",
+  ];
+  const headerRow = headcount.addRow([
+    ...COLUMNAS_FIJAS,
+    ...periodos.map(etiquetaPeriodoCorta),
+  ]);
+  headerRow.eachCell((cell) => {
+    cell.font = {
+      name: FUENTE_TITULO,
+      bold: true,
+      color: { argb: "FFFFFFFF" },
+    };
+    cell.fill = FILL_HEADER;
+  });
+
+  const sumaPorPeriodo = new Map<string, number>(periodos.map((p) => [p, 0]));
+
+  for (const [obraId, obra] of obrasOrdenadas) {
+    const row = headcount.addRow([
+      obra.obraNombre,
+      obra.comuna ?? "",
+      obra.tipo ?? "",
+      obra.cliente ?? "",
+      obra.unidades ?? "",
+      obra.inicioObra ?? "",
+      obra.finObra ?? "",
+      obra.durObraMeses ?? "",
+      ...periodos.map((periodo) => {
+        const celda = celdaPorObraYPeriodo.get(`${obraId}::${periodo}`);
+        if (!celda || celda.variacionNeta == null) return "";
+        sumaPorPeriodo.set(
+          periodo,
+          (sumaPorPeriodo.get(periodo) ?? 0) + celda.variacionNeta,
+        );
+        return celda.variacionNeta;
+      }),
+    ]);
+    row.font = { name: FUENTE_CUERPO };
+    periodos.forEach((periodo, i) => {
+      const celda = celdaPorObraYPeriodo.get(`${obraId}::${periodo}`);
+      const cell = row.getCell(COLUMNAS_FIJAS.length + 1 + i);
+      if (celda?.origenVariacion === "modelo_estimado") {
+        cell.fill = FILL_PROYECTADO;
+      } else if (celda?.origenVariacion === "sin_dato_referencia") {
+        cell.fill = FILL_SIN_DATO;
+      }
+    });
+  }
+
+  const totalRow = headcount.addRow([
+    "Total",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ...periodos.map((periodo) => sumaPorPeriodo.get(periodo) ?? 0),
+  ]);
+  totalRow.eachCell((cell, colNumber) => {
+    cell.font = { name: FUENTE_TITULO, bold: true };
+    if (colNumber > COLUMNAS_FIJAS.length) {
+      cell.border = { top: { style: "thin" } };
+    }
+  });
+
+  headcount.getColumn(1).width = 28;
+  headcount.getColumn(2).width = 16;
+  headcount.getColumn(3).width = 10;
+  headcount.getColumn(4).width = 12;
+  headcount.getColumn(6).width = 12;
+  headcount.getColumn(7).width = 12;
+  for (let i = 0; i < periodos.length; i++) {
+    headcount.getColumn(COLUMNAS_FIJAS.length + 1 + i).width = 8;
+  }
+  headcount.views = [
+    { state: "frozen", xSplit: COLUMNAS_FIJAS.length, ySplit: 1 },
+  ];
+
+  headcount.addRow([]);
+  headcount.addRow([
+    "Variación neta (altas−bajas) por obra y mes. Amarillo = estimado por el modelo (curva de obras similares); gris = sin obra de referencia (placeholder). Fila 'Total' = variación neta de toda la compañía ese mes — mismo dato que alimenta la Dotación del flujo de caja (ver hoja 'Detalle').",
+  ]).font = {
+    name: FUENTE_CUERPO,
+    italic: true,
+    size: 9,
+    color: { argb: "FF94A3B8" },
+  };
 }
