@@ -168,14 +168,16 @@ export interface DotacionRgRpPunto {
 }
 
 /**
- * Razón real Remuneración RG / Remuneración total, promediada de los
- * últimos N meses reales — para "aperturar" la dotación TOTAL en RG/RP
- * también en los meses PROYECTADOS (pedido explícito del usuario, "como
- * en el Excel"), ya que el modelo costo-por-cabeza solo proyecta el
- * total combinado. `null` si no hay ningún mes real con el desglose
- * todavía. Movida acá desde `refresh.ts` (17-ago-2026) para que la
- * página del reporte pueda mostrar la misma columna N° por RG/RP que ya
- * usa el motor de cálculo, sin duplicar la lógica en 2 lugares.
+ * Razón real Remuneración RG / Remuneración total EN $, promediada de
+ * los últimos N meses reales — usada para partir el MONTO de
+ * Remuneración en RG/RP (refresh.ts), donde sí corresponde una razón en
+ * dinero: RG (Rol General) y RP (Anexo/Oficina Central) tienen sueldos
+ * promedio por persona distintos, así que "% del monto" y "% de la
+ * dotación" son razones DIFERENTES a propósito (ver
+ * `proporcionRgHistoricaPersonas` para la de dotación/N°, usada en
+ * `dotacionRgRpDelMes` — no intercambiar una por la otra, bug real
+ * corregido 24-ago-2026, ver esa función). `null` si no hay ningún mes
+ * real con el desglose todavía.
  */
 export async function proporcionRgHistorica(
   supabase: ReturnType<typeof createServiceClient>,
@@ -210,14 +212,60 @@ export async function proporcionRgHistorica(
 }
 
 /**
+ * Razón real de DOTACIÓN (personas) RG / (RG+RP), promediada de los
+ * últimos N meses reales de `dotacion_mensual` — para "aperturar" la
+ * dotación TOTAL en RG/RP también en los meses PROYECTADOS sin fila real
+ * en `dotacion_mensual` todavía. `null` si no hay ningún mes real con el
+ * desglose.
+ *
+ * Bug real corregido 24-ago-2026: `dotacionRgRpDelMes` usaba
+ * `proporcionRgHistorica` (razón en $) para partir la DOTACIÓN (N°) — y
+ * como RP gana en promedio MÁS por persona que RG, la razón en $
+ * (~74-78%) es sistemáticamente distinta a la razón real en PERSONAS
+ * (~95-96%, confirmado contra 43 meses reales de `dotacion_mensual`
+ * desde dic-2023, notablemente estable). Esto hacía que el N° de RG/RP
+ * proyectado (meses sin fila real en `dotacion_mensual`, ej.
+ * junio/julio-2026) saltara de forma errática respecto al último mes con
+ * dato real — reportado por el usuario ("el RP está muy dividido").
+ */
+export async function proporcionRgHistoricaPersonas(
+  supabase: ReturnType<typeof createServiceClient>,
+  antesDe: Date,
+  n = 3,
+): Promise<number | null> {
+  const { data } = await supabase
+    .from("dotacion_mensual")
+    .select("periodo, rg, rp")
+    .not("rg", "is", null)
+    .not("rp", "is", null)
+    .lt("periodo", antesDe.toISOString().slice(0, 10))
+    .order("periodo", { ascending: false })
+    .limit(n);
+
+  if (!data || data.length === 0) return null;
+
+  const razones = data
+    .map((fila) => {
+      const rg = Number(fila.rg);
+      const rp = Number(fila.rp);
+      const total = rg + rp;
+      return total > 0 ? rg / total : null;
+    })
+    .filter((r): r is number => r != null);
+
+  if (razones.length === 0) return null;
+  return razones.reduce((a, b) => a + b, 0) / razones.length;
+}
+
+/**
  * Dotación RG/RP del mes — reutiliza EXACTAMENTE la dimensión que ya
  * existe para Anticipo/Remuneración (pedido explícito del usuario: "las
  * personas sindicalizadas son solo de la constructora [Rol General], el
  * resto se rige por el anexo"). Real desde `dotacion_mensual` (columnas
  * rg/rp del Excel histórico) cuando el mes ya está cerrado; si no, se
  * deriva de la dotación TOTAL ya calculada aplicando la razón histórica
- * RG/(RG+RP). Movida desde `refresh.ts` (17-ago-2026) — ver
- * `proporcionRgHistorica`.
+ * de PERSONAS RG/(RG+RP) — ver `proporcionRgHistoricaPersonas` (nunca la
+ * razón en $, que es distinta a propósito).
  */
 export async function dotacionRgRpDelMes(
   supabase: ReturnType<typeof createServiceClient>,
@@ -236,7 +284,7 @@ export async function dotacionRgRpDelMes(
 
   const total = dotacionPorPeriodo.get(periodoStr)?.total ?? 0;
   if (total === 0) return { rg: 0, rp: 0 };
-  const proporcionRg = await proporcionRgHistorica(supabase, mes);
+  const proporcionRg = await proporcionRgHistoricaPersonas(supabase, mes);
   if (proporcionRg == null) return { rg: 0, rp: 0 };
   const rg = Math.round(total * proporcionRg);
   return { rg, rp: total - rg };
