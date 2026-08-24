@@ -7,22 +7,28 @@ import {
 } from "./formulas";
 
 describe("calcularAnticipoProyectado", () => {
-  it("es exactamente 24% de la remuneración", () => {
+  it("es exactamente 24% de la remuneración (fallback sin % aprendido)", () => {
     expect(calcularAnticipoProyectado(100_000_000)).toBe(24_000_000);
   });
   it("remuneración cero da anticipo cero", () => {
     expect(calcularAnticipoProyectado(0)).toBe(0);
   });
+  it("con % aprendido explícito, usa ese % en vez del 24% fijo", () => {
+    expect(calcularAnticipoProyectado(100_000_000, 0.2)).toBe(20_000_000);
+  });
 });
 
 describe("calcularReliquidacionProyectada", () => {
-  it("es 1% de la remuneración", () => {
+  it("es 1% de la remuneración (fallback sin % aprendido)", () => {
     expect(calcularReliquidacionProyectada(200_000_000)).toBe(2_000_000);
+  });
+  it("con % aprendido explícito, usa ese % en vez del 1% fijo", () => {
+    expect(calcularReliquidacionProyectada(200_000_000, 0.02)).toBe(4_000_000);
   });
 });
 
 describe("calcularCotizacion", () => {
-  it("es 30% de (anticipo + remuneración + reliquidación)", () => {
+  it("es 30% de (anticipo + remuneración + reliquidación) (fallback sin % aprendido)", () => {
     const anticipo = 5_000_000;
     const remuneracion = 100_000_000;
     const reliquidacion = 1_000_000;
@@ -35,6 +41,17 @@ describe("calcularCotizacion", () => {
   });
   it("con todo en cero, cotización es cero", () => {
     expect(calcularCotizacion(0, 0, 0)).toBe(0);
+  });
+  it("con % aprendido explícito, usa ese % en vez del 30% fijo", () => {
+    const anticipo = 5_000_000;
+    const remuneracion = 100_000_000;
+    const reliquidacion = 1_000_000;
+    const esperado = Math.round(
+      (anticipo + remuneracion + reliquidacion) * 0.28,
+    );
+    expect(
+      calcularCotizacion(anticipo, remuneracion, reliquidacion, 0.28),
+    ).toBe(esperado);
   });
 });
 

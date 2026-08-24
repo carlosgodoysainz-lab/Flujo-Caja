@@ -521,6 +521,18 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 - **Verificado**: `npx tsc --noEmit`, `npx vitest run` (131/131) y `npm run build` limpios.
 - **Aplicar en**: cuando el N° "real" de un concepto se ve implausible, no asumir que la única fuente real disponible es la que ya se está usando — preguntar/buscar si existe una carpeta o archivo MÁS granular que el que se está parseando (en este caso, "Solicitud de Requerimiento" agrega por división, pero "Transferencia Bancaria" en la MISMA carpeta padre es grano de persona real) antes de concluir que el dato no es derivable.
 
+### 2026-08-24: Auto-aprendizaje de los % fijos (Anticipo/Cotización/Reliquidación) — dejan de ser constantes hardcodeadas
+
+- **Pedido del usuario**: "quiero además agregar una habilidad que vaya autoaprendiendo el algoritmo cada vez que se actualice con datos reales para que actualice la mejora en la proyección". Alcance confirmado vía `AskUserQuestion`: **"Los % fijos pasan a recalcularse solos con los últimos meses reales"** — Anticipo (24%), Cotización (30%) y Reliquidación (1%) dejan de ser constantes fijas en el código; cada "Actualizar reporte" las recalcula como el promedio real de los últimos 6 meses reales, sin editar código.
+- **Por qué era necesario**: a diferencia de Finiquito (ya usa promedio 6 meses reales) y Remuneración (ya usa costo-por-cabeza del mes anterior), Anticipo/Cotización/Reliquidación seguían usando un % hardcodeado que nunca se ajustaba aunque llegaran meses reales nuevos que mostraran un % real distinto.
+- **Implementación** (mismo patrón real-gana-sobre-fórmula ya usado en todo el proyecto, con un nivel de fallback adicional):
+  - `formulas.ts` — `calcularAnticipoProyectado`/`calcularReliquidacionProyectada`/`calcularCotizacion` ganan un parámetro `pct` opcional (default = la constante fija original: `ANTICIPO_PCT`/`RELIQUIDACION_PCT`/`COTIZACION_PCT`). Las constantes ahora son SOLO el fallback final, nunca editadas a mano.
+  - `engine.ts` — `CashFlowInputs` gana `anticipoPctAprendido`/`reliquidacionPctAprendido`/`cotizacionPctAprendido: number | null`. Cuando no-null, se pasa como `pct` y el `metodoCalculo` queda como `formula_pct_aprendido_*` (en vez de `formula_24pct_remuneracion` etc.) — así el Excel/UI de metodología puede distinguir "fórmula con % fijo original" de "fórmula con % ya calibrado".
+  - `refresh.ts` — nuevas `pctSobreRemuneracionAprendido(supabase, concepto, antesDe, n=6)` (Anticipo/Reliquidación: promedio real de `concepto`/Remuneración de los últimos 6 meses REALES) y `cotizacionPctAprendido` (mismo patrón, pero base de 3 sumandos: Anticipo+Remuneración+Reliquidación, igual que `calcularCotizacion`). `null` mientras no haya ningún mes real todavía — ahí cae al % fijo de `formulas.ts`, nunca un error.
+  - `metodologia-contenido.ts` — actualizado para describir el nuevo comportamiento auto-calibrado en vez de un % fijo.
+- **Verificado**: `npx tsc --noEmit`, `npx vitest run` (137/137) y `npm run build` limpios.
+- **Aplicar en**: cuando un % legal/estable usado como fórmula de respaldo tiene suficiente historia real acumulándose mes a mes (este proyecto ya la tenía, solo no la estaba usando), preferir recalcularlo automáticamente del propio historial en vez de dejarlo hardcodeado — mismo principio ya aplicado a Finiquito (21-ago) y Remuneración (costo-por-cabeza), ahora generalizado a los 3 % restantes.
+
 ---
 
 ## Gotchas (Antes de Implementar)

@@ -272,6 +272,114 @@ async function estimarDotacionFaltante(
   return { obrasEstimadas, obrasSinDatoAun };
 }
 
+/** Monto real ya guardado en `cash_flow_monthly` para un periodo/concepto, buscando directo por el string de periodo (evita reconstruir un `Date` desde un string que ya viene de la DB — riesgo de desfase de zona horaria). */
+async function montoCashFlowPorPeriodoStr(
+  supabase: ReturnType<typeof createServiceClient>,
+  periodoStr: string,
+  concepto: string,
+): Promise<number | null> {
+  const { data } = await supabase
+    .from("cash_flow_monthly")
+    .select("monto")
+    .eq("periodo", periodoStr)
+    .eq("concepto", concepto)
+    .maybeSingle();
+  return data ? Number(data.monto) : null;
+}
+
+/**
+ * AUTO-APRENDIZAJE (24-ago-2026, pedido explícito del usuario: "los % fijos
+ * pasan a recalcularse solos con los últimos meses reales"): % real de
+ * `concepto`/Remuneración, promedio de los últimos N meses REALES de ambos
+ * (mismo patrón que `promedioFiniquitoReal6m`/`promedioAnticipoRpReal`).
+ * Usado para Anticipo y Reliquidación — Cotización usa
+ * `cotizacionPctAprendido` (base de 3 sumandos, no solo Remuneración).
+ * `null` si todavía no hay ningún mes real disponible — ahí
+ * `calcularAnticipoProyectado`/`calcularReliquidacionProyectada` caen de
+ * vuelta al % fijo (ver formulas.ts).
+ */
+async function pctSobreRemuneracionAprendido(
+  supabase: ReturnType<typeof createServiceClient>,
+  concepto: string,
+  antesDe: Date,
+  n = 6,
+): Promise<number | null> {
+  const { data } = await supabase
+    .from("cash_flow_monthly")
+    .select("periodo, monto")
+    .eq("concepto", concepto)
+    .eq("es_real", true)
+    .lt("periodo", antesDe.toISOString().slice(0, 10))
+    .order("periodo", { ascending: false })
+    .limit(n);
+
+  if (!data || data.length === 0) return null;
+
+  let sumaConcepto = 0;
+  let sumaRemuneracion = 0;
+  for (const fila of data) {
+    const remuneracion = await montoCashFlowPorPeriodoStr(
+      supabase,
+      fila.periodo,
+      "remuneracion",
+    );
+    if (remuneracion == null || remuneracion === 0) continue;
+    sumaConcepto += Number(fila.monto);
+    sumaRemuneracion += remuneracion;
+  }
+  return sumaRemuneracion > 0 ? sumaConcepto / sumaRemuneracion : null;
+}
+
+/**
+ * Mismo auto-aprendizaje que `pctSobreRemuneracionAprendido`, pero para
+ * Cotización — su base es (Anticipo + Remuneración + Reliquidación), no
+ * solo Remuneración (ver `calcularCotizacion`). Solo considera meses donde
+ * Cotización es real (`ingesta_previred` o Excel histórico).
+ */
+async function cotizacionPctAprendido(
+  supabase: ReturnType<typeof createServiceClient>,
+  antesDe: Date,
+  n = 6,
+): Promise<number | null> {
+  const { data } = await supabase
+    .from("cash_flow_monthly")
+    .select("periodo, monto")
+    .eq("concepto", "cotizacion")
+    .eq("es_real", true)
+    .lt("periodo", antesDe.toISOString().slice(0, 10))
+    .order("periodo", { ascending: false })
+    .limit(n);
+
+  if (!data || data.length === 0) return null;
+
+  let sumaCotizacion = 0;
+  let sumaBase = 0;
+  for (const fila of data) {
+    const anticipo = await montoCashFlowPorPeriodoStr(
+      supabase,
+      fila.periodo,
+      "anticipo",
+    );
+    const remuneracion = await montoCashFlowPorPeriodoStr(
+      supabase,
+      fila.periodo,
+      "remuneracion",
+    );
+    const reliquidacion = await montoCashFlowPorPeriodoStr(
+      supabase,
+      fila.periodo,
+      "reliquidacion",
+    );
+    if (anticipo == null || remuneracion == null || reliquidacion == null)
+      continue;
+    const base = anticipo + remuneracion + reliquidacion;
+    if (base === 0) continue;
+    sumaCotizacion += Number(fila.monto);
+    sumaBase += base;
+  }
+  return sumaBase > 0 ? sumaCotizacion / sumaBase : null;
+}
+
 /** Promedio de los últimos 6 meses con Finiquito REAL ingerido — metodología pedida explícitamente por el usuario (reemplaza la fórmula del Excel real, que era 7%×Remuneración). 0 si no hay 6 meses reales todavía. */
 async function promedioFiniquitoReal6m(
   supabase: ReturnType<typeof createServiceClient>,
@@ -489,6 +597,27 @@ export async function refreshCashFlowReport(
       metodoCalculo: "promedio_ultimos_6_meses_reales",
     };
 
+    // Auto-aprendizaje de los % fijos (24-ago-2026, pedido explícito del
+    // usuario): Anticipo/Reliquidación/Cotización dejan de depender SOLO
+    // de un % hardcodeado — se recalculan como el promedio real de los
+    // últimos 6 meses reales cada vez que corre este refresh. `null`
+    // mientras no haya suficiente historia real todavía (ver formulas.ts,
+    // caen de vuelta al % fijo original).
+    const anticipoPctAprendido = await pctSobreRemuneracionAprendido(
+      supabase,
+      "anticipo",
+      mes,
+    );
+    const reliquidacionPctAprendido = await pctSobreRemuneracionAprendido(
+      supabase,
+      "reliquidacion",
+      mes,
+    );
+    const cotizacionPctAprendidoMes = await cotizacionPctAprendido(
+      supabase,
+      mes,
+    );
+
     // Aporte SENCE: SIEMPRE manual — si ya hay un valor cargado a mano
     // para este mes (override o carga anterior con dato real), se
     // preserva; nunca se calcula por fórmula.
@@ -542,6 +671,9 @@ export async function refreshCashFlowReport(
       finiquitoFallback,
       beneficiosRg: beneficiosCalculado.rg,
       beneficiosRp: beneficiosCalculado.rp,
+      anticipoPctAprendido,
+      reliquidacionPctAprendido,
+      cotizacionPctAprendido: cotizacionPctAprendidoMes,
     });
 
     const calculadoPorConcepto: Record<string, CashFlowConceptoCalculado> = {

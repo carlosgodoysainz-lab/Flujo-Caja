@@ -13,7 +13,7 @@ export const CONCEPTOS_METODOLOGIA = [
     fuenteReal:
       'Real desde 2 fuentes, en orden de prioridad: (1) el Excel MAESTRO de Flujo de Caja (carpeta "Flujo de Caja", Finanzas) para meses ya cerrados — la más completa históricamente; (2) "solicitud requerimientos anticipo <mes> <año>.xlsx" ingerido de SharePoint para meses recientes que el Excel maestro todavía no cierra. Ambas ya traen RG/RP separado, sin RUT ni nombre de persona.',
     formula:
-      "Si no hay dato real: 24% × Remuneración del mismo mes (total). El desglose RG/RP proyectado ancla RP en el promedio de los últimos 3 meses reales (RP es un grupo chico y estable de gente que pide Anticipo, no escala con toda la planilla RP — bug real corregido 20-ago-2026, antes RP salía como residual y se inflaba junto con Remuneración) y RG absorbe el residual (Total − RP). Se evaluó un modelo costo-por-cabeza con dotación propia de Anticipo (18-ago-2026) y se revirtió el mismo día: el Anticipo es por naturaleza un adelanto de un % del sueldo de cada persona, no un costo fijo por cabeza — confirmado además leyendo la fórmula real del Excel maestro de Finanzas, que también usa 24% × Remuneración para sus meses proyectados.",
+      "Si no hay dato real: % × Remuneración del mismo mes (total). Ese % se AUTO-APRENDE en cada 'Actualizar reporte': se recalcula como el promedio real de Anticipo÷Remuneración de los últimos 6 meses reales (empieza en 24%, la misma fórmula del Excel maestro de Finanzas, y se ajusta solo si el real promedia otro valor — sin editar código). El desglose RG/RP proyectado ancla RP en el promedio de los últimos 3 meses reales (RP es un grupo chico y estable de gente que pide Anticipo, no escala con toda la planilla RP — bug real corregido 20-ago-2026, antes RP salía como residual y se inflaba junto con Remuneración) y RG absorbe el residual (Total − RP). Se evaluó un modelo costo-por-cabeza con dotación propia de Anticipo (18-ago-2026) y se revirtió el mismo día: el Anticipo es por naturaleza un adelanto de un % del sueldo de cada persona, no un costo fijo por cabeza.",
   },
   {
     concepto: "Remuneración (RG/RP)",
@@ -33,14 +33,15 @@ export const CONCEPTOS_METODOLOGIA = [
     concepto: "Reliquidación",
     fuenteReal:
       'Real cuando existe el archivo "Solicitud de Requerimiento reliquidación" ingerido para ese mes.',
-    formula: "Si no hay dato real: 1% × Remuneración del mismo mes.",
+    formula:
+      "Si no hay dato real: % × Remuneración del mismo mes. Empieza en 1% (fórmula original del Excel) y se AUTO-APRENDE en cada 'Actualizar reporte' como el promedio real de Reliquidación÷Remuneración de los últimos 6 meses reales — mismo mecanismo que Anticipo.",
   },
   {
     concepto: "Cotización",
     fuenteReal:
       'Real desde 2 fuentes: (1) el comprobante oficial de pago de Previred ("comprobante previred <Empresa> <RG|RP>.pdf", carpeta "Pagos Mensuales/imposiciones/imposiciones <mes> <año>") — se suma el TOTAL GENERAL ya calculado y confirmado por Previred de todos los comprobantes del mes, cruzado contra "TOTAL A PAGAR" del mismo documento (si no coinciden, se descarta ese comprobante en vez de arriesgar el monto); (2) el Excel maestro de Flujo de Caja para meses históricos que ya lo tenían. Nunca se parsea el archivo .txt crudo de Previred (~70-100 columnas por trabajador) — ese layout requeriría adivinar qué campos exactos sumar, riesgo real para un dato financiero.',
     formula:
-      "Si no hay dato real de ninguna de las 2 fuentes: 30% × (Anticipo + Remuneración + Reliquidación) del mismo mes. Como Remuneración ya incluye Beneficios/Bonos de forma implícita, quedan incluidos en la base sin un 4to sumando.",
+      "Si no hay dato real de ninguna de las 2 fuentes: % × (Anticipo + Remuneración + Reliquidación) del mismo mes. Empieza en 30% (fórmula original del Excel) y se AUTO-APRENDE en cada 'Actualizar reporte' como el promedio real de Cotización÷(Anticipo+Remuneración+Reliquidación) de los últimos 6 meses reales. Como Remuneración ya incluye Beneficios/Bonos de forma implícita, quedan incluidos en la base sin un 4to sumando.",
   },
   {
     concepto: "Aporte SENCE",
@@ -80,12 +81,12 @@ export const MOTOR_CAMBIO_MENSUAL = [
   {
     concepto: "Anticipo",
     explicacion:
-      "Sigue a Remuneración del mismo mes (24% de ella) — sube o baja en la MISMA dirección y proporción, nunca tiene un movimiento propio distinto. Es un adelanto de un % del sueldo de cada persona, no un costo fijo por cabeza (el N° que se muestra junto a Anticipo es informativo — gente real que efectivamente lo cobró — pero no es lo que determina el monto proyectado).",
+      "Sigue a Remuneración del mismo mes (un % de ella, auto-aprendido de los últimos meses reales — empieza en 24%) — sube o baja en la MISMA dirección y proporción, nunca tiene un movimiento propio distinto. Es un adelanto de un % del sueldo de cada persona, no un costo fijo por cabeza (el N° que se muestra junto a Anticipo es informativo — gente real que efectivamente lo cobró — pero no es lo que determina el monto proyectado).",
   },
   {
     concepto: "Reliquidación",
     explicacion:
-      "Igual que Anticipo: sigue a Remuneración (1% de ella) — mismo sentido, sin dinámica propia.",
+      "Igual que Anticipo: sigue a Remuneración (un % de ella, auto-aprendido — empieza en 1%) — mismo sentido, sin dinámica propia.",
   },
   {
     concepto: "Finiquito",
@@ -95,7 +96,7 @@ export const MOTOR_CAMBIO_MENSUAL = [
   {
     concepto: "Cotización",
     explicacion:
-      "Cuando hay comprobante Previred real, sube o baja con la dotación real pagada ese mes (más/menos gente cotizando). Sin dato real, la fórmula (30% de Anticipo+Remuneración+Reliquidación) sigue a Remuneración — que como componente más grande de esa suma, arrastra a Cotización en la misma dirección, misma causa raíz: la dotación.",
+      "Cuando hay comprobante Previred real, sube o baja con la dotación real pagada ese mes (más/menos gente cotizando). Sin dato real, la fórmula (% auto-aprendido de Anticipo+Remuneración+Reliquidación, empieza en 30%) sigue a Remuneración — que como componente más grande de esa suma, arrastra a Cotización en la misma dirección, misma causa raíz: la dotación.",
   },
   {
     concepto: "Aporte SENCE",

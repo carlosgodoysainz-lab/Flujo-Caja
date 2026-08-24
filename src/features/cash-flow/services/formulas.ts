@@ -24,6 +24,15 @@
  * dato real ingerido para el concepto/mes correspondiente (ver `engine.ts`).
  * Cuando existe un archivo real de SharePoint (o un override manual) para
  * ese mes, ese valor real siempre tiene prioridad.
+ *
+ * AUTO-APRENDIZAJE (24-ago-2026, pedido explícito del usuario): Anticipo,
+ * Cotización y Reliquidación ya NO usan solo estos % fijos — `refresh.ts`
+ * calcula, en cada "Actualizar reporte", el % REAL promedio de los
+ * últimos meses reales (ver `pctSobreRemuneracionAprendido`/
+ * `cotizacionPctAprendido` ahí) y lo pasa a `engine.ts` como el 2do
+ * parámetro `pct` de cada función de abajo. Los % de ESTA constante solo
+ * se usan como fallback final cuando todavía no hay suficiente historia
+ * real (compañía/obra nueva) — nunca se editan a mano en el código.
  */
 
 export const ANTICIPO_PCT = 0.24;
@@ -35,29 +44,43 @@ function round(value: number): number {
 }
 
 /**
- * Anticipo proyectado ≈ 24% de Remuneración del mismo mes (fallback cuando
+ * Anticipo proyectado ≈ % de Remuneración del mismo mes (fallback cuando
  * no hay dato real ingerido de la carpeta "Pagos Mensuales/Anticipo").
+ * `pct` es el % aprendido de los últimos meses reales (ver `refresh.ts`);
+ * si no hay historia real todavía, cae a `ANTICIPO_PCT` (24%, la misma
+ * fórmula del Excel maestro de Finanzas para sus meses proyectados).
  * Se evaluó un modelo costo-por-cabeza × dotación PROPIA de Anticipo
  * (18-ago-2026) y se revirtió el mismo día: el Anticipo es por naturaleza
  * un adelanto de un % del SUELDO de cada persona (no un costo fijo por
- * cabeza como Remuneración o un Beneficio) — confirmado además leyendo la
- * fórmula real del Excel maestro de Finanzas, que también usa
- * `=Remuneración_RG*24%` para los meses proyectados (ver Auto-Blindaje).
+ * cabeza como Remuneración o un Beneficio).
  */
-export function calcularAnticipoProyectado(remuneracion: number): number {
-  return round(remuneracion * ANTICIPO_PCT);
-}
-
-/** Reliquidaciones proyectadas ≈ 1% de Remuneraciones del mismo mes (fallback). Fórmula del Excel, confirmada por el usuario. */
-export function calcularReliquidacionProyectada(remuneracion: number): number {
-  return round(remuneracion * RELIQUIDACION_PCT);
+export function calcularAnticipoProyectado(
+  remuneracion: number,
+  pct: number = ANTICIPO_PCT,
+): number {
+  return round(remuneracion * pct);
 }
 
 /**
- * Cotizaciones ≈ 30% × (Anticipo + Remuneración + Reliquidación) del mismo
+ * Reliquidaciones proyectadas ≈ % de Remuneraciones del mismo mes
+ * (fallback). `pct` es el % aprendido de los últimos meses reales (ver
+ * `refresh.ts`); sin historia real todavía, cae a `RELIQUIDACION_PCT`
+ * (1%, la fórmula original del Excel).
+ */
+export function calcularReliquidacionProyectada(
+  remuneracion: number,
+  pct: number = RELIQUIDACION_PCT,
+): number {
+  return round(remuneracion * pct);
+}
+
+/**
+ * Cotizaciones ≈ % × (Anticipo + Remuneración + Reliquidación) del mismo
  * mes. Siempre fórmula — no hay fuente real automatizada para este
- * concepto (es un porcentaje legal relativamente estable, no requiere
- * ingesta de archivo).
+ * concepto cuando no hay comprobante Previred (ver `engine.ts`). `pct` es
+ * el % aprendido de los últimos meses reales (ver `refresh.ts`); sin
+ * historia real todavía, cae a `COTIZACION_PCT` (30%, la fórmula original
+ * del Excel).
  *
  * Beneficios/Bonos (Convenio Lira Parque + Anexo Oficina Central, ver
  * beneficios.ts) NO son un 4to sumando acá — se suman de forma implícita
@@ -70,8 +93,9 @@ export function calcularCotizacion(
   anticipo: number,
   remuneracion: number,
   reliquidacion: number,
+  pct: number = COTIZACION_PCT,
 ): number {
-  return round((anticipo + remuneracion + reliquidacion) * COTIZACION_PCT);
+  return round((anticipo + remuneracion + reliquidacion) * pct);
 }
 
 /**

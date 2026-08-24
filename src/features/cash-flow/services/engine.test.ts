@@ -24,6 +24,9 @@ const BASE: CashFlowInputs = {
   },
   beneficiosRg: SIN_BENEFICIOS,
   beneficiosRp: SIN_BENEFICIOS,
+  anticipoPctAprendido: null,
+  reliquidacionPctAprendido: null,
+  cotizacionPctAprendido: null,
 };
 
 describe("calcularMesCashFlow", () => {
@@ -105,6 +108,34 @@ describe("calcularMesCashFlow", () => {
     expect(result.reliquidacion.esReal).toBe(false);
   });
 
+  it("con % de Anticipo aprendido (auto-aprendizaje), usa ese % en vez del 24% fijo", () => {
+    const result = calcularMesCashFlow({
+      ...BASE,
+      remuneracionReal: 100_000_000,
+      anticipoPctAprendido: 0.22,
+    });
+
+    expect(result.anticipo.monto).toBe(22_000_000);
+    expect(result.anticipo.esReal).toBe(false);
+    expect(result.anticipo.metodoCalculo).toBe(
+      "formula_pct_aprendido_anticipo_remuneracion",
+    );
+  });
+
+  it("con % de Reliquidación aprendido, usa ese % en vez del 1% fijo", () => {
+    const result = calcularMesCashFlow({
+      ...BASE,
+      remuneracionReal: 100_000_000,
+      reliquidacionPctAprendido: 0.015,
+    });
+
+    expect(result.reliquidacion.monto).toBe(1_500_000);
+    expect(result.reliquidacion.esReal).toBe(false);
+    expect(result.reliquidacion.metodoCalculo).toBe(
+      "formula_pct_aprendido_reliquidacion_remuneracion",
+    );
+  });
+
   it("sin dato real de finiquito, cae al promedio de los últimos 6 meses reales (no a un %)", () => {
     const result = calcularMesCashFlow({
       ...BASE,
@@ -136,6 +167,23 @@ describe("calcularMesCashFlow", () => {
     expect(result.cotizacion.monto).toBe(esperado);
     expect(result.cotizacion.metodoCalculo).toBe(
       "formula_30pct_anticipo_mas_remun_mas_reliq",
+    );
+  });
+
+  it("con % de Cotización aprendido, usa ese % en vez del 30% fijo", () => {
+    const result = calcularMesCashFlow({
+      ...BASE,
+      remuneracionReal: 100_000_000,
+      reliquidacionReal: 1_000_000,
+      anticipoReal: 2_000_000,
+      cotizacionPctAprendido: 0.28,
+    });
+
+    const esperado = Math.round((2_000_000 + 100_000_000 + 1_000_000) * 0.28);
+    expect(result.cotizacion.esReal).toBe(false);
+    expect(result.cotizacion.monto).toBe(esperado);
+    expect(result.cotizacion.metodoCalculo).toBe(
+      "formula_pct_aprendido_cotizacion_base",
     );
   });
 

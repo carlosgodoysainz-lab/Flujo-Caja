@@ -73,6 +73,19 @@ export interface CashFlowInputs {
    */
   beneficiosRg: CashFlowConceptoCalculado;
   beneficiosRp: CashFlowConceptoCalculado;
+  /**
+   * % real de Anticipo/Remuneración, promedio de los últimos meses reales
+   * (ver `pctSobreRemuneracionAprendido` en `refresh.ts`) — auto-
+   * aprendizaje pedido explícito del usuario 24-ago-2026: "los % fijos
+   * pasan a recalcularse solos con los últimos meses reales". `null` si
+   * todavía no hay ningún mes real disponible — ahí `calcularAnticipoProyectado`
+   * cae de vuelta al 24% fijo (`ANTICIPO_PCT`, ver formulas.ts).
+   */
+  anticipoPctAprendido: number | null;
+  /** Mismo mecanismo que `anticipoPctAprendido`, para Reliquidación (fallback: `RELIQUIDACION_PCT`, 1%). */
+  reliquidacionPctAprendido: number | null;
+  /** Mismo mecanismo que `anticipoPctAprendido`, para Cotización sobre (Anticipo+Remuneración+Reliquidación) (fallback: `COTIZACION_PCT`, 30%). */
+  cotizacionPctAprendido: number | null;
 }
 
 export interface CashFlowConceptoCalculado {
@@ -141,9 +154,15 @@ export function calcularMesCashFlow(
           metodoCalculo: "ingesta_real",
         }
       : {
-          monto: calcularAnticipoProyectado(remuneracion.monto),
+          monto: calcularAnticipoProyectado(
+            remuneracion.monto,
+            inputs.anticipoPctAprendido ?? undefined,
+          ),
           esReal: false,
-          metodoCalculo: "formula_24pct_remuneracion",
+          metodoCalculo:
+            inputs.anticipoPctAprendido != null
+              ? "formula_pct_aprendido_anticipo_remuneracion"
+              : "formula_24pct_remuneracion",
         };
 
   const reliquidacion: CashFlowConceptoCalculado =
@@ -154,9 +173,15 @@ export function calcularMesCashFlow(
           metodoCalculo: "ingesta_real",
         }
       : {
-          monto: calcularReliquidacionProyectada(remuneracion.monto),
+          monto: calcularReliquidacionProyectada(
+            remuneracion.monto,
+            inputs.reliquidacionPctAprendido ?? undefined,
+          ),
           esReal: false,
-          metodoCalculo: "formula_1pct_remuneracion",
+          metodoCalculo:
+            inputs.reliquidacionPctAprendido != null
+              ? "formula_pct_aprendido_reliquidacion_remuneracion"
+              : "formula_1pct_remuneracion",
         };
 
   const finiquito: CashFlowConceptoCalculado =
@@ -191,9 +216,13 @@ export function calcularMesCashFlow(
             anticipo.monto,
             remuneracion.monto,
             reliquidacion.monto,
+            inputs.cotizacionPctAprendido ?? undefined,
           ),
           esReal: false,
-          metodoCalculo: "formula_30pct_anticipo_mas_remun_mas_reliq",
+          metodoCalculo:
+            inputs.cotizacionPctAprendido != null
+              ? "formula_pct_aprendido_cotizacion_base"
+              : "formula_30pct_anticipo_mas_remun_mas_reliq",
         };
 
   // Aporte SENCE: SIEMPRE manual, nunca fórmula — pero si nadie lo ha
