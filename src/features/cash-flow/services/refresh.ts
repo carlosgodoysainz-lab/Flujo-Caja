@@ -5,6 +5,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { syncObrasFromGespro } from "@/features/obras/services/sync";
 import { syncPagosMensuales } from "./sync-pagos-mensuales";
 import { syncCotizacionPrevired } from "./sync-cotizacion-previred";
+import { syncBeneficiariosAnticipo } from "./sync-beneficiarios-anticipo";
 import { syncUfSeries } from "./uf-sync";
 import { getUfPorPeriodo } from "./queries";
 import { syncFlujoCajaHistorico } from "./sync-flujo-caja-historico";
@@ -412,6 +413,25 @@ export async function refreshCashFlowReport(
       errores.push({
         fuente: `Cotización Previred ${cotizacionResult.periodo}`,
         mensaje: cotizacionResult.errores.join("; "),
+      });
+    }
+
+    // Beneficiarios REALES de Anticipo (personas, no divisiones) desde
+    // los archivos de transferencia bancaria — pedido explícito del
+    // usuario 24-ago-2026, ver sync-beneficiarios-anticipo.ts. Mismo
+    // criterio de tolerancia que Pagos Mensuales/Cotización.
+    const beneficiariosResult = await syncBeneficiariosAnticipo(mes);
+    documentosIngeridos += beneficiariosResult.archivosProcesados;
+    const esMesActualSinBeneficiariosAun =
+      mes.getTime() === mesActual.getTime() &&
+      beneficiariosResult.archivosProcesados === 0;
+    if (
+      beneficiariosResult.estado === "error" &&
+      !esMesActualSinBeneficiariosAun
+    ) {
+      errores.push({
+        fuente: `Beneficiarios Anticipo ${beneficiariosResult.periodo}`,
+        mensaje: beneficiariosResult.errores.join("; "),
       });
     }
   }

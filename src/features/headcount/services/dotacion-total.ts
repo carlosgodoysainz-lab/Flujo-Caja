@@ -336,20 +336,28 @@ export async function getDotacionRgRpPorPeriodo(
 
 /**
  * N° REAL de gente que recibió Anticipo (rg+rp) en un período específico —
- * cuenta filas de `payroll_line_items` (grano de persona). `null` si no hay
- * ningún dato real ingerido todavía para ese período. Solo `count` (sin
- * traer filas) — no hay riesgo de truncamiento de PostgREST con este patrón.
+ * suma `payroll_beneficiarios_reales.cantidad` (conteo de líneas de los
+ * archivos de transferencia bancaria, grano de persona real — ver
+ * sync-beneficiarios-anticipo.ts). `null` si no hay dato real todavía.
+ *
+ * Bug real corregido 24-ago-2026: antes contaba filas de
+ * `payroll_line_items` (grano de sociedad/división, NO de persona — ver
+ * Auto-Blindaje 21-ago-2026), dando ~15-20 "personas" para toda la
+ * compañía cuando el archivo real de transferencia bancaria de UNA sola
+ * sociedad ya tiene cientos de líneas.
  */
 async function dotacionAnticipoRealDelMes(
   supabase: ReturnType<typeof createServiceClient>,
   periodoStr: string,
 ): Promise<number | null> {
-  const { count } = await supabase
-    .from("payroll_line_items")
-    .select("*", { count: "exact", head: true })
+  const { data } = await supabase
+    .from("payroll_beneficiarios_reales")
+    .select("concepto, cantidad")
     .in("concepto", ["anticipo_rg", "anticipo_rp"])
     .eq("periodo", periodoStr);
-  return count && count > 0 ? count : null;
+  if (!data || data.length === 0) return null;
+  const total = data.reduce((acc, fila) => acc + fila.cantidad, 0);
+  return total > 0 ? total : null;
 }
 
 /**
@@ -421,9 +429,12 @@ export async function dotacionAnticipoDelMes(
  * Razón real: Anticipo RG ÷ Anticipo total (rg+rp), promediada de los
  * últimos N meses con dato real de Anticipo — para "aperturar" en RG/RP la
  * dotación PROPIA de Anticipo también en meses proyectados. Mismo criterio
- * que `proporcionRgHistorica`, pero con la población PROPIA de Anticipo,
- * nunca la de Remuneración (ver bug real 18-ago-2026 más abajo, en
- * `getDotacionPorConceptoYPeriodo`).
+ * que `proporcionRgHistoricaPersonas`, pero con la población PROPIA de
+ * Anticipo, nunca la de Remuneración.
+ *
+ * Fuente: `payroll_beneficiarios_reales` (conteo real de personas desde
+ * transferencia bancaria) — no `payroll_line_items` (bug real corregido
+ * 24-ago-2026, ver `dotacionAnticipoRealDelMes`).
  */
 async function proporcionAnticipoRgHistorica(
   supabase: ReturnType<typeof createServiceClient>,
@@ -440,16 +451,13 @@ async function proporcionAnticipoRgHistorica(
       1,
     );
     const periodoStr = cursor.toISOString().slice(0, 10);
-    const { count: countRg } = await supabase
-      .from("payroll_line_items")
-      .select("*", { count: "exact", head: true })
-      .eq("concepto", "anticipo_rg")
+    const { data } = await supabase
+      .from("payroll_beneficiarios_reales")
+      .select("concepto, cantidad")
+      .in("concepto", ["anticipo_rg", "anticipo_rp"])
       .eq("periodo", periodoStr);
-    const { count: countRp } = await supabase
-      .from("payroll_line_items")
-      .select("*", { count: "exact", head: true })
-      .eq("concepto", "anticipo_rp")
-      .eq("periodo", periodoStr);
+    const countRg = data?.find((f) => f.concepto === "anticipo_rg")?.cantidad;
+    const countRp = data?.find((f) => f.concepto === "anticipo_rp")?.cantidad;
     const total = (countRg ?? 0) + (countRp ?? 0);
     if (total > 0) razones.push((countRg ?? 0) / total);
     mesesAtras++;
@@ -465,11 +473,6 @@ export interface DotacionPorConceptoPunto {
   remuneracion_rg: number | null;
   remuneracion_rp: number | null;
 }
-
-// Solo Anticipo — Remuneración RG/RP ya NUNCA lee payroll_line_items
-// (ver comentario de getDotacionPorConceptoYPeriodo), así que pedirlos
-// acá sería trabajo/datos descartados.
-const CONCEPTOS_CON_DOTACION = ["anticipo_rg", "anticipo_rp"] as const;
 
 /**
  * N° (dotación) por CADA sub-fila RG/RP de Anticipo y Remuneración por
@@ -496,15 +499,15 @@ const CONCEPTOS_CON_DOTACION = ["anticipo_rg", "anticipo_rp"] as const;
  * Finanzas (confirmado 18-ago-2026: su N° de Remuneración RG/RP también
  * suma al total de dotación, no al conteo de filas del archivo).
  *
- * **Anticipo RG/RP SÍ sigue usando el conteo de `payroll_line_items`**
- * — decisión explícita del usuario (18-ago-2026, vía AskUserQuestion:
- * "Personas que efectivamente cobraron anticipo") tomada ANTES de
- * descubrir que ese conteo en realidad mide "N° de divisiones/obras con
- * un pago de Anticipo ese mes", no "N° de personas". Sigue siendo un
- * número mucho más chico y más volátil que la dotación total (lo que el
- * usuario pidió visualmente), pero la etiqueta "personas" ya no es
- * exacta — pendiente de decisión del usuario si quiere mantenerlo así,
- * relabearlo, o buscar una fuente real de headcount por persona.
+ * **Anticipo RG/RP usa `payroll_beneficiarios_reales`** — conteo REAL de
+ * personas (líneas de los archivos de transferencia bancaria del banco,
+ * ver sync-beneficiarios-anticipo.ts), no `payroll_line_items`. Bug real
+ * corregido 24-ago-2026 (pedido del usuario: "la cantidad de personas
+ * son muchos más... revisa el detalle en la carpeta donde está el banco
+ * y corriges por la cantidad de beneficiarios"): `payroll_line_items`
+ * daba ~15-20 "personas" (en realidad divisiones/obras) para toda la
+ * compañía, cuando el archivo de transferencia bancaria de UNA sola
+ * sociedad ya tiene cientos de líneas reales.
  */
 export async function getDotacionPorConceptoYPeriodo(
   periodoDesde: Date,
@@ -520,26 +523,18 @@ export async function getDotacionPorConceptoYPeriodo(
     periodoHasta,
   );
 
-  // Paginado con `.range()` — mismo motivo ya documentado 2 veces en
-  // este archivo: PostgREST trunca a su tope server-side (~1000 filas)
-  // sin avisar, y esta tabla es grano de persona (puede haber cientos
-  // de filas por mes).
+  // Tabla chica (1 fila por período/concepto) — sin riesgo de
+  // truncamiento de PostgREST, no necesita paginar con `.range()` como
+  // sí hacía la versión anterior sobre `payroll_line_items`.
+  const { data: beneficiariosReales } = await supabase
+    .from("payroll_beneficiarios_reales")
+    .select("periodo, concepto, cantidad")
+    .in("concepto", ["anticipo_rg", "anticipo_rp"])
+    .gte("periodo", periodoDesde.toISOString().slice(0, 10))
+    .lte("periodo", periodoHasta.toISOString().slice(0, 10));
   const conteoPorClave = new Map<string, number>();
-  const TAMANO_PAGINA = 1000;
-  for (let desde = 0; ; desde += TAMANO_PAGINA) {
-    const { data: pagina } = await supabase
-      .from("payroll_line_items")
-      .select("periodo, concepto")
-      .in("concepto", CONCEPTOS_CON_DOTACION)
-      .gte("periodo", periodoDesde.toISOString().slice(0, 10))
-      .lte("periodo", periodoHasta.toISOString().slice(0, 10))
-      .range(desde, desde + TAMANO_PAGINA - 1);
-    if (!pagina || pagina.length === 0) break;
-    for (const fila of pagina) {
-      const clave = `${fila.concepto}::${fila.periodo}`;
-      conteoPorClave.set(clave, (conteoPorClave.get(clave) ?? 0) + 1);
-    }
-    if (pagina.length < TAMANO_PAGINA) break;
+  for (const fila of beneficiariosReales ?? []) {
+    conteoPorClave.set(`${fila.concepto}::${fila.periodo}`, fila.cantidad);
   }
 
   const resultado = new Map<string, DotacionPorConceptoPunto>();

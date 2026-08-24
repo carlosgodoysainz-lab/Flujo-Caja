@@ -507,6 +507,20 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 - **Verificado**: `npx tsc --noEmit`, `npx vitest run` (124/124) y `npm run build` limpios.
 - **Aplicar en**: cuando una "razón histórica" se usa para partir 2 tipos de magnitud distintos (dinero vs. cantidad de personas) de un mismo concepto RG/RP, nunca asumir que la misma razón sirve para ambos — verificar contra el historial real qué tan distintas son (en este caso, 74-78% vs 95-96%, una diferencia enorme) antes de reutilizar una función existente para un caso nuevo.
 
+### 2026-08-24: N° real de Anticipo — nueva fuente (transferencia bancaria, grano de persona real) reemplaza payroll_line_items
+
+- **Pedido del usuario**: "la cantidad de personas son muchos más... al parecer estás considerando el número de nóminas al banco... revisa el excel donde el modelo... además revisa el detalle en la carpeta donde está el banco y corriges por la cantidad de beneficiarios".
+- **Confirmado leyendo un archivo real completo** (vía Microsoft Graph, `read_resource`): carpeta "Pagos Mensuales/anticipos/anticipo agosto 2026/RG/", archivo "MAESTRA CONSTRUCCION S.A.-Anticipo-Agosto '26-Transferencia Bancaria.txt" — 675 líneas, cada una 1 registro de ancho fijo (RUT+nombre+dirección+cuenta+fecha+monto, formato estándar de nómina de pago bancaria), monto por línea ~$150.000-750.000 (plausible para 1 persona). Sin encabezado ni fila de totales — las 675 líneas son 675 beneficiarios reales, **solo para esa sociedad, en RG, en agosto** — muy por encima de los ~15-20 "personas" que daba `payroll_line_items` (que en realidad contaba divisiones, ver Auto-Blindaje 21-ago-2026).
+- **Fix real — pipeline nuevo, no un ajuste de fórmula**:
+  - Migración `20260824000001_beneficiarios_reales_anticipo.sql` — tabla `payroll_beneficiarios_reales` (periodo, concepto ∈ {anticipo_rg, anticipo_rp}, cantidad, archivos_contados), RLS igual al resto de tablas de este proyecto.
+  - `src/features/ingestion/text-parser/transferencia-bancaria-parser.ts` — `contarBeneficiariosTransferenciaBancaria(texto)`: cuenta líneas que matchean `/^\d{7,9}[A-ZÑ]/` (RUT seguido de letra) — **nunca extrae ni retorna RUT/nombre**, solo un número. 7 tests con líneas 100% sintéticas.
+  - `src/features/cash-flow/services/sync-beneficiarios-anticipo.ts` — busca archivos "_Transferencia Bancaria_.txt" dentro de la carpeta "anticipo `<mes>` `<año>`" (filtro por RUTA de carpeta, no por nombre de archivo — RG/RP se determina por si la ruta contiene "/RG/" o "/RP/"), descarga cada uno (encoding `latin1`, típico de archivos de banco), cuenta con el parser de arriba, y guarda el TOTAL sumado (todas las sociedades) en `payroll_beneficiarios_reales` — nunca guarda el archivo ni sus líneas.
+  - `dotacion-total.ts` — `dotacionAnticipoRealDelMes`/`proporcionAnticipoRgHistorica`/`getDotacionPorConceptoYPeriodo` ahora leen `payroll_beneficiarios_reales` en vez de contar `payroll_line_items` para Anticipo RG/RP.
+  - `refresh.ts` — llama a `syncBeneficiariosAnticipo(mes)` dentro del loop mensual de "Actualizar reporte", mismo criterio de tolerancia que Cotización/Pagos Mensuales (mes actual sin archivo aún no es error).
+- **Pendiente de acción del usuario — 🔴 BLOQUEANTE**: aplicar la migración `20260824000001_beneficiarios_reales_anticipo.sql` en el SQL Editor de Supabase (el agente no tiene acceso a DDL en este entorno) ANTES de correr "Actualizar reporte" — sin esto, `sync-beneficiarios-anticipo.ts` falla con "relation does not exist". Después de aplicarla, correr "Actualizar reporte" para poblar la tabla con los meses ya cerrados.
+- **Verificado**: `npx tsc --noEmit`, `npx vitest run` (131/131) y `npm run build` limpios.
+- **Aplicar en**: cuando el N° "real" de un concepto se ve implausible, no asumir que la única fuente real disponible es la que ya se está usando — preguntar/buscar si existe una carpeta o archivo MÁS granular que el que se está parseando (en este caso, "Solicitud de Requerimiento" agrega por división, pero "Transferencia Bancaria" en la MISMA carpeta padre es grano de persona real) antes de concluir que el dato no es derivable.
+
 ---
 
 ## Gotchas (Antes de Implementar)
