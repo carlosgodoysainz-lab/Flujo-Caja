@@ -564,6 +564,18 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 - **Verificado**: `npx tsc --noEmit` (confirma que ninguna función eliminada/renombrada tenía caller externo — grep previo también lo confirmó), `npx vitest run` (139/139) y `npm run build` limpios. Sin test nuevo — este módulo no tenía cobertura unitaria previa (100% DB-integration, mismo criterio que el resto de `dotacion-total.ts`).
 - **Aplicar en**: cuando una función auxiliar de "razón histórica" hace su PROPIA query dentro de un loop llamado por período, sospechar de N+1 antes de que el dataset crezca — más aún si además llama a otra función que ADEMÁS relee todo el histórico completo cada vez sin importar el rango pedido (ese patrón, "leer todo y filtrar al final", es barato solo si se llama 1 vez, catastrófico si se llama dentro de un loop).
 
+### 2026-08-24: RP (dotación N° y Remuneración $) se ancla al promedio real — dejó de calcularse como residual
+
+- **Pedido del usuario**, viendo la hoja "Proyección Headcount" y la tabla de detalle: "el RP los sigues mostrando con un alza significativa de un mes para otro y eso no está bien si no tiene argumentos y la dotación de RP mantenla constante a menos que solicite un ajuste manual ya que esa dotación es muy estable".
+- **Causa raíz confirmada** (mismo patrón en 2 lugares distintos): tanto la dotación RP N° (`dotacionRgRpDelMes`, `dotacion-total.ts`) como la Remuneración RP $ (bloque de split en `refresh.ts`) se calculaban como RESIDUAL (`Total − RG`), nunca directo. La razón RG se mantiene casi constante (~95-96% en personas), pero el TOTAL de la compañía (dotación o $) sube/baja con el ciclo de obras — RP absorbía el 100% de ese movimiento pese a que su propia población (Anexo/Oficina Central) no tiene ninguna relación con las obras.
+- **Precedente ya validado en este mismo proyecto**: `promedioAnticipoRpReal` (`refresh.ts`, 20-ago-2026) ya resolvió exactamente este problema para Anticipo RP — RP pasa a ser el ANCLA (promedio de los últimos 3 meses reales) y RG absorbe el residual, al revés de como era antes.
+- **Fix real — mismo patrón replicado 2 veces**:
+  - `dotacion-total.ts` — nueva `promedioDotacionRpReal` (promedio de `dotacion_mensual.rp` de los últimos 3 meses reales); `dotacionRgRpDelMes` ahora ancla RP a ese promedio y RG = `total − rp`. Fallback final (sin ningún mes real de RP todavía): vuelve al split proporcional histórico anterior (`proporcionRgHistoricaPersonas`), nunca deja RP en 0 sin motivo.
+  - `refresh.ts` — nueva `promedioRemuneracionRpReal` (mismo patrón sobre `cash_flow_monthly` concepto=`remuneracion_rp`); el bloque de split invierte igual: RP = promedio real + beneficios RP, RG = `remuneración total − RP`. Mismo fallback final al split proporcional histórico si no hay ningún mes real de RP $ todavía.
+- **Sin test nuevo** — `dotacion-total.ts`/`refresh.ts` no tienen cobertura unitaria (100% DB-integration vía Supabase, sin ningún mock de Supabase en toda la suite de este proyecto) — mismo criterio ya aplicado a todo el resto de este archivo/`refresh.ts`; verificación vía "Actualizar reporte" en vivo.
+- **Verificado**: `npx tsc --noEmit`, `npx vitest run` (139/139, sin regresión) y `npm run build` limpios.
+- **Aplicar en**: cuando un split RG/RP (o cualquier partición de 2 poblaciones con tamaños muy distintos) se calcula como residual de una razón aplicada al total, y una de las 2 poblaciones es conocida como chica/estable por naturaleza de negocio, esa población SIEMPRE debe ser el ancla (promedio real) — nunca el residual — sin importar si es $ o N°; el patrón ya usado para Anticipo RP debía haberse generalizado desde un principio a Remuneración y Dotación.
+
 ---
 
 ## Gotchas (Antes de Implementar)

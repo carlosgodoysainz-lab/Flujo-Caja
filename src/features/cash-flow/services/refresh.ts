@@ -197,6 +197,40 @@ async function promedioAnticipoRpReal(
   return data.reduce((acc, row) => acc + Number(row.monto), 0) / data.length;
 }
 
+/**
+ * Promedio de los últimos N meses REALES de Remuneración RP ($) — mismo
+ * patrón que `promedioAnticipoRpReal`, aplicado al split $ de
+ * Remuneración. Bug real corregido 24-ago-2026: el split RG/RP de
+ * Remuneración calculaba RP como RESIDUAL (Total − RG) usando
+ * `proporcionRgHistorica` — y como esa razón se mantiene casi constante
+ * pero el TOTAL de Remuneración sube/baja con el ciclo de obras, RP (una
+ * población chica y estable, Anexo/Oficina Central) absorbía el 100% de
+ * ese movimiento (usuario: "el RP los sigues mostrando con un alza
+ * significativa de un mes para otro... mantenla constante"). Ahora RP es
+ * el ANCLA (promedio histórico real) y RG absorbe el residual — mismo
+ * criterio ya aplicado a Anticipo RP el 20-ago-2026 y a la dotación N° de
+ * RP el 24-ago-2026 (ver `promedioDotacionRpReal` en dotacion-total.ts).
+ * `null` si no hay ningún mes real todavía (cae al split proporcional
+ * histórico, comportamiento anterior a este fix).
+ */
+async function promedioRemuneracionRpReal(
+  supabase: ReturnType<typeof createServiceClient>,
+  antesDe: Date,
+  n = 3,
+): Promise<number | null> {
+  const { data } = await supabase
+    .from("cash_flow_monthly")
+    .select("monto")
+    .eq("concepto", "remuneracion_rp")
+    .eq("es_real", true)
+    .lt("periodo", antesDe.toISOString().slice(0, 10))
+    .order("periodo", { ascending: false })
+    .limit(n);
+
+  if (!data || data.length === 0) return null;
+  return data.reduce((acc, row) => acc + Number(row.monto), 0) / data.length;
+}
+
 /** Valor real ya cargado en `beneficios_line_items` para el mes — key `tipoEvento::poblacion`, ver beneficios.ts. */
 async function realBeneficiosDelMes(
   supabase: ReturnType<typeof createServiceClient>,
@@ -742,24 +776,49 @@ export async function refreshCashFlowReport(
         metodoCalculo: "ingesta_real",
       };
     } else {
-      const proporcionRg = await proporcionRgHistorica(supabase, mes);
-      if (proporcionRg != null) {
-        const baseSinBeneficios =
-          calculadoPorConcepto.remuneracion.monto -
-          beneficiosCalculado.rg.monto -
-          beneficiosCalculado.rp.monto;
-        const rgBase = Math.round(baseSinBeneficios * proporcionRg);
-        remuneracionRgFila = {
-          monto: rgBase + beneficiosCalculado.rg.monto,
-          esReal: false,
-          metodoCalculo: "split_proporcional_historico",
-        };
+      // RP es el ANCLA (promedio de los últimos meses reales, ver
+      // `promedioRemuneracionRpReal`) y RG absorbe el residual — al revés
+      // de como era antes (bug real corregido 24-ago-2026: RP subía y
+      // bajaba sin ningún dato real nuevo, arrastrado por el ciclo de
+      // obras vía `proporcionRgHistorica`, pese a que su propia población
+      // es chica y estable). Mismo criterio que Anticipo RG/RP.
+      const rpPromedio = await promedioRemuneracionRpReal(supabase, mes);
+      if (rpPromedio != null) {
+        const rp = Math.round(rpPromedio) + beneficiosCalculado.rp.monto;
         remuneracionRpFila = {
-          monto:
-            calculadoPorConcepto.remuneracion.monto - remuneracionRgFila.monto,
+          monto: rp,
           esReal: false,
-          metodoCalculo: "split_proporcional_historico",
+          metodoCalculo: "promedio_ultimos_3_meses_reales",
         };
+        remuneracionRgFila = {
+          monto: calculadoPorConcepto.remuneracion.monto - rp,
+          esReal: false,
+          metodoCalculo: "residual_remuneracion_total_menos_rp",
+        };
+      } else {
+        // Fallback final: sin NINGÚN mes real de Remuneración RP todavía
+        // (compañía/obra muy nueva) — vuelve al split proporcional
+        // histórico, comportamiento anterior a este fix.
+        const proporcionRg = await proporcionRgHistorica(supabase, mes);
+        if (proporcionRg != null) {
+          const baseSinBeneficios =
+            calculadoPorConcepto.remuneracion.monto -
+            beneficiosCalculado.rg.monto -
+            beneficiosCalculado.rp.monto;
+          const rgBase = Math.round(baseSinBeneficios * proporcionRg);
+          remuneracionRgFila = {
+            monto: rgBase + beneficiosCalculado.rg.monto,
+            esReal: false,
+            metodoCalculo: "split_proporcional_historico",
+          };
+          remuneracionRpFila = {
+            monto:
+              calculadoPorConcepto.remuneracion.monto -
+              remuneracionRgFila.monto,
+            esReal: false,
+            metodoCalculo: "split_proporcional_historico",
+          };
+        }
       }
     }
 

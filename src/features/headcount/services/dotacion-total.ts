@@ -258,14 +258,50 @@ export async function proporcionRgHistoricaPersonas(
 }
 
 /**
+ * Promedio de los últimos N meses REALES de dotación RP (personas) —
+ * mismo patrón que `promedioAnticipoRpReal` (refresh.ts) aplicado a la
+ * dotación N° de RP. `null` si no hay ningún mes real todavía.
+ *
+ * Bug real corregido 24-ago-2026: `dotacionRgRpDelMes` calculaba RP
+ * SIEMPRE como residual (Total − RG) — y como la razón RG se mantiene
+ * casi constante (~95-96%, ver `proporcionRgHistoricaPersonas`) pero el
+ * TOTAL de la compañía sube/baja por el ciclo de obras, RP absorbía el
+ * 100% de esa variación pese a que su propia población (Anexo/Oficina
+ * Central) no tiene ninguna relación con las obras — reportado por el
+ * usuario ("el RP... alza significativa de un mes para otro... mantenla
+ * constante... esa dotación es muy estable"). Ahora RP es el ANCLA
+ * (promedio histórico real) y RG absorbe el residual — al revés de
+ * antes, mismo criterio ya aplicado a Anticipo RP el 20-ago-2026 (ver
+ * `promedioAnticipoRpReal`).
+ */
+export async function promedioDotacionRpReal(
+  supabase: ReturnType<typeof createServiceClient>,
+  antesDe: Date,
+  n = 3,
+): Promise<number | null> {
+  const { data } = await supabase
+    .from("dotacion_mensual")
+    .select("rp")
+    .not("rp", "is", null)
+    .lt("periodo", antesDe.toISOString().slice(0, 10))
+    .order("periodo", { ascending: false })
+    .limit(n);
+
+  if (!data || data.length === 0) return null;
+  return data.reduce((acc, fila) => acc + Number(fila.rp), 0) / data.length;
+}
+
+/**
  * Dotación RG/RP del mes — reutiliza EXACTAMENTE la dimensión que ya
  * existe para Anticipo/Remuneración (pedido explícito del usuario: "las
  * personas sindicalizadas son solo de la constructora [Rol General], el
  * resto se rige por el anexo"). Real desde `dotacion_mensual` (columnas
- * rg/rp del Excel histórico) cuando el mes ya está cerrado; si no, se
- * deriva de la dotación TOTAL ya calculada aplicando la razón histórica
- * de PERSONAS RG/(RG+RP) — ver `proporcionRgHistoricaPersonas` (nunca la
- * razón en $, que es distinta a propósito).
+ * rg/rp del Excel histórico) cuando el mes ya está cerrado; si no, RP se
+ * ancla al promedio histórico real (`promedioDotacionRpReal`) y RG
+ * absorbe el residual (Total − RP) — ver comentario de esa función.
+ * Fallback final (sin NINGÚN mes real de RP todavía, compañía/obra muy
+ * nueva): vuelve al split proporcional histórico de personas
+ * (`proporcionRgHistoricaPersonas`), comportamiento anterior a este fix.
  */
 export async function dotacionRgRpDelMes(
   supabase: ReturnType<typeof createServiceClient>,
@@ -284,6 +320,13 @@ export async function dotacionRgRpDelMes(
 
   const total = dotacionPorPeriodo.get(periodoStr)?.total ?? 0;
   if (total === 0) return { rg: 0, rp: 0 };
+
+  const rpPromedio = await promedioDotacionRpReal(supabase, mes);
+  if (rpPromedio != null) {
+    const rp = Math.round(rpPromedio);
+    return { rg: total - rp, rp };
+  }
+
   const proporcionRg = await proporcionRgHistoricaPersonas(supabase, mes);
   if (proporcionRg == null) return { rg: 0, rp: 0 };
   const rg = Math.round(total * proporcionRg);
