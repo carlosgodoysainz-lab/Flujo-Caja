@@ -10,7 +10,7 @@ import {
 import {
   getDotacionTotalPorPeriodo,
   getDotacionPorConceptoYPeriodo,
-  getDotacionRgRpPorPeriodo,
+  getOficinaCentralHeadcountPorPeriodo,
 } from "@/features/headcount/services/dotacion-total";
 import { getPlanObraConDotacion } from "@/features/headcount/services/plan-obra-dotacion";
 import { renderReportHtml } from "./render";
@@ -73,7 +73,7 @@ export async function exportReportAsHtml(
       periodoDesde,
       periodoHasta,
     );
-    // Solo para la fila "Oficina Central (RP)" de la hoja "Proyección
+    // Solo para la fila "Oficina Central" de la hoja "Proyección
     // Headcount" — 1 mes ANTES de `periodoDesde` para poder calcular la
     // variación neta de la primera columna visible (ver render-excel.ts).
     const unMesAntesDePeriodoDesde = new Date(
@@ -81,7 +81,7 @@ export async function exportReportAsHtml(
       periodoDesde.getMonth() - 1,
       1,
     );
-    const dotacionRgRpPorPeriodo = await getDotacionRgRpPorPeriodo(
+    const oficinaCentralPorPeriodo = await getOficinaCentralHeadcountPorPeriodo(
       unMesAntesDePeriodoDesde,
       periodoHasta,
     );
@@ -141,7 +141,7 @@ export async function exportReportAsHtml(
       columnasAgrupadasHastaPeriodo: periodoDesdeStr,
       generadoEn,
       planObraDotacion,
-      dotacionRgRpPorPeriodo,
+      oficinaCentralPorPeriodo,
     });
 
     const fechaSlug = generadoEn.toISOString().slice(0, 10);

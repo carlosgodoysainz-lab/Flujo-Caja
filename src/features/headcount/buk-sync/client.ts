@@ -30,6 +30,18 @@ interface BukApiRawEmployee {
   active_since: string | null;
   active_until: string | null;
   current_job: BukApiCurrentJob | null;
+  /**
+   * Clasificación contractual real RG/RP a nivel de EMPLEADO — la misma
+   * etiqueta "Rol Privado" que se ve en la UI de Buk. Encontrado en vivo
+   * 25-ago-2026 (llamada de diagnóstico de solo lectura a la API real):
+   * viene en la raíz de cada registro, `client.ts` nunca lo pedía ni
+   * mapeaba — el código usaba "¿el área matchea una obra?" como sustituto
+   * de RP, un proxy conocido por ser inestable (ver Auto-Blindaje, bug de
+   * 98 personas mal clasificadas por naming de área). Este campo permite
+   * calcular "Oficina Central" de forma confiable: RP = `private_role
+   * === true`; "RG sin obra" = `private_role === false` Y área sin match.
+   */
+  private_role: boolean;
 }
 
 interface BukApiResponse {
@@ -43,6 +55,8 @@ export interface BukEmpleadoMinimo {
   familiaCargo: string | null;
   areaId: string | null;
   activeSince: string | null;
+  /** Ver `BukApiRawEmployee.private_role` — RP real, no un proxy por área. */
+  esRolPrivado: boolean;
 }
 
 async function fetchPage(
@@ -67,6 +81,7 @@ function mapMinimo(raw: BukApiRawEmployee): BukEmpleadoMinimo {
     familiaCargo: cj?.role?.role_family?.name ?? null,
     areaId: cj?.area_id != null ? String(cj.area_id) : null,
     activeSince: raw.active_since,
+    esRolPrivado: raw.private_role === true,
   };
 }
 

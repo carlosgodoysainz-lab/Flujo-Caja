@@ -10,6 +10,10 @@ export interface BukSnapshotResult {
   cargosActualizados: number;
   gruposGuardados: number;
   obrasResueltas: number;
+  /** Ver `oficina_central_snapshots` — RP contractual real (private_role de Buk). */
+  rolPrivadoCount: number;
+  /** RG (Rol General) cuya área no matcheó ninguna obra — también cuenta como Oficina Central. */
+  rgSinObraCount: number;
   errores: string[];
 }
 
@@ -143,6 +147,35 @@ export async function runBukSnapshot(
     if (insertError)
       errores.push(`Error guardando snapshots: ${insertError.message}`);
 
+    // 4. "Oficina Central" real (RP + RG sin obra) — pedido explícito del
+    // usuario 25-ago-2026, ver migración `oficina_central_snapshots`.
+    // Reutiliza el mismo `empleados` y el mismo `obraIdPorAreaId` ya
+    // calculados arriba — sin ninguna llamada extra a la API de Buk.
+    let rolPrivadoCount = 0;
+    let rgSinObraCount = 0;
+    for (const emp of empleados) {
+      if (emp.esRolPrivado) {
+        rolPrivadoCount++;
+        continue;
+      }
+      const tieneObra = emp.areaId ? obraIdPorAreaId.has(emp.areaId) : false;
+      if (!tieneObra) rgSinObraCount++;
+    }
+    const { error: oficinaCentralError } = await supabase
+      .from("oficina_central_snapshots")
+      .upsert(
+        {
+          snapshot_date: snapshotDate,
+          rol_privado_count: rolPrivadoCount,
+          rg_sin_obra_count: rgSinObraCount,
+        },
+        { onConflict: "snapshot_date" },
+      );
+    if (oficinaCentralError)
+      errores.push(
+        `Error guardando snapshot de Oficina Central: ${oficinaCentralError.message}`,
+      );
+
     await supabase.from("audit_log").insert({
       actor_id: null, // corrido por cron, no por un usuario
       accion: "buk_snapshot",
@@ -153,6 +186,8 @@ export async function runBukSnapshot(
         cargosNuevos: cargosNuevos.length,
         areasResueltasAObra: obraIdPorAreaId.size,
         areasTotal: areaIdsUnicos.length,
+        rolPrivadoCount,
+        rgSinObraCount,
       },
     });
 
@@ -162,6 +197,8 @@ export async function runBukSnapshot(
       cargosActualizados: cargosNuevos.length,
       gruposGuardados: filas.length,
       obrasResueltas: obraIdPorAreaId.size,
+      rolPrivadoCount,
+      rgSinObraCount,
       errores,
     };
   } catch (error) {
@@ -172,6 +209,8 @@ export async function runBukSnapshot(
       cargosActualizados: 0,
       gruposGuardados: 0,
       obrasResueltas: 0,
+      rolPrivadoCount: 0,
+      rgSinObraCount: 0,
       errores: [...errores, message],
     };
   }

@@ -9,6 +9,7 @@ function emp(partial: Partial<BukEmpleadoMinimo>): BukEmpleadoMinimo {
     familiaCargo: "Obra",
     areaId: "100",
     activeSince: null,
+    esRolPrivado: false,
     ...partial,
   };
 }

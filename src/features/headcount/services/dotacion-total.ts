@@ -385,6 +385,89 @@ export async function getDotacionRgRpPorPeriodo(
 }
 
 /**
+ * Dotación de "Oficina Central" real por período — PARA LA FILA "Oficina
+ * Central" de la hoja Excel "Proyección Headcount" (`render-excel.ts`),
+ * EXCLUSIVAMENTE. No reemplaza ni toca `dotacionRgRpDelMes`/
+ * `promedioDotacionRpReal` (esas siguen alimentando el split $ de
+ * Anticipo/Remuneración RG/RP en otras hojas, una fórmula ya afinada en
+ * una ronda anterior).
+ *
+ * Pedido explícito del usuario 25-ago-2026: "oficina central incluye RP
+ * y RG [el que] no está asignado a ninguna obra" — antes esta fila solo
+ * sumaba `dotacion_mensual.rp` (RP contractual), dejando fuera a la gente
+ * RG que no trabaja en ninguna obra (ej. bodega/taller central).
+ *
+ * Por período: si ya existe una fila REAL cerrada en `dotacion_mensual`
+ * (Finanzas), usa su `.rp` tal cual — un mes ya cerrado no se puede
+ * reabrir retroactivamente con el desglose nuevo (Finanzas nunca separó
+ * "RG sin obra" en su Excel histórico). Si no hay fila real (mes actual o
+ * proyectado), usa el snapshot MÁS RECIENTE de `oficina_central_snapshots`
+ * (`rol_privado_count + rg_sin_obra_count`, ver migración y
+ * `buk-sync/sync.ts`) — dato real en vivo vía `private_role` de Buk, en
+ * vez del promedio de 3 meses que usa el split $ (mejor: es un conteo
+ * real de HOY, no un promedio histórico).
+ *
+ * Un período sin ningún dato (ni real ni snapshot de Buk todavía) NO
+ * entra al mapa — el caller debe tratar la ausencia de clave como "sin
+ * dato", nunca como 0 (evita esconder un hueco real de datos).
+ */
+export async function getOficinaCentralHeadcountPorPeriodo(
+  periodoDesde: Date,
+  periodoHasta: Date,
+): Promise<Map<string, number>> {
+  const supabase = createServiceClient();
+  const desdeStr = periodoDesde.toISOString().slice(0, 10);
+  const hastaStr = periodoHasta.toISOString().slice(0, 10);
+
+  const { data: filasReales } = await supabase
+    .from("dotacion_mensual")
+    .select("periodo, rp")
+    .gte("periodo", desdeStr)
+    .lte("periodo", hastaStr)
+    .not("rp", "is", null);
+  const rpRealPorPeriodo = new Map<string, number>(
+    (filasReales ?? []).map((f) => [f.periodo as string, f.rp as number]),
+  );
+
+  const { data: snapshotReciente } = await supabase
+    .from("oficina_central_snapshots")
+    .select("rol_privado_count, rg_sin_obra_count")
+    .lte("snapshot_date", hastaStr)
+    .order("snapshot_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const oficinaCentralViva =
+    snapshotReciente != null
+      ? snapshotReciente.rol_privado_count + snapshotReciente.rg_sin_obra_count
+      : null;
+
+  const resultado = new Map<string, number>();
+  const cursor = new Date(
+    periodoDesde.getFullYear(),
+    periodoDesde.getMonth(),
+    1,
+  );
+  const hasta = new Date(
+    periodoHasta.getFullYear(),
+    periodoHasta.getMonth(),
+    1,
+  );
+  let guard = 0;
+  while (cursor <= hasta && guard < 240) {
+    const periodoStr = cursor.toISOString().slice(0, 10);
+    const real = rpRealPorPeriodo.get(periodoStr);
+    if (real != null) {
+      resultado.set(periodoStr, real);
+    } else if (oficinaCentralViva != null) {
+      resultado.set(periodoStr, oficinaCentralViva);
+    }
+    cursor.setMonth(cursor.getMonth() + 1);
+    guard++;
+  }
+  return resultado;
+}
+
+/**
  * N° REAL de gente que recibió Anticipo (rg+rp) en un período específico —
  * lookup PURO (sin query) sobre un mapa `payroll_beneficiarios_reales` ya
  * prefetcheado (ver `getDotacionPorConceptoYPeriodo`). `null` si no hay

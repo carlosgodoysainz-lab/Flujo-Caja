@@ -3,7 +3,6 @@ import ExcelJS from "exceljs";
 import { renderReportExcel } from "./render-excel";
 import type { ResumenKpis } from "@/features/cash-flow/services/queries";
 import type { PlanObraDotacionFila } from "@/features/headcount/services/plan-obra-dotacion";
-import type { DotacionRgRpPunto } from "@/features/headcount/services/dotacion-total";
 
 const KPIS: ResumenKpis = {
   totalMesActual: 100_000_000,
@@ -379,7 +378,7 @@ describe("renderReportExcel", () => {
     expect(filaTotal.getCell(10).value).toBe(15);
   });
 
-  it("con dotacionRgRpPorPeriodo, agrega la fila 'Oficina Central (RP)' e la incluye en el Total", async () => {
+  it("con oficinaCentralPorPeriodo, agrega la fila 'Oficina Central' e la incluye en el Total", async () => {
     const PLAN_OBRA_DOTACION: PlanObraDotacionFila[] = [
       {
         obraId: "obra-1",
@@ -414,13 +413,13 @@ describe("renderReportExcel", () => {
         origenVariacion: "buk_real",
       },
     ];
-    // rp: may-26=100, jun-26=105 (Δ=+5, mes anterior al primero visible,
-    // no se muestra pero se usa para calcular la Δ de jun-26), jul-26=98
-    // (Δ=-7).
-    const DOTACION_RG_RP: Map<string, DotacionRgRpPunto> = new Map([
-      ["2026-05-01", { rg: 500, rp: 100 }],
-      ["2026-06-01", { rg: 520, rp: 105 }],
-      ["2026-07-01", { rg: 530, rp: 98 }],
+    // Oficina Central (RP + RG sin obra): may-26=100, jun-26=105 (Δ=+5,
+    // mes anterior al primero visible, no se muestra pero se usa para
+    // calcular la Δ de jun-26), jul-26=98 (Δ=-7).
+    const OFICINA_CENTRAL: Map<string, number> = new Map([
+      ["2026-05-01", 100],
+      ["2026-06-01", 105],
+      ["2026-07-01", 98],
     ]);
 
     const buffer = await renderReportExcel({
@@ -439,7 +438,7 @@ describe("renderReportExcel", () => {
       periodoHasta: "2026-07-01",
       generadoEn: new Date(2026, 7, 4),
       planObraDotacion: PLAN_OBRA_DOTACION,
-      dotacionRgRpPorPeriodo: DOTACION_RG_RP,
+      oficinaCentralPorPeriodo: OFICINA_CENTRAL,
     });
 
     const wb = await leerWorkbook(buffer);
@@ -447,7 +446,7 @@ describe("renderReportExcel", () => {
 
     // Fila 2 = Obra Alfa, fila 3 = Oficina Central, fila 4 = Total.
     const filaOficinaCentral = headcount.getRow(3);
-    expect(filaOficinaCentral.getCell(1).value).toBe("Oficina Central (RP)");
+    expect(filaOficinaCentral.getCell(1).value).toBe("Oficina Central");
     expect(filaOficinaCentral.getCell(9).value).toBe(5); // jun-26: 105-100
     expect(filaOficinaCentral.getCell(10).value).toBe(-7); // jul-26: 98-105
 
@@ -459,7 +458,7 @@ describe("renderReportExcel", () => {
     expect(filaTotal.getCell(10).value).toBe(43);
   });
 
-  it("sin dotacionRgRpPorPeriodo, NO agrega la fila 'Oficina Central' (comportamiento previo intacto)", async () => {
+  it("sin oficinaCentralPorPeriodo, NO agrega la fila 'Oficina Central' (comportamiento previo intacto)", async () => {
     const PLAN_OBRA_DOTACION: PlanObraDotacionFila[] = [
       {
         obraId: "obra-1",
