@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/service";
 import { RunForecastButton } from "@/features/headcount/forecast-model/components/run-forecast-button";
+import { UploadHeadcountManualForm } from "@/features/headcount/components/upload-headcount-manual-form";
 import { Badge } from "@/shared/ui/badge";
 import {
   Table,
@@ -73,6 +74,10 @@ export default async function DotacionPage() {
         (Fase 6) — compara contra obras similares (mismo tipo, unidades ±30%)
         con histórico real.
       </p>
+
+      <div className="mt-6">
+        <UploadHeadcountManualForm />
+      </div>
 
       <Table className="mt-6">
         <TableHeader>
