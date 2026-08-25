@@ -326,12 +326,17 @@ export function renderReportHtml(params: {
   /* Hero — fondo Carbón full-bleed a lo ancho de la página, contenido
      acotado y centrado por dentro. */
   .hero { background: var(--carbon); color: var(--text); padding-bottom: 24px; }
+  /* Ensanchado a 1600px (antes 1152px) para alinear con .chart-outer —
+     con el gráfico ya en 1600px, dejar el título/KPIs en 1152px se veía
+     descuadrado al lado de él (pedido explícito del usuario, 25-ago-2026,
+     visto en el HTML descargado). Mismo ancho aplicado en /reporte en
+     vivo (hero-consolidado.tsx) para mantener ambos consistentes. */
   .hero-topbar {
     display: flex; align-items: center; justify-content: space-between;
-    max-width: 1152px; margin: 0 auto; padding: 16px 24px 0;
+    max-width: 1600px; margin: 0 auto; padding: 16px 24px 0;
   }
   .hero-topbar .fecha { font-size: 12px; color: var(--text-muted); font-family: "Segoe UI", sans-serif; }
-  .hero-content { max-width: 1152px; margin: 0 auto; padding: 12px 24px 0; }
+  .hero-content { max-width: 1600px; margin: 0 auto; padding: 12px 24px 0; }
   .hero h1 { font-size: 22px; font-weight: 700; margin: 8px 0 4px; }
   .hero h1 .accent { color: var(--signal); }
   .hero .subtitle { font-size: 13px; color: var(--text-muted); max-width: 640px; margin: 4px 0 0; font-family: "Segoe UI", sans-serif; }

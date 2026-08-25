@@ -44,12 +44,15 @@ export function HeroConsolidado({
       : `${kpis.variacionPct >= 0 ? "▲" : "▼"} ${Math.abs(kpis.variacionPct).toFixed(1)}%`;
 
   return (
-    // Full-bleed: fondo Carbón a lo ANCHO COMPLETO de la página; el
-    // contenido interno sí se acota a max-w-6xl y se centra, para alinear
-    // con el resto de la página de abajo.
+    // Full-bleed: fondo Carbón a lo ANCHO COMPLETO de la página. El
+    // bloque de título/KPIs de abajo se ensancha a max-w-[1600px] (mismo
+    // ancho que el gráfico) — antes quedaba a max-w-6xl (1152px), más
+    // angosto que el gráfico, lo que se veía descuadrado al lado de él
+    // (pedido explícito del usuario, 25-ago-2026). El resto de la página
+    // (tabla de detalle) sigue en max-w-6xl — solo el hero se ensancha.
     <section className="relative w-full bg-cgs-carbon text-cgs-text">
       {/* Posicionado respecto al hero completo (full-bleed), no al
-          contenedor centrado max-w-6xl de abajo — pedido explícito
+          contenedor centrado de abajo — pedido explícito
           ("quede en la esquina superior derecha"): dentro del div
           centrado quedaba en la esquina de ESE bloque, no de la página. */}
       {onCerrarSesion && (
@@ -62,7 +65,7 @@ export function HeroConsolidado({
           </button>
         </form>
       )}
-      <div className="mx-auto max-w-6xl px-6 py-6">
+      <div className="mx-auto max-w-[1600px] px-6 py-6">
         {sesionEmail && (
           <p className="mb-4 text-xs text-cgs-text-muted">
             Sesión: {sesionEmail}
@@ -133,11 +136,9 @@ export function HeroConsolidado({
         )}
       </div>
 
-      {/* El gráfico va en SU PROPIO contenedor, más ancho que el resto del
-          hero (max-w-6xl arriba) — pedido explícito del usuario ("más
-          amplia hacia los lados"), y coherente con "Escala de Obras" de
-          referencia, que también ocupa mucho más ancho que el resto de su
-          dashboard. */}
+      {/* El gráfico comparte el mismo max-w-[1600px] que el bloque de
+          arriba (ver comentario del section) — antes era su propio ancho
+          distinto del resto del hero, ahora ambos están alineados. */}
       <div className="mx-auto max-w-[1600px] px-4 pb-6">
         <div className="rounded-md bg-white/5 p-3">
           <p className="mb-2 text-xs font-medium uppercase tracking-wide text-cgs-text-muted">
