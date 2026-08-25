@@ -21,6 +21,37 @@ import {
 } from "@/features/headcount/services/periodo";
 
 /**
+ * Elimina filas HUÉRFANAS de `headcount_by_obra` para una obra —
+ * períodos que quedaron FUERA del rango válido actual
+ * `[inicio_obra, inicio_obra + dur_obra_meses)`. Bug real corregido
+ * 25-ago-2026, encontrado por la auditoría automatizada (Fase 12), no
+ * por reporte manual del usuario: cuando Gespro actualiza `inicio_obra`
+ * de una obra (el plan de obra se corre en el tiempo) o cuando una obra
+ * pasa de estimarse por similitud a usar su propio histórico real de Buk
+ * (ver `intentarUsarSnapshotPropio`), el `upsert` (onConflict
+ * "obra_id,periodo") solo escribe/actualiza los períodos del rango
+ * NUEVO — nunca borra los del rango VIEJO que ya no corresponden,
+ * dejándolos huérfanos para siempre. Confirmado en 14 obras reales tras
+ * el refresh de hoy (ej. "Vista Llacolén B" tenía 25 filas para una
+ * duración de 24 meses — un mes 2025-07 huérfano de un cálculo anterior
+ * a que Gespro corrigiera su `inicio_obra` a 2025-08). NUNCA borra filas
+ * `origen='manual'`.
+ */
+async function limpiarFilasHuerfanas(
+  supabase: ReturnType<typeof createServiceClient>,
+  obraId: string,
+  periodoDesdeValido: string,
+  periodoHastaValido: string,
+): Promise<void> {
+  await supabase
+    .from("headcount_by_obra")
+    .delete()
+    .eq("obra_id", obraId)
+    .neq("origen", "manual")
+    .or(`periodo.lt.${periodoDesdeValido},periodo.gt.${periodoHastaValido}`);
+}
+
+/**
  * Intenta usar el histórico REAL de Buk de la OBRA OBJETIVO misma (no de
  * una obra "similar") — pedido implícito confirmado con datos reales
  * 25-ago-2026: "Matilde Throup" tiene 418 snapshots reales propios (167
@@ -124,6 +155,12 @@ async function intentarUsarSnapshotPropio(
     if (upsertError)
       errores.push(`Error guardando dato real propio: ${upsertError.message}`);
   }
+  await limpiarFilasHuerfanas(
+    supabase,
+    obraObjetivo.id,
+    inicioObraPeriodo,
+    sumarMesesAPeriodo(inicioObraPeriodo, obraObjetivo.dur_obra_meses - 1),
+  );
 
   return {
     estado: errores.length > 0 ? "error" : "ok",
@@ -456,6 +493,12 @@ export async function runForecastModel(
     if (upsertError)
       errores.push(`Error guardando estimación: ${upsertError.message}`);
   }
+  await limpiarFilasHuerfanas(
+    supabase,
+    obraId,
+    inicioObraPeriodo,
+    sumarMesesAPeriodo(inicioObraPeriodo, obraObjetivo.dur_obra_meses - 1),
+  );
 
   return {
     estado: errores.length > 0 ? "error" : "ok",
