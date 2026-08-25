@@ -13,6 +13,7 @@ import {
   interpolarHuecos,
   mesDeCierre,
   METODO_FORECAST_ACTUAL,
+  type PuntoCurva,
   promediarCurvas,
 } from "./curve";
 import {
@@ -52,35 +53,23 @@ async function limpiarFilasHuerfanas(
 }
 
 /**
- * Intenta usar el histórico REAL de Buk de la OBRA OBJETIVO misma (no de
- * una obra "similar") — pedido implícito confirmado con datos reales
- * 25-ago-2026: "Matilde Throup" tiene 418 snapshots reales propios (167
- * personas, crecimiento real documentado desde may-2025) pero el modelo
- * nunca los usaba, solo miraba obras similares (`obrasSimilares` excluye
- * explícitamente la obra objetivo de sí misma, ver `similarity.ts`).
- * Real gana sobre fórmula — mismo principio ya aplicado en todo el resto
- * del proyecto (Anticipo, Remuneración, RP): cuando existe dato real
- * propio, se usa directo, sin necesidad de comparar contra ninguna obra
- * similar.
+ * Curva REAL de la obra objetivo (no de una obra "similar"), indexada por
+ * mes de avance — `null` en un mes = sin snapshot real propio ese mes.
+ * `null` la función completa si la obra no tiene NINGÚN snapshot propio,
+ * o si todos caen fuera de su rango de avance (caso real "General
+ * Mackenna 1": 148 snapshots de 2018-2023, todos anteriores a su propio
+ * `inicio_obra` 2028-02-01 — `curvaPorAvance` ya los descarta).
  *
- * `null` si la obra no tiene ningún snapshot propio (el caller cae al
- * flujo de estimación por similitud, sin cambios). Si tiene: escribe
- * `origen='buk_real'` (no `'modelo_estimado'`) y `forecast_run_id: null`
- * — no es una corrida de MODELO, es una copia directa de dato real, no
- * genera fila en `headcount_forecast_runs`. Nunca pisa un período con
- * `origen='manual'` ya cargado a mano.
- *
- * Se re-corre en CADA refresh (a diferencia de un override manual, que
- * queda protegido para siempre) — los snapshots de Buk siguen llegando
- * mes a mes, así que esta curva debe seguir actualizándose con ellos
- * (ver `ORIGENES_PROTEGIDOS` en `refresh.ts`, que ya NO incluye
- * `'buk_real'` por este motivo).
+ * Pedido implícito confirmado con datos reales 25-ago-2026: "Matilde
+ * Throup" tiene 418 snapshots reales propios (167 personas, crecimiento
+ * real documentado desde may-2025) pero el modelo nunca los usaba, solo
+ * miraba obras similares (`obrasSimilares` excluye explícitamente la
+ * obra objetivo de sí misma, ver `similarity.ts`).
  */
-async function intentarUsarSnapshotPropio(
+async function obtenerCurvaRealPropia(
   supabase: ReturnType<typeof createServiceClient>,
   obraObjetivo: { id: string; inicio_obra: string; dur_obra_meses: number },
-  session: { user?: { id?: string | null } | null } | null,
-): Promise<RunForecastModelResult | null> {
+): Promise<(number | null)[] | null> {
   const { data: snapshots } = await supabase
     .from("buk_dotacion_snapshots")
     .select("snapshot_date, activos")
@@ -101,17 +90,30 @@ async function intentarUsarSnapshotPropio(
   }));
 
   const inicioObraLocal = fechaLocalDesdeString(obraObjetivo.inicio_obra);
-  const curvaPropia = curvaPorAvance(
+  const curva = curvaPorAvance(
     puntos,
     inicioObraLocal,
     obraObjetivo.dur_obra_meses,
   );
-  if (curvaPropia.every((v) => v == null)) return null;
+  return curva.every((v) => v == null) ? null : curva;
+}
 
-  // Reutiliza promediarCurvas([curvaPropia], dur) como mecanismo ya
-  // probado de "mantener último valor conocido + marcar
-  // sinDatoReferencia" — con 1 sola curva, el "promedio" es exactamente
-  // la curva propia, sin escribir esa lógica de nuevo.
+/**
+ * Fallback para cuando NO existe ninguna obra similar utilizable (0
+ * referencias, o ninguna con histórico de Buk) pero la obra objetivo SÍ
+ * tiene su propio histórico real — escribe solo con ese dato real, sin
+ * ninguna proyección de similitud posible (no hay con qué). Reutiliza
+ * `promediarCurvas([curvaPropia], dur)` como mecanismo ya probado de
+ * "mantener último valor conocido + marcar sinDatoReferencia" — con 1
+ * sola curva, el "promedio" es exactamente la curva propia.
+ */
+async function escribirSoloDatoReal(
+  supabase: ReturnType<typeof createServiceClient>,
+  obraObjetivo: { id: string; inicio_obra: string; dur_obra_meses: number },
+  curvaPropia: (number | null)[],
+  inicioObraPeriodo: string,
+  session: { user?: { id?: string | null } | null } | null,
+): Promise<RunForecastModelResult> {
   const curvaFinal = promediarCurvas(
     [curvaPropia],
     obraObjetivo.dur_obra_meses,
@@ -121,7 +123,6 @@ async function intentarUsarSnapshotPropio(
     (v) => v.sinDatoReferencia,
   ).length;
 
-  const inicioObraPeriodo = periodoDeFecha(obraObjetivo.inicio_obra);
   const filas = variacionNeta.map((v, mesIndex) => ({
     obra_id: obraObjetivo.id,
     periodo: sumarMesesAPeriodo(inicioObraPeriodo, mesIndex),
@@ -134,7 +135,6 @@ async function intentarUsarSnapshotPropio(
     created_by: session?.user?.id ?? null,
   }));
 
-  // Nunca pisar un período cargado a mano.
   const { data: filasManuales } = await supabase
     .from("headcount_by_obra")
     .select("periodo")
@@ -210,6 +210,21 @@ export interface RunForecastModelResult {
  * por el usuario): la dotación total de la compañía —y por lo tanto el
  * flujo de caja que la usa como input— se ajusta a la baja en los meses
  * donde antes una obra ya cerrada seguía "plana" en vez de bajar a 0.
+ *
+ * v5 "real + similitud combinados" (25-ago-2026, 2da vuelta — bug real
+ * reportado por el usuario viendo el Excel: "Lira Parque pusiste 59 y 45
+ * [personas]... estaba mejor antes", "Jorge Edwards" y "Matilde Throup"
+ * en cero total): la v4 (`intentarUsarSnapshotPropio`) usaba el dato real
+ * propio como REEMPLAZO COMPLETO de la estimación por similitud — una
+ * obra con solo 1-2 meses de histórico real (todo Buk real es "hasta
+ * hoy", nunca futuro) quedaba con el resto de su vida útil entera en
+ * `sin_dato_referencia`/0, justo la proyección que este reporte existe
+ * para dar. Ahora el dato real propio se SUPERPONE mes a mes sobre la
+ * curva de similitud (con ciclo de vida completo) en vez de reemplazarla:
+ * real donde existe (`origen='buk_real'`, nunca tocado por el modelo),
+ * estimación por similitud donde no. Si NO hay ninguna obra similar
+ * utilizable, cae al fallback anterior (`escribirSoloDatoReal`: solo
+ * dato real, sin proyección — no hay con qué proyectar).
  */
 export async function runForecastModel(
   obraId: string,
@@ -249,16 +264,13 @@ export async function runForecastModel(
     };
   }
 
-  // Real gana sobre fórmula: si la obra tiene histórico propio de Buk,
-  // usarlo directo — nunca comparar contra obras "similares" cuando ya
-  // existe el dato real de la obra misma (ver Auto-Blindaje 25-ago-2026,
-  // caso "Matilde Throup").
-  const resultadoReal = await intentarUsarSnapshotPropio(
-    supabase,
-    obraObjetivo,
-    session,
-  );
-  if (resultadoReal) return resultadoReal;
+  const inicioObraPeriodo = periodoDeFecha(obraObjetivo.inicio_obra);
+
+  // Real gana sobre fórmula: se calcula la curva real propia (si existe)
+  // para SUPERPONERLA después sobre la estimación por similitud, mes a
+  // mes — nunca como reemplazo completo (ver Auto-Blindaje 25-ago-2026,
+  // 2da vuelta, casos "Lira Parque"/"Jorge Edwards"/"Matilde Throup").
+  const curvaPropia = await obtenerCurvaRealPropia(supabase, obraObjetivo);
 
   const { data: todasLasObras } = await supabase
     .from("obras")
@@ -297,6 +309,15 @@ export async function runForecastModel(
   );
 
   if (referencias.length === 0) {
+    if (curvaPropia) {
+      return escribirSoloDatoReal(
+        supabase,
+        obraObjetivo,
+        curvaPropia,
+        inicioObraPeriodo,
+        session,
+      );
+    }
     return {
       estado: "error",
       obraId,
@@ -374,6 +395,15 @@ export async function runForecastModel(
   }
 
   if (curvasEscaladas.length === 0) {
+    if (curvaPropia) {
+      return escribirSoloDatoReal(
+        supabase,
+        obraObjetivo,
+        curvaPropia,
+        inicioObraPeriodo,
+        session,
+      );
+    }
     return {
       estado: "error",
       obraId,
@@ -399,14 +429,23 @@ export async function runForecastModel(
   const pico = Math.max(0, ...curvaPromedio.map((p) => p.valor));
   const maxDeltaPorMes = Math.max(3, Math.round(0.25 * pico));
 
-  const curvaFinal = aplicarCicloDeVida(curvaPromedio, {
+  const curvaCicloDeVida = aplicarCicloDeVida(curvaPromedio, {
     mesCierre: mesCierreObjetivo,
     finFaseObraGruesa,
     maxDeltaPorMes,
   });
+
+  // Real gana sobre fórmula: superpone el dato real propio (si existe)
+  // encima de la estimación por similitud, mes a mes — el dato real
+  // nunca se toca ni se suaviza, solo se usa para los meses donde el
+  // modelo no tiene ningún real propio con qué reemplazarlo.
+  const curvaFinal: PuntoCurva[] = curvaCicloDeVida.map((punto, i) => {
+    const real = curvaPropia?.[i];
+    return real != null ? { valor: real, sinDatoReferencia: false } : punto;
+  });
   const variacionNeta = aVariacionNeta(curvaFinal);
   const mesesSinDatoReferencia = variacionNeta.filter(
-    (v) => v.sinDatoReferencia,
+    (v, i) => v.sinDatoReferencia && curvaPropia?.[i] == null,
   ).length;
 
   const { data: forecastRun, error: runError } = await supabase
@@ -445,40 +484,43 @@ export async function runForecastModel(
   // bug real corregido 25-ago-2026: `new Date(inicioObra).getMonth()`
   // corría 1 mes hacia atrás en este timezone, dejando la primera fila de
   // CADA obra con un período anterior a su propio `inicio_obra` real.
-  const inicioObraPeriodo = periodoDeFecha(obraObjetivo.inicio_obra);
   const filas = variacionNeta.map((v, mesIndex) => {
     const periodo = sumarMesesAPeriodo(inicioObraPeriodo, mesIndex);
+    const esReal = curvaPropia?.[mesIndex] != null;
     return {
       obra_id: obraId,
       periodo,
       variacion_neta: v.variacion,
-      // Dotación absoluta acumulada de la curva FINAL (ya con arranque +
-      // suavizado + cierre aplicados, no la curva promedio cruda) —
-      // permite ver "cuánta gente habrá en esta obra" en vez de solo el
-      // delta mes a mes (columna `acumulado` existía en el schema desde
-      // el inicio, nunca se poblaba — ver Auto-Blindaje 13-ago-2026).
+      // Dotación absoluta acumulada de la curva FINAL (real donde existe,
+      // ciclo de vida estimado donde no — ver merge arriba). Columna
+      // `acumulado` existía en el schema desde el inicio, nunca se
+      // poblaba — ver Auto-Blindaje 13-ago-2026.
       acumulado: curvaFinal[mesIndex].valor,
-      // Distingue "el modelo promedió obras de referencia reales" de
-      // "no había ninguna obra de referencia con dato ese mes de avance"
-      // — antes ambos casos quedaban como 'modelo_estimado' indistinguibles.
-      origen: v.sinDatoReferencia
-        ? ("sin_dato_referencia" as const)
-        : ("modelo_estimado" as const),
-      forecast_run_id: forecastRun.id,
+      // 'buk_real': dato real propio, gana sobre cualquier estimación.
+      // 'modelo_estimado'/'sin_dato_referencia': distingue "el modelo
+      // promedió obras de referencia reales" de "no había ninguna obra
+      // de referencia con dato ese mes de avance".
+      origen: esReal
+        ? ("buk_real" as const)
+        : v.sinDatoReferencia
+          ? ("sin_dato_referencia" as const)
+          : ("modelo_estimado" as const),
+      // Los meses con dato real propio no son una corrida de MODELO —
+      // no llevan forecast_run_id (mismo criterio que escribirSoloDatoReal).
+      forecast_run_id: esReal ? null : forecastRun.id,
       created_by: session?.user?.id ?? null,
     };
   });
 
-  // Nunca pisar un período que ya tenga dato REAL/manual cargado — bug
-  // preexistente que la rampa de cierre agravaba (podía escribir una
-  // baja ficticia encima de un mes con dato real de Buk). Este check ya
-  // lo hace `estimarDotacionFaltante` (refresh.ts) al filtrar obras
-  // completas, pero el botón manual de esta página no.
+  // Nunca pisar un período cargado a mano — el propio merge de arriba ya
+  // decide dónde va dato real vs. estimado en esta misma corrida, así que
+  // 'buk_real' ya NO se protege acá (antes sí, cuando venía de una corrida
+  // SEPARADA de `intentarUsarSnapshotPropio`).
   const { data: filasProtegidas } = await supabase
     .from("headcount_by_obra")
     .select("periodo")
     .eq("obra_id", obraId)
-    .in("origen", ["manual", "buk_real"]);
+    .eq("origen", "manual");
   const periodosProtegidos = new Set(
     (filasProtegidas ?? []).map((f) => f.periodo),
   );

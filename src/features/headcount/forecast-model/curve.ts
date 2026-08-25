@@ -23,8 +23,19 @@
  * por similitud (`intentarUsarSnapshotPropio`, caso real "Matilde
  * Throup"). Subir la versión re-dispara automáticamente la
  * re-estimación de TODAS las obras ya estimadas con v3 o antes.
+ *
+ * v5 "real + similitud combinados" (25-ago-2026, 2da vuelta): la v4 usaba
+ * el dato real propio como REEMPLAZO COMPLETO de la estimación —una obra
+ * con solo 1-2 meses de histórico real (Buk real es siempre "hasta hoy",
+ * nunca futuro) quedaba con el resto de su vida útil en
+ * `sin_dato_referencia`/0. Bug real reportado por el usuario viendo el
+ * Excel: "Lira Parque"/"Jorge Edwards"/"Matilde Throup" en cero total
+ * apenas pasado el último mes real. Ahora el dato real se SUPERPONE
+ * sobre la curva de similitud (ciclo de vida completo) en vez de
+ * reemplazarla — real donde existe, modelo donde no.
  */
-export const METODO_FORECAST_ACTUAL = "similar_obras_v4_fecha_monotonia_real";
+export const METODO_FORECAST_ACTUAL =
+  "similar_obras_v5_real_mas_similitud_combinados";
 
 /**
  * Parsea una fecha "YYYY-MM-DD" (o con hora) a un `Date` LOCAL (año, mes,
