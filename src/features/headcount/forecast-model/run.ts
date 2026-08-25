@@ -142,17 +142,31 @@ async function escribirSoloDatoReal(
     (v) => v.sinDatoReferencia,
   ).length;
 
-  const filas = variacionNeta.map((v, mesIndex) => ({
-    obra_id: obraObjetivo.id,
-    periodo: sumarMesesAPeriodo(inicioObraPeriodo, mesIndex),
-    variacion_neta: v.variacion,
-    acumulado: curvaFinal[mesIndex].valor,
-    origen: v.sinDatoReferencia
-      ? ("sin_dato_referencia" as const)
-      : ("buk_real" as const),
-    forecast_run_id: null,
-    created_by: session?.user?.id ?? null,
-  }));
+  const filas = variacionNeta.map((v, mesIndex) => {
+    // `origen` se decide por si HAY un snapshot real en `curvaPropia`
+    // para este mes, no por `sinDatoReferencia` — bug real corregido
+    // 25-ago-2026 (mismo día, tras confirmar en vivo): `aplicarCierreDeObra`
+    // marca sus meses rampeados con `sinDatoReferencia: false` (son una
+    // inferencia válida, no "sin dato"), pero eso NO los vuelve dato real
+    // — sin este check, la rampa de cierre completa (ej. Matilde Throup,
+    // 11 meses hacia su fin_obra real) quedaba etiquetada 'buk_real' en
+    // vez de 'modelo_estimado', mostrándose sin el relleno amarillo que
+    // distingue "estimado" de "real" en el Excel/UI.
+    const esReal = curvaPropia[mesIndex] != null;
+    return {
+      obra_id: obraObjetivo.id,
+      periodo: sumarMesesAPeriodo(inicioObraPeriodo, mesIndex),
+      variacion_neta: v.variacion,
+      acumulado: curvaFinal[mesIndex].valor,
+      origen: esReal
+        ? ("buk_real" as const)
+        : v.sinDatoReferencia
+          ? ("sin_dato_referencia" as const)
+          : ("modelo_estimado" as const),
+      forecast_run_id: null,
+      created_by: session?.user?.id ?? null,
+    };
+  });
 
   const { data: filasManuales } = await supabase
     .from("headcount_by_obra")
