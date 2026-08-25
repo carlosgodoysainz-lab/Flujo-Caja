@@ -91,6 +91,13 @@ export async function renderReportExcel(params: {
    */
   oficinaCentralPorPeriodo?: Map<string, number>;
   /**
+   * Nivel real más reciente de Buk por `obraId` — ver
+   * `getSaldoInicialPorObra`. Columna "Saldo Inicial (Buk)" de la hoja
+   * "Proyección Headcount", referencia visual para la carga manual (no
+   * participa en ningún cálculo). Si no se provee, la columna queda vacía.
+   */
+  saldoInicialPorObra?: Map<string, number>;
+  /**
    * Períodos ANTERIORES a este (YYYY-MM-DD) quedan agrupados/colapsados
    * en la hoja "Detalle" (outline de columnas de Excel) en vez de
    * mostrarse expandidos — pedido explícito del usuario 17-ago-2026: "el
@@ -114,6 +121,7 @@ export async function renderReportExcel(params: {
     dotacionPorConceptoYPeriodo,
     planObraDotacion,
     oficinaCentralPorPeriodo,
+    saldoInicialPorObra,
     columnasAgrupadasHastaPeriodo,
     periodoDesde,
     periodoHasta,
@@ -703,6 +711,7 @@ export async function renderReportExcel(params: {
       planObraDotacion,
       generadoEn,
       oficinaCentralPorPeriodo,
+      saldoInicialPorObra,
     );
   }
 
@@ -795,6 +804,7 @@ function renderProyeccionHeadcount(
   planObraDotacion: PlanObraDotacionFila[],
   generadoEn: Date,
   oficinaCentralPorPeriodo?: Map<string, number>,
+  saldoInicialPorObra?: Map<string, number>,
 ): void {
   const periodos = [...new Set(planObraDotacion.map((f) => f.periodo))].sort();
   if (periodos.length === 0) return;
@@ -862,7 +872,17 @@ function renderProyeccionHeadcount(
     );
 
   const headcount = workbook.addWorksheet("Proyección Headcount");
+  // "Obra ID" (columna 1, oculta) y "Saldo Inicial (Buk)" (última columna
+  // fija) — pedido explícito del usuario 25-ago-2026 para la carga manual
+  // vía re-subida de este mismo archivo: "Obra ID" es la clave estable de
+  // matching (el nombre de obra es frágil — ya causó un bug real de 98
+  // personas mal clasificadas por naming, ver `match-obra.ts`); "Saldo
+  // Inicial (Buk)" es la referencia visual del nivel real mientras el
+  // usuario edita (nunca participa en ningún cálculo del modelo). Excel
+  // preserva columnas ocultas al guardar — el re-subido puede leerla
+  // igual que las demás.
   const COLUMNAS_FIJAS = [
+    "Obra ID",
     "Obra",
     "Comuna",
     "Tipo",
@@ -871,6 +891,7 @@ function renderProyeccionHeadcount(
     "Inicio Obra",
     "Fin Obra",
     "Duración (meses)",
+    "Saldo Inicial (Buk)",
   ];
   const headerRow = headcount.addRow([
     ...COLUMNAS_FIJAS,
@@ -889,6 +910,7 @@ function renderProyeccionHeadcount(
 
   for (const [obraId, obra] of obrasOrdenadas) {
     const row = headcount.addRow([
+      obraId,
       obra.obraNombre,
       obra.comuna ?? "",
       obra.tipo ?? "",
@@ -897,6 +919,7 @@ function renderProyeccionHeadcount(
       obra.inicioObra ?? "",
       obra.finObra ?? "",
       obra.durObraMeses ?? "",
+      saldoInicialPorObra?.get(obraId) ?? "",
       ...periodos.map((periodo) => {
         const celda = celdaPorObraYPeriodo.get(`${obraId}::${periodo}`);
         if (!celda || celda.variacionNeta == null) return "";
@@ -941,7 +964,9 @@ function renderProyeccionHeadcount(
     });
 
     const filaOficinaCentral = headcount.addRow([
+      "",
       "Oficina Central",
+      "",
       "",
       "",
       "",
@@ -961,7 +986,9 @@ function renderProyeccionHeadcount(
   }
 
   const totalRow = headcount.addRow([
+    "",
     "Total",
+    "",
     "",
     "",
     "",
@@ -978,12 +1005,14 @@ function renderProyeccionHeadcount(
     }
   });
 
-  headcount.getColumn(1).width = 28;
-  headcount.getColumn(2).width = 16;
-  headcount.getColumn(3).width = 10;
-  headcount.getColumn(4).width = 12;
-  headcount.getColumn(6).width = 12;
-  headcount.getColumn(7).width = 12;
+  headcount.getColumn(1).hidden = true; // "Obra ID" — solo para el re-subido, ver comentario arriba.
+  headcount.getColumn(2).width = 28; // Obra
+  headcount.getColumn(3).width = 16; // Comuna
+  headcount.getColumn(4).width = 10; // Tipo
+  headcount.getColumn(5).width = 12; // Cliente
+  headcount.getColumn(7).width = 12; // Inicio Obra
+  headcount.getColumn(8).width = 12; // Fin Obra
+  headcount.getColumn(10).width = 16; // Saldo Inicial (Buk)
   for (let i = 0; i < periodos.length; i++) {
     headcount.getColumn(COLUMNAS_FIJAS.length + 1 + i).width = 8;
   }
@@ -993,7 +1022,7 @@ function renderProyeccionHeadcount(
 
   headcount.addRow([]);
   headcount.addRow([
-    "Variación neta (altas−bajas) por obra y mes. Amarillo = estimado por el modelo (curva de obras similares); gris = sin obra de referencia (placeholder). 'Oficina Central' = RP contractual real + RG sin obra asignada (dato real de Buk cuando el mes no está cerrado en Finanzas), no usa el modelo de similitud por obra. Fila 'Total' = variación neta de toda la compañía ese mes — mismo dato que alimenta la Dotación del flujo de caja (ver hoja 'Detalle').",
+    "Variación neta (altas−bajas) por obra y mes. Amarillo = estimado por el modelo (curva de obras similares); gris = sin obra de referencia (placeholder). 'Oficina Central' = RP contractual real + RG sin obra asignada (dato real de Buk cuando el mes no está cerrado en Finanzas), no usa el modelo de similitud por obra. 'Saldo Inicial (Buk)' = nivel real más reciente de Buk por obra, solo de referencia. Para carga manual: edita los meses que necesites y vuelve a subir este mismo archivo en /dotacion — la columna 'Obra ID' (oculta) identifica cada obra, no la borres ni la edites. Fila 'Total' = variación neta de toda la compañía ese mes — mismo dato que alimenta la Dotación del flujo de caja (ver hoja 'Detalle').",
   ]).font = {
     name: FUENTE_CUERPO,
     italic: true,

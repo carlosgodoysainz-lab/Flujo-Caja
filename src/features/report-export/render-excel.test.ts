@@ -353,29 +353,32 @@ describe("renderReportExcel", () => {
     const headcount = wb.getWorksheet("Proyección Headcount");
     expect(headcount).toBeDefined();
 
-    // Header: 8 columnas fijas + 1 columna por período (jun-26, jul-26).
-    expect(headcount!.getRow(1).getCell(1).value).toBe("Obra");
-    expect(headcount!.getRow(1).getCell(9).value).toBe("jun-26");
-    expect(headcount!.getRow(1).getCell(10).value).toBe("jul-26");
+    // Header: "Obra ID" (oculta) + 9 columnas fijas + 1 columna por
+    // período (jun-26, jul-26).
+    expect(headcount!.getRow(1).getCell(1).value).toBe("Obra ID");
+    expect(headcount!.getRow(1).getCell(2).value).toBe("Obra");
+    expect(headcount!.getRow(1).getCell(11).value).toBe("jun-26");
+    expect(headcount!.getRow(1).getCell(12).value).toBe("jul-26");
 
     // Obra Alfa: jun-26=50 (real), jul-26=15 (estimado).
     const filaAlfa = headcount!.getRow(2);
-    expect(filaAlfa.getCell(1).value).toBe("Obra Alfa");
-    expect(filaAlfa.getCell(9).value).toBe(50);
-    expect(filaAlfa.getCell(10).value).toBe(15);
+    expect(filaAlfa.getCell(1).value).toBe("obra-1");
+    expect(filaAlfa.getCell(2).value).toBe("Obra Alfa");
+    expect(filaAlfa.getCell(11).value).toBe(50);
+    expect(filaAlfa.getCell(12).value).toBe(15);
 
     // Obra Beta: sin fila para jun-26 (todavía no arrancaba) → celda vacía;
     // jul-26 sin dato de referencia → celda vacía también (variacionNeta null).
     const filaBeta = headcount!.getRow(3);
-    expect(filaBeta.getCell(1).value).toBe("Obra Beta");
-    expect(filaBeta.getCell(9).value).toBeFalsy();
-    expect(filaBeta.getCell(10).value).toBeFalsy();
+    expect(filaBeta.getCell(2).value).toBe("Obra Beta");
+    expect(filaBeta.getCell(11).value).toBeFalsy();
+    expect(filaBeta.getCell(12).value).toBeFalsy();
 
     // Fila Total: jun-26 = 50 (solo Alfa), jul-26 = 15 (solo Alfa, Beta es null).
     const filaTotal = headcount!.getRow(4);
-    expect(filaTotal.getCell(1).value).toBe("Total");
-    expect(filaTotal.getCell(9).value).toBe(50);
-    expect(filaTotal.getCell(10).value).toBe(15);
+    expect(filaTotal.getCell(2).value).toBe("Total");
+    expect(filaTotal.getCell(11).value).toBe(50);
+    expect(filaTotal.getCell(12).value).toBe(15);
   });
 
   it("con oficinaCentralPorPeriodo, agrega la fila 'Oficina Central' e la incluye en el Total", async () => {
@@ -446,16 +449,16 @@ describe("renderReportExcel", () => {
 
     // Fila 2 = Obra Alfa, fila 3 = Oficina Central, fila 4 = Total.
     const filaOficinaCentral = headcount.getRow(3);
-    expect(filaOficinaCentral.getCell(1).value).toBe("Oficina Central");
-    expect(filaOficinaCentral.getCell(9).value).toBe(5); // jun-26: 105-100
-    expect(filaOficinaCentral.getCell(10).value).toBe(-7); // jul-26: 98-105
+    expect(filaOficinaCentral.getCell(2).value).toBe("Oficina Central");
+    expect(filaOficinaCentral.getCell(11).value).toBe(5); // jun-26: 105-100
+    expect(filaOficinaCentral.getCell(12).value).toBe(-7); // jul-26: 98-105
 
     const filaTotal = headcount.getRow(4);
-    expect(filaTotal.getCell(1).value).toBe("Total");
+    expect(filaTotal.getCell(2).value).toBe("Total");
     // jun-26: Obra Alfa no tiene fila ese mes (0) + Oficina Central (5) = 5.
-    expect(filaTotal.getCell(9).value).toBe(5);
+    expect(filaTotal.getCell(11).value).toBe(5);
     // jul-26: Obra Alfa (50) + Oficina Central (-7) = 43.
-    expect(filaTotal.getCell(10).value).toBe(43);
+    expect(filaTotal.getCell(12).value).toBe(43);
   });
 
   it("sin oficinaCentralPorPeriodo, NO agrega la fila 'Oficina Central' (comportamiento previo intacto)", async () => {
@@ -499,7 +502,78 @@ describe("renderReportExcel", () => {
     const wb = await leerWorkbook(buffer);
     const headcount = wb.getWorksheet("Proyección Headcount")!;
     // Fila 2 = Obra Alfa, fila 3 = Total directamente (sin fila extra).
-    expect(headcount.getRow(3).getCell(1).value).toBe("Total");
+    expect(headcount.getRow(3).getCell(2).value).toBe("Total");
+  });
+
+  it("con saldoInicialPorObra, agrega 'Obra ID' (oculta) y 'Saldo Inicial (Buk)' — sin el mapa, la columna queda vacía sin romper nada", async () => {
+    const PLAN_OBRA_DOTACION: PlanObraDotacionFila[] = [
+      {
+        obraId: "obra-1",
+        obraNombre: "Obra Alfa",
+        comuna: "Ñuñoa",
+        tipo: "DS19",
+        cliente: "Maestra",
+        unidades: 120,
+        inicioObra: "2026-06-01",
+        finObra: "2027-06-01",
+        durObraMeses: 12,
+        periodo: "2026-07-01",
+        dotacionReal: 50,
+        dotacionProyectada: 50,
+        variacionNeta: 50,
+        origenVariacion: "buk_real",
+      },
+      {
+        obraId: "obra-2",
+        obraNombre: "Obra Beta",
+        comuna: "Maipú",
+        tipo: "Retail",
+        cliente: "Terceros",
+        unidades: 80,
+        inicioObra: "2026-07-01",
+        finObra: "2027-07-01",
+        durObraMeses: 12,
+        periodo: "2026-07-01",
+        dotacionReal: null,
+        dotacionProyectada: null,
+        variacionNeta: null,
+        origenVariacion: "sin_dato_referencia",
+      },
+    ];
+
+    const buffer = await renderReportExcel({
+      serie: [
+        {
+          periodo: "2026-07-01",
+          concepto: "total_nomina",
+          monto: 100_000_000,
+          esReal: true,
+          metodoCalculo: null,
+        },
+      ],
+      kpis: KPIS,
+      ufPorPeriodo: new Map(),
+      periodoDesde: "2026-07-01",
+      periodoHasta: "2026-07-01",
+      generadoEn: new Date(2026, 7, 4),
+      planObraDotacion: PLAN_OBRA_DOTACION,
+      saldoInicialPorObra: new Map([["obra-1", 142]]), // obra-2 sin snapshot propio
+    });
+
+    const wb = await leerWorkbook(buffer);
+    const headcount = wb.getWorksheet("Proyección Headcount")!;
+
+    expect(headcount.getRow(1).getCell(1).value).toBe("Obra ID");
+    expect(headcount.getRow(1).getCell(10).value).toBe("Saldo Inicial (Buk)");
+    expect(headcount.getColumn(1).hidden).toBe(true);
+
+    const filaAlfa = headcount.getRow(2);
+    expect(filaAlfa.getCell(1).value).toBe("obra-1");
+    expect(filaAlfa.getCell(10).value).toBe(142);
+
+    const filaBeta = headcount.getRow(3);
+    expect(filaBeta.getCell(1).value).toBe("obra-2");
+    expect(filaBeta.getCell(10).value).toBeFalsy(); // sin snapshot propio, nunca inventa un 0
   });
 
   it("ordena las obras de 'Proyección Headcount' por proximidad a HOY (próximo hito: inicio si no ha empezado, fin si ya está en curso) — no por fecha de inicio ascendente", async () => {
@@ -582,9 +656,9 @@ describe("renderReportExcel", () => {
 
     const wb = await leerWorkbook(buffer);
     const headcount = wb.getWorksheet("Proyección Headcount")!;
-    expect(headcount.getRow(2).getCell(1).value).toBe("Obra Cierra Pronto");
-    expect(headcount.getRow(3).getCell(1).value).toBe("Obra Futura Cercana");
-    expect(headcount.getRow(4).getCell(1).value).toBe("Obra Vieja");
+    expect(headcount.getRow(2).getCell(2).value).toBe("Obra Cierra Pronto");
+    expect(headcount.getRow(3).getCell(2).value).toBe("Obra Futura Cercana");
+    expect(headcount.getRow(4).getCell(2).value).toBe("Obra Vieja");
   });
 
   it("'Proyección Headcount' excluye una obra con plazo vencido y SIN ningún dato real (ej. Lira 1/2), pero nunca esconde una con al menos un dato real", async () => {
@@ -668,7 +742,7 @@ describe("renderReportExcel", () => {
     const wb = await leerWorkbook(buffer);
     const headcount = wb.getWorksheet("Proyección Headcount")!;
     const nombresFilas: unknown[] = [];
-    headcount.eachRow((row) => nombresFilas.push(row.getCell(1).value));
+    headcount.eachRow((row) => nombresFilas.push(row.getCell(2).value));
 
     expect(nombresFilas).not.toContain("Lira 1");
     expect(nombresFilas).toContain("Obra Con Dato Real");

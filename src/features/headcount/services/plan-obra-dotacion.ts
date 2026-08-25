@@ -135,3 +135,37 @@ export async function getPlanObraConDotacion(
 
   return filas;
 }
+
+/**
+ * Nivel real MÁS RECIENTE de Buk por obra (suma de `activos` del último
+ * `snapshot_date` disponible, por obra) — usado como "Saldo Inicial
+ * (Buk)" en la hoja "Proyección Headcount" (pedido explícito del usuario
+ * 25-ago-2026, para carga manual vía Excel): referencia visual del nivel
+ * real mientras el usuario edita, no participa en ningún cálculo del
+ * modelo. Una obra sin ningún snapshot propio no aparece en el mapa
+ * (nunca se inventa un 0).
+ */
+export async function getSaldoInicialPorObra(): Promise<Map<string, number>> {
+  const supabase = createServiceClient();
+  const { data: snapshots } = await supabase
+    .from("buk_dotacion_snapshots")
+    .select("obra_id, snapshot_date, activos")
+    .not("obra_id", "is", null);
+
+  const maxFechaPorObra = new Map<string, string>();
+  for (const s of snapshots ?? []) {
+    if (!s.obra_id) continue;
+    const actual = maxFechaPorObra.get(s.obra_id);
+    if (!actual || s.snapshot_date > actual) {
+      maxFechaPorObra.set(s.obra_id, s.snapshot_date);
+    }
+  }
+
+  const resultado = new Map<string, number>();
+  for (const s of snapshots ?? []) {
+    if (!s.obra_id) continue;
+    if (s.snapshot_date !== maxFechaPorObra.get(s.obra_id)) continue;
+    resultado.set(s.obra_id, (resultado.get(s.obra_id) ?? 0) + s.activos);
+  }
+  return resultado;
+}

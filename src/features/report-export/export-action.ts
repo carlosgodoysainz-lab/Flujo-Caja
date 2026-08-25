@@ -12,7 +12,10 @@ import {
   getDotacionPorConceptoYPeriodo,
   getOficinaCentralHeadcountPorPeriodo,
 } from "@/features/headcount/services/dotacion-total";
-import { getPlanObraConDotacion } from "@/features/headcount/services/plan-obra-dotacion";
+import {
+  getPlanObraConDotacion,
+  getSaldoInicialPorObra,
+} from "@/features/headcount/services/plan-obra-dotacion";
 import { renderReportHtml } from "./render";
 import { renderReportExcel } from "./render-excel";
 
@@ -85,6 +88,10 @@ export async function exportReportAsHtml(
       unMesAntesDePeriodoDesde,
       periodoHasta,
     );
+    // Solo para la columna "Saldo Inicial (Buk)" de la hoja "Proyección
+    // Headcount" — referencia visual para la carga manual (ver
+    // render-excel.ts), nunca participa en ningún cálculo.
+    const saldoInicialPorObra = await getSaldoInicialPorObra();
 
     // El Excel trae MÁS histórico que la app en vivo/el HTML — pedido
     // explícito del usuario ("el histórico dejalo agrupado en el excel,
@@ -142,6 +149,7 @@ export async function exportReportAsHtml(
       generadoEn,
       planObraDotacion,
       oficinaCentralPorPeriodo,
+      saldoInicialPorObra,
     });
 
     const fechaSlug = generadoEn.toISOString().slice(0, 10);
