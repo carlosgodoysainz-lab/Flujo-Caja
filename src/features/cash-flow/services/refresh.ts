@@ -198,11 +198,14 @@ async function promedioAnticipoRpReal(
   return data.reduce((acc, row) => acc + Number(row.monto), 0) / data.length;
 }
 
+/** Ajuste de +1% simple (NO acumulativo) pedido explícitamente por el usuario 25-ago-2026 sobre el ancla histórica de RP — ver `promedioRemuneracionRpReal`. Siempre +1% del promedio base, nunca compuesto mes a mes (cada mes se recalcula desde el promedio real, no desde el mes anterior ya ajustado). */
+const AJUSTE_RP_INTERES_SIMPLE = 1.01;
+
 /**
- * Promedio de los últimos N meses REALES de Remuneración RP ($) — mismo
- * patrón que `promedioAnticipoRpReal`, aplicado al split $ de
- * Remuneración. Bug real corregido 24-ago-2026: el split RG/RP de
- * Remuneración calculaba RP como RESIDUAL (Total − RG) usando
+ * Promedio de los últimos N meses REALES de Remuneración RP ($), + 1%
+ * de interés simple — mismo patrón que `promedioAnticipoRpReal`, aplicado
+ * al split $ de Remuneración. Bug real corregido 24-ago-2026: el split
+ * RG/RP de Remuneración calculaba RP como RESIDUAL (Total − RG) usando
  * `proporcionRgHistorica` — y como esa razón se mantiene casi constante
  * pero el TOTAL de Remuneración sube/baja con el ciclo de obras, RP (una
  * población chica y estable, Anexo/Oficina Central) absorbía el 100% de
@@ -211,6 +214,15 @@ async function promedioAnticipoRpReal(
  * el ANCLA (promedio histórico real) y RG absorbe el residual — mismo
  * criterio ya aplicado a Anticipo RP el 20-ago-2026 y a la dotación N° de
  * RP el 24-ago-2026 (ver `promedioDotacionRpReal` en dotacion-total.ts).
+ *
+ * Ajuste +1% (25-ago-2026, pedido explícito del usuario, "interés simple
+ * no acumulativo, respetando beneficios/pagos que ya considera el
+ * modelo"): se aplica SOLO sobre este promedio histórico base — NUNCA
+ * sobre los beneficios/bonos del mes (ver `refresh.ts`, se suman después,
+ * sin tocar), y SIEMPRE como +1% del promedio real (no compuesto: cada
+ * mes recalcula el promedio de los últimos meses reales y le suma 1%,
+ * nunca +1% sobre un valor ya ajustado el mes anterior).
+ *
  * `null` si no hay ningún mes real todavía (cae al split proporcional
  * histórico, comportamiento anterior a este fix).
  */
@@ -229,7 +241,9 @@ async function promedioRemuneracionRpReal(
     .limit(n);
 
   if (!data || data.length === 0) return null;
-  return data.reduce((acc, row) => acc + Number(row.monto), 0) / data.length;
+  const promedio =
+    data.reduce((acc, row) => acc + Number(row.monto), 0) / data.length;
+  return promedio * AJUSTE_RP_INTERES_SIMPLE;
 }
 
 /** Valor real ya cargado en `beneficios_line_items` para el mes — key `tipoEvento::poblacion`, ver beneficios.ts. */
@@ -271,8 +285,16 @@ async function promedioBeneficioReal6m(
   return data.reduce((acc, row) => acc + Number(row.monto), 0) / data.length;
 }
 
-/** Orígenes que NUNCA se re-estiman automáticamente — dato real o cargado a mano, igual criterio que la guarda de upsert de `runForecastModel`. */
-const ORIGENES_PROTEGIDOS = new Set(["manual", "buk_real"]);
+/**
+ * Orígenes que NUNCA se re-estiman automáticamente — SOLO dato cargado a
+ * mano. `'buk_real'` fue removido de este set 25-ago-2026: desde que
+ * `runForecastModel` intenta usar el histórico propio de Buk PRIMERO
+ * (ver `intentarUsarSnapshotPropio`), las filas `buk_real` deben
+ * re-derivarse en CADA refresh (los snapshots de Buk siguen llegando mes
+ * a mes) — protegerlas para siempre las habría dejado stale igual que
+ * pasaba con el modelo estimado antes de este mismo fix.
+ */
+const ORIGENES_PROTEGIDOS = new Set(["manual"]);
 
 /**
  * Corre el modelo de estimación de dotación (curva por obra similar, ver
@@ -841,7 +863,7 @@ export async function refreshCashFlowReport(
         remuneracionRpFila = {
           monto: rp,
           esReal: false,
-          metodoCalculo: "promedio_ultimos_3_meses_reales",
+          metodoCalculo: "promedio_ultimos_3_meses_reales_mas_1pct",
         };
         remuneracionRgFila = {
           monto: calculadoPorConcepto.remuneracion.monto - rp,

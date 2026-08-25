@@ -6,13 +6,134 @@ import { obrasSimilares, type ObraParaSimilitud } from "./similarity";
 import {
   aplicarCicloDeVida,
   aVariacionNeta,
+  curvaPorAvance,
   curvaPorAvanceConFases,
   escalarCurva,
+  fechaLocalDesdeString,
   interpolarHuecos,
   mesDeCierre,
   METODO_FORECAST_ACTUAL,
   promediarCurvas,
 } from "./curve";
+import {
+  periodoDeFecha,
+  sumarMesesAPeriodo,
+} from "@/features/headcount/services/periodo";
+
+/**
+ * Intenta usar el histórico REAL de Buk de la OBRA OBJETIVO misma (no de
+ * una obra "similar") — pedido implícito confirmado con datos reales
+ * 25-ago-2026: "Matilde Throup" tiene 418 snapshots reales propios (167
+ * personas, crecimiento real documentado desde may-2025) pero el modelo
+ * nunca los usaba, solo miraba obras similares (`obrasSimilares` excluye
+ * explícitamente la obra objetivo de sí misma, ver `similarity.ts`).
+ * Real gana sobre fórmula — mismo principio ya aplicado en todo el resto
+ * del proyecto (Anticipo, Remuneración, RP): cuando existe dato real
+ * propio, se usa directo, sin necesidad de comparar contra ninguna obra
+ * similar.
+ *
+ * `null` si la obra no tiene ningún snapshot propio (el caller cae al
+ * flujo de estimación por similitud, sin cambios). Si tiene: escribe
+ * `origen='buk_real'` (no `'modelo_estimado'`) y `forecast_run_id: null`
+ * — no es una corrida de MODELO, es una copia directa de dato real, no
+ * genera fila en `headcount_forecast_runs`. Nunca pisa un período con
+ * `origen='manual'` ya cargado a mano.
+ *
+ * Se re-corre en CADA refresh (a diferencia de un override manual, que
+ * queda protegido para siempre) — los snapshots de Buk siguen llegando
+ * mes a mes, así que esta curva debe seguir actualizándose con ellos
+ * (ver `ORIGENES_PROTEGIDOS` en `refresh.ts`, que ya NO incluye
+ * `'buk_real'` por este motivo).
+ */
+async function intentarUsarSnapshotPropio(
+  supabase: ReturnType<typeof createServiceClient>,
+  obraObjetivo: { id: string; inicio_obra: string; dur_obra_meses: number },
+  session: { user?: { id?: string | null } | null } | null,
+): Promise<RunForecastModelResult | null> {
+  const { data: snapshots } = await supabase
+    .from("buk_dotacion_snapshots")
+    .select("snapshot_date, activos")
+    .eq("obra_id", obraObjetivo.id);
+
+  if (!snapshots || snapshots.length === 0) return null;
+
+  const activosPorFecha = new Map<string, number>();
+  for (const s of snapshots) {
+    activosPorFecha.set(
+      s.snapshot_date,
+      (activosPorFecha.get(s.snapshot_date) ?? 0) + s.activos,
+    );
+  }
+  const puntos = [...activosPorFecha.entries()].map(([fecha, activos]) => ({
+    fecha: fechaLocalDesdeString(fecha),
+    activos,
+  }));
+
+  const inicioObraLocal = fechaLocalDesdeString(obraObjetivo.inicio_obra);
+  const curvaPropia = curvaPorAvance(
+    puntos,
+    inicioObraLocal,
+    obraObjetivo.dur_obra_meses,
+  );
+  if (curvaPropia.every((v) => v == null)) return null;
+
+  // Reutiliza promediarCurvas([curvaPropia], dur) como mecanismo ya
+  // probado de "mantener último valor conocido + marcar
+  // sinDatoReferencia" — con 1 sola curva, el "promedio" es exactamente
+  // la curva propia, sin escribir esa lógica de nuevo.
+  const curvaFinal = promediarCurvas(
+    [curvaPropia],
+    obraObjetivo.dur_obra_meses,
+  );
+  const variacionNeta = aVariacionNeta(curvaFinal);
+  const mesesSinDatoReferencia = variacionNeta.filter(
+    (v) => v.sinDatoReferencia,
+  ).length;
+
+  const inicioObraPeriodo = periodoDeFecha(obraObjetivo.inicio_obra);
+  const filas = variacionNeta.map((v, mesIndex) => ({
+    obra_id: obraObjetivo.id,
+    periodo: sumarMesesAPeriodo(inicioObraPeriodo, mesIndex),
+    variacion_neta: v.variacion,
+    acumulado: curvaFinal[mesIndex].valor,
+    origen: v.sinDatoReferencia
+      ? ("sin_dato_referencia" as const)
+      : ("buk_real" as const),
+    forecast_run_id: null,
+    created_by: session?.user?.id ?? null,
+  }));
+
+  // Nunca pisar un período cargado a mano.
+  const { data: filasManuales } = await supabase
+    .from("headcount_by_obra")
+    .select("periodo")
+    .eq("obra_id", obraObjetivo.id)
+    .eq("origen", "manual");
+  const periodosProtegidos = new Set(
+    (filasManuales ?? []).map((f) => f.periodo),
+  );
+  const filasAEscribir = filas.filter(
+    (f) => !periodosProtegidos.has(f.periodo),
+  );
+
+  const errores: string[] = [];
+  if (filasAEscribir.length > 0) {
+    const { error: upsertError } = await supabase
+      .from("headcount_by_obra")
+      .upsert(filasAEscribir, { onConflict: "obra_id,periodo" });
+    if (upsertError)
+      errores.push(`Error guardando dato real propio: ${upsertError.message}`);
+  }
+
+  return {
+    estado: errores.length > 0 ? "error" : "ok",
+    obraId: obraObjetivo.id,
+    obrasReferenciaUsadas: 0,
+    mesesEstimados: filasAEscribir.length,
+    mesesSinDatoReferencia,
+    errores,
+  };
+}
 
 export interface RunForecastModelResult {
   estado: "ok" | "error";
@@ -91,6 +212,17 @@ export async function runForecastModel(
     };
   }
 
+  // Real gana sobre fórmula: si la obra tiene histórico propio de Buk,
+  // usarlo directo — nunca comparar contra obras "similares" cuando ya
+  // existe el dato real de la obra misma (ver Auto-Blindaje 25-ago-2026,
+  // caso "Matilde Throup").
+  const resultadoReal = await intentarUsarSnapshotPropio(
+    supabase,
+    obraObjetivo,
+    session,
+  );
+  if (resultadoReal) return resultadoReal;
+
   const { data: todasLasObras } = await supabase
     .from("obras")
     .select(
@@ -99,9 +231,12 @@ export async function runForecastModel(
 
   // Mes de cierre REAL de la obra objetivo (ver mesDeCierre) — ancla el
   // punto de "mitad" del modelo a fin_obra en vez de a dur/2 fijo.
+  // `fechaLocalDesdeString` (nunca `new Date(str)` directo) — bug real
+  // corregido 25-ago-2026: `inicio_obra` siempre es día "01", y en un
+  // timezone detrás de UTC el parseo directo corría el mes hacia atrás.
   const mesCierreObjetivo = mesDeCierre(
-    new Date(obraObjetivo.inicio_obra),
-    obraObjetivo.fin_obra ? new Date(obraObjetivo.fin_obra) : null,
+    fechaLocalDesdeString(obraObjetivo.inicio_obra),
+    obraObjetivo.fin_obra ? fechaLocalDesdeString(obraObjetivo.fin_obra) : null,
     obraObjetivo.dur_obra_meses,
   );
   const finFaseObraGruesa = Math.ceil((mesCierreObjetivo + 1) / 2);
@@ -161,7 +296,7 @@ export async function runForecastModel(
       );
     }
     const puntos = [...activosPorFecha.entries()].map(([fecha, activos]) => ({
-      fecha: new Date(fecha),
+      fecha: fechaLocalDesdeString(fecha),
       activos,
     }));
 
@@ -172,14 +307,15 @@ export async function runForecastModel(
     // curva real; si no tiene duración cargada, degrada a la del
     // objetivo (mismo comportamiento que antes de este cambio).
     const durObraRef = obraRef.dur_obra_meses ?? obraObjetivo.dur_obra_meses;
+    const inicioObraRefLocal = fechaLocalDesdeString(obraRef.inicio_obra);
     const mesCierreRef = mesDeCierre(
-      new Date(obraRef.inicio_obra),
-      obraRef.fin_obra ? new Date(obraRef.fin_obra) : null,
+      inicioObraRefLocal,
+      obraRef.fin_obra ? fechaLocalDesdeString(obraRef.fin_obra) : null,
       durObraRef,
     );
     const curva = curvaPorAvanceConFases(
       puntos,
-      new Date(obraRef.inicio_obra),
+      inicioObraRefLocal,
       durObraRef,
       obraObjetivo.dur_obra_meses,
       { mesCierreRef, mesCierreObjetivo },
@@ -268,16 +404,16 @@ export async function runForecastModel(
     };
   }
 
-  const inicioObra = new Date(obraObjetivo.inicio_obra);
+  // Aritmética de período por STRING, nunca por `Date` (ver periodo.ts) —
+  // bug real corregido 25-ago-2026: `new Date(inicioObra).getMonth()`
+  // corría 1 mes hacia atrás en este timezone, dejando la primera fila de
+  // CADA obra con un período anterior a su propio `inicio_obra` real.
+  const inicioObraPeriodo = periodoDeFecha(obraObjetivo.inicio_obra);
   const filas = variacionNeta.map((v, mesIndex) => {
-    const periodo = new Date(
-      inicioObra.getFullYear(),
-      inicioObra.getMonth() + mesIndex,
-      1,
-    );
+    const periodo = sumarMesesAPeriodo(inicioObraPeriodo, mesIndex);
     return {
       obra_id: obraId,
-      periodo: periodo.toISOString().slice(0, 10),
+      periodo,
       variacion_neta: v.variacion,
       // Dotación absoluta acumulada de la curva FINAL (ya con arranque +
       // suavizado + cierre aplicados, no la curva promedio cruda) —

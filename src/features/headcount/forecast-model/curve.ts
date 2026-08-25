@@ -13,8 +13,39 @@
  * importar cuántas mejoras se le hicieran después al modelo. Subir este
  * string cada vez que cambie la lógica de `run.ts` hace que
  * `estimarDotacionFaltante` la re-corra automáticamente.
+ *
+ * v4 "fecha + monotonía + real propio" (25-ago-2026): corrige el desfase
+ * de 1 mes (`fechaLocalDesdeString`, antes `new Date(str)` directo corría
+ * el mes en timezones detrás de UTC), extiende la protección de
+ * monotonía a toda la fase de obra gruesa (antes solo hasta el mes del
+ * pico, causaba oscilaciones ±7/±18 justo después — caso real "Serrano
+ * A"), y prioriza el histórico real propio de Buk sobre la estimación
+ * por similitud (`intentarUsarSnapshotPropio`, caso real "Matilde
+ * Throup"). Subir la versión re-dispara automáticamente la
+ * re-estimación de TODAS las obras ya estimadas con v3 o antes.
  */
-export const METODO_FORECAST_ACTUAL = "similar_obras_v3_ciclo_vida";
+export const METODO_FORECAST_ACTUAL = "similar_obras_v4_fecha_monotonia_real";
+
+/**
+ * Parsea una fecha "YYYY-MM-DD" (o con hora) a un `Date` LOCAL (año, mes,
+ * día tal cual el string, sin pasar por UTC) — nunca `new Date(str)`
+ * directo. Bug real corregido 25-ago-2026: `run.ts` construía
+ * `new Date(obra.inicio_obra)` directo desde el string de la BD;
+ * `inicio_obra` siempre es día "01", y en un timezone detrás de UTC
+ * (Chile, UTC-3/-4) `new Date("2026-04-01").getMonth()` da marzo, no
+ * abril (medianoche UTC del día 1 es la noche del día 31 anterior en
+ * Chile) — el mismo antipatrón ya documentado en
+ * `headcount/services/periodo.ts` para aritmética de período, pero acá
+ * se necesita un `Date` real porque `curvaPorAvance`/`diferenciaEnMeses`
+ * lo requieren. Efecto real: TODA fila que escribía `runForecastModel`
+ * quedaba corrida 1 mes calendario hacia atrás (confirmado en Serrano A
+ * y General Mackenna — su primera fila real quedaba con un período
+ * anterior a su propio `inicio_obra`).
+ */
+export function fechaLocalDesdeString(fechaStr: string): Date {
+  const [y, m, d] = fechaStr.slice(0, 10).split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
 
 export interface SnapshotPunto {
   fecha: Date;
@@ -341,12 +372,20 @@ export function suavizarSaltos(
 
 /**
  * Para obras que recién arrancan: rellena los primeros meses sin dato
- * real con una rampa lineal hacia el primer valor real conocido, y fuerza
- * monotonía NO decreciente desde el inicio hasta el mes de MAYOR
- * headcount dentro de la fase de obra gruesa (`[0, finFaseObraGruesa)`)
- * — garantiza que nunca hay bajas mientras la obra crece hacia su
- * régimen. Pedido explícito del usuario 24-ago-2026: obras como "General
+ * real con una rampa lineal hacia el primer valor real conocido, y
+ * protege TODA la fase de obra gruesa (`[0, finFaseObraGruesa)`) contra
+ * bajas — nunca hay caídas mientras la obra crece hacia su régimen NI
+ * micro-oscilaciones una vez alcanzado el pico dentro de esa misma fase.
+ * Pedido explícito del usuario 24-ago-2026: obras como "General
  * Mackenna" no pueden mostrar despidos justo al arrancar.
+ *
+ * Dos pasadas, no una: (1) monotonía NO decreciente desde el inicio
+ * hasta el mes de MAYOR headcount (`mesPico`); (2) desde `mesPico` hasta
+ * el final de la fase de obra gruesa, el valor nunca cae por debajo de
+ * `valorPico` (antes solo la pasada 1 existía — bug real corregido
+ * 25-ago-2026: "Serrano A" oscilaba ±7/±18 justo después de su pico
+ * porque los meses posteriores al pico, aunque seguían dentro de la
+ * fase de obra gruesa, no tenían ninguna protección).
  *
  * Sin ningún dato real en toda la curva, devuelve la curva intacta
  * (respeta la degradación explícita a `sinDatoReferencia` — nunca
@@ -372,7 +411,6 @@ export function aplicarArranqueDeObra(
     };
   }
 
-  // Monotonía no decreciente hasta el pico de la fase de obra gruesa.
   const indiceFinBusqueda = Math.min(finFaseObraGruesa, resultado.length);
   let mesPico = 0;
   let valorPico = resultado[0].valor;
@@ -382,9 +420,18 @@ export function aplicarArranqueDeObra(
       mesPico = i;
     }
   }
+
+  // Pasada 1: monotonía no decreciente hasta el pico.
   for (let i = 1; i <= mesPico; i++) {
     if (resultado[i].valor < resultado[i - 1].valor) {
       resultado[i] = { ...resultado[i], valor: resultado[i - 1].valor };
+    }
+  }
+  // Pasada 2: desde el pico hasta el final de la fase de obra gruesa,
+  // nunca por debajo del pico (evita el "diente de sierra" post-pico).
+  for (let i = mesPico + 1; i < indiceFinBusqueda; i++) {
+    if (resultado[i].valor < valorPico) {
+      resultado[i] = { ...resultado[i], valor: valorPico };
     }
   }
 

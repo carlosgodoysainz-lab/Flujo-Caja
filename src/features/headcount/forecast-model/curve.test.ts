@@ -7,12 +7,36 @@ import {
   curvaPorAvance,
   curvaPorAvanceConFases,
   escalarCurva,
+  fechaLocalDesdeString,
   interpolarHuecos,
   mesDeCierre,
   promediarCurvas,
   suavizarSaltos,
   type PuntoCurva,
 } from "./curve";
+
+describe("fechaLocalDesdeString", () => {
+  it("una fecha día 01 no corre de mes (regresión: new Date(str) directo sí corría en timezones detrás de UTC)", () => {
+    const fecha = fechaLocalDesdeString("2026-04-01");
+    expect(fecha.getFullYear()).toBe(2026);
+    expect(fecha.getMonth()).toBe(3); // abril, 0-indexado
+    expect(fecha.getDate()).toBe(1);
+  });
+
+  it("funciona igual con cualquier día del mes", () => {
+    const fecha = fechaLocalDesdeString("2026-12-22");
+    expect(fecha.getFullYear()).toBe(2026);
+    expect(fecha.getMonth()).toBe(11); // diciembre
+    expect(fecha.getDate()).toBe(22);
+  });
+
+  it("ignora la parte de hora si el string la trae", () => {
+    const fecha = fechaLocalDesdeString("2026-04-01T00:00:00.000Z");
+    expect(fecha.getFullYear()).toBe(2026);
+    expect(fecha.getMonth()).toBe(3);
+    expect(fecha.getDate()).toBe(1);
+  });
+});
 
 describe("curvaPorAvance", () => {
   it("indexa por mes de avance desde el inicio de obra, no por fecha calendario", () => {
@@ -385,10 +409,23 @@ describe("aplicarArranqueDeObra", () => {
     expect(aplicarArranqueDeObra(curva, 2)).toEqual(curva);
   });
 
-  it("si el pico ya pasó dentro de la ventana de obra gruesa, no fuerza monotonía después", () => {
+  it("si el pico ya pasó dentro de la ventana de obra gruesa, igual protege contra caer por debajo del pico mientras siga en esa fase (fix 25-ago-2026: antes esto quedaba sin protección y causaba el 'diente de sierra' de Serrano A)", () => {
     const curva = [80, 60, 50].map(conDato);
+    // finFaseObraGruesa=2 -> el índice 1 sigue dentro de la fase de obra
+    // gruesa (se pisa a 80, el pico); el índice 2 ya queda FUERA de la
+    // ventana protegida y conserva su valor real (50).
     expect(aplicarArranqueDeObra(curva, 2).map((p) => p.valor)).toEqual([
-      80, 60, 50,
+      80, 80, 50,
+    ]);
+  });
+
+  it("una vez que la fase de obra gruesa termina, los meses posteriores quedan intactos (la protección del pico no se extiende a terminaciones)", () => {
+    const curva = [40, 90, 70, 30, 10].map(conDato);
+    // finFaseObraGruesa=3 -> pico en índice 1 (90). Índice 2 sigue en la
+    // fase (se pisa a 90); índices 3 y 4 ya están en terminaciones, se
+    // dejan caer libremente.
+    expect(aplicarArranqueDeObra(curva, 3).map((p) => p.valor)).toEqual([
+      40, 90, 90, 30, 10,
     ]);
   });
 });
