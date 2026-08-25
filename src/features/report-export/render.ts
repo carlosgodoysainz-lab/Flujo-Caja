@@ -328,10 +328,10 @@ export function renderReportHtml(params: {
   .hero { background: var(--carbon); color: var(--text); padding-bottom: 24px; }
   .hero-topbar {
     display: flex; align-items: center; justify-content: space-between;
-    max-width: 1000px; margin: 0 auto; padding: 16px 24px 0;
+    max-width: 1152px; margin: 0 auto; padding: 16px 24px 0;
   }
   .hero-topbar .fecha { font-size: 12px; color: var(--text-muted); font-family: "Segoe UI", sans-serif; }
-  .hero-content { max-width: 1000px; margin: 0 auto; padding: 12px 24px 0; }
+  .hero-content { max-width: 1152px; margin: 0 auto; padding: 12px 24px 0; }
   .hero h1 { font-size: 22px; font-weight: 700; margin: 8px 0 4px; }
   .hero h1 .accent { color: var(--signal); }
   .hero .subtitle { font-size: 13px; color: var(--text-muted); max-width: 640px; margin: 4px 0 0; font-family: "Segoe UI", sans-serif; }
@@ -345,12 +345,15 @@ export function renderReportHtml(params: {
   .kpi .valor.muted { color: var(--text-muted); }
   .mes-pico { font-size: 12px; color: var(--text-muted); margin: 10px 0 0; font-family: "Segoe UI", sans-serif; }
   .mes-pico strong { color: var(--text); }
-  /* Mismo max-width y padding horizontal que .hero-content — a diferencia
-     de /reporte en vivo (donde el gráfico es intencionalmente más ancho,
-     ver hero-consolidado.tsx), en el HTML descargado el usuario pidió que
-     el cuadro de KPIs y el gráfico queden alineados borde a borde. */
-  .chart-outer { max-width: 1000px; margin: 16px auto 0; padding: 0 24px 20px; }
-  main { max-width: 1000px; margin: 0 auto; padding: 24px; }
+  /* Mismo ancho que /reporte en vivo (hero-consolidado.tsx): el gráfico
+     es INTENCIONALMENTE más ancho que el resto (max-w-[1600px] vs.
+     max-w-6xl/1152px) — pedido explícito del usuario 25-ago-2026: "el
+     informe HTML no ocupa todos los espacios... debería parecerse más al
+     sistema original" (revierte un ajuste anterior que angostaba ambos a
+     1000px para alinearlos borde a borde entre sí, a costa de verse
+     angosto frente a la app en vivo). */
+  .chart-outer { max-width: 1600px; margin: 16px auto 0; padding: 0 16px 20px; }
+  main { max-width: 1152px; margin: 0 auto; padding: 24px; }
   /* Bug real corregido 17-ago-2026: sin este wrapper, la tabla ancha (25+
      columnas mensuales) empujaba el body completo más allá del
      viewport — al hacer scroll horizontal para ver meses posteriores, el
