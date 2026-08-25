@@ -705,6 +705,12 @@ Ver `TECH-SPEC-flujo-caja-nomina.md` §4.2 — 11 tablas completas (`profiles`, 
 - **Verificado**: `npx tsc --noEmit`, `npx vitest run` (180/180, 12 tests nuevos: `anclarCurvaANivelReal`, `combinarRealConModelo`, caso real "Jorge Edwards" en `aplicarCicloDeVida`, agregación de snapshots en `curvaPorAvance`) y `npm run build` limpios.
 - **Aplicar en**: cuando un modelo combina dato REAL de un sujeto con una estimación derivada de OTROS sujetos similares (aquí: obras de referencia), cualquier paso que calcule una rampa/transición usando "el último valor conocido de la curva" debe distinguir explícitamente entre "el último valor real del SUJETO" y "el último valor de la curva derivada" — son escalas potencialmente distintas, y confundirlas produce resultados físicamente imposibles sin ningún error de código visible (tsc/tests no lo detectan solos). Agregar SIEMPRE un piso de plausibilidad física (`valor >= 0`) como red de seguridad independiente de cualquier fix de anclaje específico.
 
+### 2026-08-25: Fila "Oficina Central (RP)" en "Proyección Headcount"
+
+- **Pedido explícito del usuario**: la hoja solo cubría dotación de obra (RG) — el personal de Oficina Central/Anexo (RP) quedaba fuera, así que el "Total" de la hoja no reconciliaba con la dotación total real de la compañía.
+- **Fix**: nueva fila "Oficina Central (RP)" en `renderProyeccionHeadcount`, calculada como la variación neta mes a mes de `getDotacionRgRpPorPeriodo(...).rp` (ya existente en `dotacion-total.ts`, mismo dato usado para las sub-filas RG/RP de la hoja "Detalle"). Nuevo parámetro opcional `dotacionRgRpPorPeriodo` en `renderReportExcel`, propagado desde `export-action.ts` con 1 mes extra antes del rango visible (para poder calcular la variación neta de la primera columna, sin inventar un salto artificial). Incluida en la suma de la fila "Total". Sin `dotacionRgRpPorPeriodo`, la fila simplemente no aparece (comportamiento previo intacto).
+- **Verificado**: `npx tsc --noEmit`, `npx vitest run` (182/182, 2 tests nuevos: con y sin la fila) y `npm run build` limpios.
+
 ---
 
 ## Gotchas (Antes de Implementar)
