@@ -3,6 +3,7 @@ import ExcelJS from "exceljs";
 import { renderReportExcel } from "./render-excel";
 import type { ResumenKpis } from "@/features/cash-flow/services/queries";
 import type { PlanObraDotacionFila } from "@/features/headcount/services/plan-obra-dotacion";
+import type { DotacionRgRpPunto } from "@/features/headcount/services/dotacion-total";
 
 const KPIS: ResumenKpis = {
   totalMesActual: 100_000_000,
@@ -376,6 +377,130 @@ describe("renderReportExcel", () => {
     expect(filaTotal.getCell(1).value).toBe("Total");
     expect(filaTotal.getCell(9).value).toBe(50);
     expect(filaTotal.getCell(10).value).toBe(15);
+  });
+
+  it("con dotacionRgRpPorPeriodo, agrega la fila 'Oficina Central (RP)' e la incluye en el Total", async () => {
+    const PLAN_OBRA_DOTACION: PlanObraDotacionFila[] = [
+      {
+        obraId: "obra-1",
+        obraNombre: "Obra Alfa",
+        comuna: "Ñuñoa",
+        tipo: "DS19",
+        cliente: "Maestra",
+        unidades: 120,
+        inicioObra: "2026-06-01",
+        finObra: "2027-06-01",
+        durObraMeses: 12,
+        periodo: "2026-06-01",
+        dotacionReal: 0,
+        dotacionProyectada: 0,
+        variacionNeta: 0,
+        origenVariacion: "buk_real",
+      },
+      {
+        obraId: "obra-1",
+        obraNombre: "Obra Alfa",
+        comuna: "Ñuñoa",
+        tipo: "DS19",
+        cliente: "Maestra",
+        unidades: 120,
+        inicioObra: "2026-06-01",
+        finObra: "2027-06-01",
+        durObraMeses: 12,
+        periodo: "2026-07-01",
+        dotacionReal: 50,
+        dotacionProyectada: 50,
+        variacionNeta: 50,
+        origenVariacion: "buk_real",
+      },
+    ];
+    // rp: may-26=100, jun-26=105 (Δ=+5, mes anterior al primero visible,
+    // no se muestra pero se usa para calcular la Δ de jun-26), jul-26=98
+    // (Δ=-7).
+    const DOTACION_RG_RP: Map<string, DotacionRgRpPunto> = new Map([
+      ["2026-05-01", { rg: 500, rp: 100 }],
+      ["2026-06-01", { rg: 520, rp: 105 }],
+      ["2026-07-01", { rg: 530, rp: 98 }],
+    ]);
+
+    const buffer = await renderReportExcel({
+      serie: [
+        {
+          periodo: "2026-07-01",
+          concepto: "total_nomina",
+          monto: 100_000_000,
+          esReal: true,
+          metodoCalculo: null,
+        },
+      ],
+      kpis: KPIS,
+      ufPorPeriodo: new Map(),
+      periodoDesde: "2026-06-01",
+      periodoHasta: "2026-07-01",
+      generadoEn: new Date(2026, 7, 4),
+      planObraDotacion: PLAN_OBRA_DOTACION,
+      dotacionRgRpPorPeriodo: DOTACION_RG_RP,
+    });
+
+    const wb = await leerWorkbook(buffer);
+    const headcount = wb.getWorksheet("Proyección Headcount")!;
+
+    // Fila 2 = Obra Alfa, fila 3 = Oficina Central, fila 4 = Total.
+    const filaOficinaCentral = headcount.getRow(3);
+    expect(filaOficinaCentral.getCell(1).value).toBe("Oficina Central (RP)");
+    expect(filaOficinaCentral.getCell(9).value).toBe(5); // jun-26: 105-100
+    expect(filaOficinaCentral.getCell(10).value).toBe(-7); // jul-26: 98-105
+
+    const filaTotal = headcount.getRow(4);
+    expect(filaTotal.getCell(1).value).toBe("Total");
+    // jun-26: Obra Alfa no tiene fila ese mes (0) + Oficina Central (5) = 5.
+    expect(filaTotal.getCell(9).value).toBe(5);
+    // jul-26: Obra Alfa (50) + Oficina Central (-7) = 43.
+    expect(filaTotal.getCell(10).value).toBe(43);
+  });
+
+  it("sin dotacionRgRpPorPeriodo, NO agrega la fila 'Oficina Central' (comportamiento previo intacto)", async () => {
+    const PLAN_OBRA_DOTACION: PlanObraDotacionFila[] = [
+      {
+        obraId: "obra-1",
+        obraNombre: "Obra Alfa",
+        comuna: "Ñuñoa",
+        tipo: "DS19",
+        cliente: "Maestra",
+        unidades: 120,
+        inicioObra: "2026-06-01",
+        finObra: "2027-06-01",
+        durObraMeses: 12,
+        periodo: "2026-07-01",
+        dotacionReal: 50,
+        dotacionProyectada: 50,
+        variacionNeta: 50,
+        origenVariacion: "buk_real",
+      },
+    ];
+
+    const buffer = await renderReportExcel({
+      serie: [
+        {
+          periodo: "2026-07-01",
+          concepto: "total_nomina",
+          monto: 100_000_000,
+          esReal: true,
+          metodoCalculo: null,
+        },
+      ],
+      kpis: KPIS,
+      ufPorPeriodo: new Map(),
+      periodoDesde: "2026-06-01",
+      periodoHasta: "2026-07-01",
+      generadoEn: new Date(2026, 7, 4),
+      planObraDotacion: PLAN_OBRA_DOTACION,
+    });
+
+    const wb = await leerWorkbook(buffer);
+    const headcount = wb.getWorksheet("Proyección Headcount")!;
+    // Fila 2 = Obra Alfa, fila 3 = Total directamente (sin fila extra).
+    expect(headcount.getRow(3).getCell(1).value).toBe("Total");
   });
 
   it("ordena las obras de 'Proyección Headcount' por proximidad a HOY (próximo hito: inicio si no ha empezado, fin si ya está en curso) — no por fecha de inicio ascendente", async () => {

@@ -6,8 +6,10 @@ import type {
 import type {
   DotacionTotalPunto,
   DotacionPorConceptoPunto,
+  DotacionRgRpPunto,
 } from "@/features/headcount/services/dotacion-total";
 import type { PlanObraDotacionFila } from "@/features/headcount/services/plan-obra-dotacion";
+import { sumarMesesAPeriodo } from "@/features/headcount/services/periodo";
 import { FILAS_DETALLE as FILAS } from "@/features/cash-flow/lib/filas-detalle";
 import {
   CONCEPTOS_METODOLOGIA,
@@ -78,6 +80,18 @@ export async function renderReportExcel(params: {
   /** Plan de obra (Gespro) + dotación real (Buk) + flujo estimado por obra — ver plan-obra-dotacion.ts. Hoja "Plan de Obra" solo aparece si hay filas. */
   planObraDotacion?: PlanObraDotacionFila[];
   /**
+   * Dotación N° RG/RP por período (ver `getDotacionRgRpPorPeriodo`) — usada
+   * SOLO para la fila "Oficina Central (RP)" de la hoja "Proyección
+   * Headcount" (pedido explícito del usuario 25-ago-2026: la hoja antes
+   * solo cubría dotación de obra/RG, dejando fuera el personal de
+   * Oficina Central/Anexo). Debe incluir 1 mes ANTES del primer período
+   * de `planObraDotacion` para poder calcular la variación neta del
+   * primer mes visible — sin ese mes extra, la fila queda en blanco en la
+   * primera columna. Si no se provee, la fila no aparece (comportamiento
+   * previo).
+   */
+  dotacionRgRpPorPeriodo?: Map<string, DotacionRgRpPunto>;
+  /**
    * Períodos ANTERIORES a este (YYYY-MM-DD) quedan agrupados/colapsados
    * en la hoja "Detalle" (outline de columnas de Excel) en vez de
    * mostrarse expandidos — pedido explícito del usuario 17-ago-2026: "el
@@ -100,6 +114,7 @@ export async function renderReportExcel(params: {
     dotacionPorPeriodo,
     dotacionPorConceptoYPeriodo,
     planObraDotacion,
+    dotacionRgRpPorPeriodo,
     columnasAgrupadasHastaPeriodo,
     periodoDesde,
     periodoHasta,
@@ -684,7 +699,12 @@ export async function renderReportExcel(params: {
   // exactamente los mismos `planObraDotacion` de la hoja "Plan de Obra",
   // solo reorganizados — ambas hojas nunca pueden desincronizarse entre sí.
   if (planObraDotacion && planObraDotacion.length > 0) {
-    renderProyeccionHeadcount(workbook, planObraDotacion, generadoEn);
+    renderProyeccionHeadcount(
+      workbook,
+      planObraDotacion,
+      generadoEn,
+      dotacionRgRpPorPeriodo,
+    );
   }
 
   const buffer = await workbook.xlsx.writeBuffer();
@@ -775,6 +795,7 @@ function renderProyeccionHeadcount(
   workbook: ExcelJS.Workbook,
   planObraDotacion: PlanObraDotacionFila[],
   generadoEn: Date,
+  dotacionRgRpPorPeriodo?: Map<string, DotacionRgRpPunto>,
 ): void {
   const periodos = [...new Set(planObraDotacion.map((f) => f.periodo))].sort();
   if (periodos.length === 0) return;
@@ -899,6 +920,44 @@ function renderProyeccionHeadcount(
     });
   }
 
+  // Fila "Oficina Central (RP)" — pedido explícito del usuario 25-ago-2026:
+  // la hoja antes solo cubría dotación de obra (RG), dejando fuera el
+  // personal de Oficina Central/Anexo (RP) — el "Total" no reconciliaba
+  // con la dotación total real de la compañía (ver `dotacion-total.ts`).
+  // Variación neta = RP absoluto de este mes − RP absoluto del mes
+  // anterior (ver `getDotacionRgRpPorPeriodo`); requiere que el caller
+  // haya incluido 1 mes antes del primer período visible (ver comentario
+  // en `renderReportExcel`) — sin ese mes extra, la primera columna queda
+  // en blanco (nunca inventa un salto artificial).
+  if (dotacionRgRpPorPeriodo && dotacionRgRpPorPeriodo.size > 0) {
+    const variacionRpPorPeriodo = periodos.map((periodo) => {
+      const periodoAnterior = sumarMesesAPeriodo(periodo, -1);
+      const rpActual = dotacionRgRpPorPeriodo.get(periodo)?.rp;
+      const rpAnterior = dotacionRgRpPorPeriodo.get(periodoAnterior)?.rp;
+      if (rpActual == null || rpAnterior == null) return null;
+      return rpActual - rpAnterior;
+    });
+
+    const filaOficinaCentral = headcount.addRow([
+      "Oficina Central (RP)",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ...variacionRpPorPeriodo.map((v) => v ?? ""),
+    ]);
+    filaOficinaCentral.font = { name: FUENTE_CUERPO, italic: true };
+
+    variacionRpPorPeriodo.forEach((v, i) => {
+      if (v == null) return;
+      const periodo = periodos[i];
+      sumaPorPeriodo.set(periodo, (sumaPorPeriodo.get(periodo) ?? 0) + v);
+    });
+  }
+
   const totalRow = headcount.addRow([
     "Total",
     "",
@@ -932,7 +991,7 @@ function renderProyeccionHeadcount(
 
   headcount.addRow([]);
   headcount.addRow([
-    "Variación neta (altas−bajas) por obra y mes. Amarillo = estimado por el modelo (curva de obras similares); gris = sin obra de referencia (placeholder). Fila 'Total' = variación neta de toda la compañía ese mes — mismo dato que alimenta la Dotación del flujo de caja (ver hoja 'Detalle').",
+    "Variación neta (altas−bajas) por obra y mes. Amarillo = estimado por el modelo (curva de obras similares); gris = sin obra de referencia (placeholder). 'Oficina Central (RP)' = personal que no pertenece a ninguna obra (Anexo), no usa el modelo de similitud por obra. Fila 'Total' = variación neta de toda la compañía ese mes — mismo dato que alimenta la Dotación del flujo de caja (ver hoja 'Detalle').",
   ]).font = {
     name: FUENTE_CUERPO,
     italic: true,

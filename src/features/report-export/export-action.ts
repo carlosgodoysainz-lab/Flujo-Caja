@@ -10,6 +10,7 @@ import {
 import {
   getDotacionTotalPorPeriodo,
   getDotacionPorConceptoYPeriodo,
+  getDotacionRgRpPorPeriodo,
 } from "@/features/headcount/services/dotacion-total";
 import { getPlanObraConDotacion } from "@/features/headcount/services/plan-obra-dotacion";
 import { renderReportHtml } from "./render";
@@ -72,6 +73,18 @@ export async function exportReportAsHtml(
       periodoDesde,
       periodoHasta,
     );
+    // Solo para la fila "Oficina Central (RP)" de la hoja "Proyección
+    // Headcount" — 1 mes ANTES de `periodoDesde` para poder calcular la
+    // variación neta de la primera columna visible (ver render-excel.ts).
+    const unMesAntesDePeriodoDesde = new Date(
+      periodoDesde.getFullYear(),
+      periodoDesde.getMonth() - 1,
+      1,
+    );
+    const dotacionRgRpPorPeriodo = await getDotacionRgRpPorPeriodo(
+      unMesAntesDePeriodoDesde,
+      periodoHasta,
+    );
 
     // El Excel trae MÁS histórico que la app en vivo/el HTML — pedido
     // explícito del usuario ("el histórico dejalo agrupado en el excel,
@@ -128,6 +141,7 @@ export async function exportReportAsHtml(
       columnasAgrupadasHastaPeriodo: periodoDesdeStr,
       generadoEn,
       planObraDotacion,
+      dotacionRgRpPorPeriodo,
     });
 
     const fechaSlug = generadoEn.toISOString().slice(0, 10);
