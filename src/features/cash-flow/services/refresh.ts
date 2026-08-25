@@ -297,6 +297,29 @@ async function promedioBeneficioReal6m(
 const ORIGENES_PROTEGIDOS = new Set(["manual"]);
 
 /**
+ * Una obra está "totalmente protegida" (nunca se re-estima) solo si
+ * TODAS sus filas existentes en `headcount_by_obra` son `origen='manual'`
+ * — no si tiene AL MENOS una. Bug real corregido 25-ago-2026 (4ta
+ * vuelta, confirmado por auditoría de código): antes, una sola fila
+ * manual mezclada con meses `buk_real`/`modelo_estimado` congelaba la
+ * obra COMPLETA para siempre — ningún refresh futuro la volvía a tocar,
+ * sin importar cuántas versiones subiera `METODO_FORECAST_ACTUAL`. El
+ * upsert de `runForecastModel` ya protege cada período manual
+ * individualmente (nunca lo pisa), así que la protección a nivel de
+ * OBRA COMPLETA era una capa redundante y dañina — bastaba con 1 mes
+ * cargado a mano para que el resto de la obra quedara con el modelo
+ * viejo para siempre.
+ */
+function obraTotalmenteProtegida(
+  filasDeEstaObra: { origen: string }[],
+): boolean {
+  return (
+    filasDeEstaObra.length > 0 &&
+    filasDeEstaObra.every((f) => ORIGENES_PROTEGIDOS.has(f.origen))
+  );
+}
+
+/**
  * Corre el modelo de estimación de dotación (curva por obra similar, ver
  * forecast-model/run.ts) para toda obra que TODAVÍA no tenga ningún dato
  * de dotación (manual/real/estimado), Y TAMBIÉN para obras cuya
@@ -333,10 +356,15 @@ async function estimarDotacionFaltante(
     .from("headcount_by_obra")
     .select("obra_id, origen, forecast_run_id");
 
+  const filasPorObra = new Map<string, { origen: string }[]>();
+  for (const r of yaConDato ?? []) {
+    if (!filasPorObra.has(r.obra_id)) filasPorObra.set(r.obra_id, []);
+    filasPorObra.get(r.obra_id)!.push({ origen: r.origen });
+  }
   const idsProtegidos = new Set(
-    (yaConDato ?? [])
-      .filter((r) => ORIGENES_PROTEGIDOS.has(r.origen))
-      .map((r) => r.obra_id),
+    [...filasPorObra.entries()]
+      .filter(([, filas]) => obraTotalmenteProtegida(filas))
+      .map(([obraId]) => obraId),
   );
 
   const runIdsAResolver = [

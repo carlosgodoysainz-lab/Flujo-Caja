@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  anclarCurvaANivelReal,
   aplicarArranqueDeObra,
   aplicarCicloDeVida,
   aplicarCierreDeObra,
   aVariacionNeta,
+  combinarRealConModelo,
   curvaPorAvance,
   curvaPorAvanceConFases,
   escalarCurva,
@@ -57,6 +59,16 @@ describe("curvaPorAvance", () => {
     ];
     const curva = curvaPorAvance(snapshots, inicioObra, 6);
     expect(curva.every((v) => v === null)).toBe(true);
+  });
+
+  it("con 2+ snapshots en el mismo mes de avance, se queda con el de fecha MÁS RECIENTE (bug real corregido 25-ago-2026, caso 'Lira Parque': quedaba con 104 en vez del 113 más reciente, sin importar el orden de entrada del array)", () => {
+    const inicioObra = new Date(2024, 0, 1);
+    const snapshots = [
+      { fecha: new Date(2024, 1, 20), activos: 113 }, // más reciente, viene PRIMERO en el array
+      { fecha: new Date(2024, 1, 5), activos: 104 }, // más viejo, viene DESPUÉS
+    ];
+    const curva = curvaPorAvance(snapshots, inicioObra, 3);
+    expect(curva).toEqual([null, 113, null]);
   });
 });
 
@@ -517,5 +529,99 @@ describe("aplicarCicloDeVida", () => {
     // dato real, índice 3 en este caso) decrece hacia 0, nunca sube.
     expect(variaciones.slice(4).every((v) => v <= 0)).toBe(true);
     expect(resultado.at(-1)!.valor).toBeLessThan(resultado[3].valor);
+  });
+
+  it("caso real 'Jorge Edwards' (4ta vuelta, 25-ago-2026): con `anclaReal`, la rampa de cierre parte del nivel REAL de la obra objetivo, no del nivel de la curva de referencia", () => {
+    const conDato = (valor: number): PuntoCurva => ({
+      valor,
+      sinDatoReferencia: false,
+    });
+    const sinDato = (valor = 0): PuntoCurva => ({
+      valor,
+      sinDatoReferencia: true,
+    });
+    // Curva de SIMILITUD (obra de referencia incipiente, "Lira Parque"):
+    // solo 2 meses reales (59, 114) y el resto sostenido ("held") en 114
+    // — sin ancla, `aplicarCierreDeObra` rampearía desde 114, muy por
+    // debajo del nivel real de la obra objetivo (142).
+    const curvaSimilitud = [
+      conDato(59),
+      conDato(114),
+      sinDato(114),
+      sinDato(114),
+      sinDato(114),
+      sinDato(114),
+    ];
+    const resultado = aplicarCicloDeVida(curvaSimilitud, {
+      mesCierre: 5,
+      finFaseObraGruesa: 2,
+      anclaReal: { indice: 1, nivel: 142 }, // nivel real de la obra objetivo en el mes 1
+    });
+    // La rampa parte de 142 (el ancla real), no de 114.
+    expect(resultado[1].valor).toBe(142);
+    const variaciones = aVariacionNeta(resultado).map((r) => r.variacion);
+    // Ninguna variación puede implicar restar más gente de la que había
+    // el mes anterior (nunca "despide" más de lo que existe).
+    for (let i = 1; i < resultado.length; i++) {
+      expect(variaciones[i]).toBeGreaterThanOrEqual(-resultado[i - 1].valor);
+    }
+    // El último mes queda muy por debajo del ancla real (142), acercándose
+    // a la fecha de cierre — no llega a exactamente 0 porque `mesCierre`
+    // es el último índice de la curva (aplicarCierreDeObra solo fuerza 0
+    // duro en índices ESTRICTAMENTE posteriores a `mesCierre`), pero la
+    // magnitud es consistente con el nivel real (142), no con el de la
+    // curva de referencia (114) — nunca queda plano en un valor ajeno.
+    expect(resultado.at(-1)!.valor).toBeLessThan(50);
+    expect(resultado.at(-1)!.valor).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("anclarCurvaANivelReal", () => {
+  const punto = (valor: number, sinDatoReferencia = false): PuntoCurva => ({
+    valor,
+    sinDatoReferencia,
+  });
+
+  it("fija el punto en `indice` al nivel real dado, marcado como dato real", () => {
+    const curva = [punto(10), punto(20, true), punto(30, true)];
+    const resultado = anclarCurvaANivelReal(curva, 1, 142);
+    expect(resultado).toEqual([punto(10), punto(142, false), punto(30, true)]);
+  });
+
+  it("índice fuera de rango devuelve la curva intacta", () => {
+    const curva = [punto(10), punto(20)];
+    expect(anclarCurvaANivelReal(curva, 5, 999)).toEqual(curva);
+    expect(anclarCurvaANivelReal(curva, -1, 999)).toEqual(curva);
+  });
+
+  it("no muta la curva original", () => {
+    const curva = [punto(10), punto(20)];
+    anclarCurvaANivelReal(curva, 0, 999);
+    expect(curva[0].valor).toBe(10);
+  });
+});
+
+describe("combinarRealConModelo", () => {
+  const punto = (valor: number, sinDatoReferencia = false): PuntoCurva => ({
+    valor,
+    sinDatoReferencia,
+  });
+
+  it("usa el dato real donde existe, el del modelo donde no", () => {
+    const curvaModelo = [punto(100), punto(80, true), punto(60)];
+    const curvaPropia = [null, 142, null];
+    const resultado = combinarRealConModelo(curvaModelo, curvaPropia);
+    expect(resultado).toEqual([punto(100), punto(142, false), punto(60)]);
+  });
+
+  it("nunca deja un valor negativo, aunque el modelo lo produzca (piso físico)", () => {
+    const curvaModelo = [punto(-30), punto(10)];
+    const resultado = combinarRealConModelo(curvaModelo, null);
+    expect(resultado[0].valor).toBe(0);
+  });
+
+  it("con curvaPropia null (obra sin ningún dato real), usa el modelo tal cual (solo aplica el piso físico)", () => {
+    const curvaModelo = [punto(10), punto(20, true)];
+    expect(combinarRealConModelo(curvaModelo, null)).toEqual(curvaModelo);
   });
 });

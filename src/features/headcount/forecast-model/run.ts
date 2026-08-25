@@ -5,7 +5,9 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { obrasSimilares, type ObraParaSimilitud } from "./similarity";
 import {
   aplicarCicloDeVida,
+  aplicarCierreDeObra,
   aVariacionNeta,
+  combinarRealConModelo,
   curvaPorAvance,
   curvaPorAvanceConFases,
   escalarCurva,
@@ -13,7 +15,6 @@ import {
   interpolarHuecos,
   mesDeCierre,
   METODO_FORECAST_ACTUAL,
-  type PuntoCurva,
   promediarCurvas,
 } from "./curve";
 import {
@@ -101,23 +102,41 @@ async function obtenerCurvaRealPropia(
 /**
  * Fallback para cuando NO existe ninguna obra similar utilizable (0
  * referencias, o ninguna con histórico de Buk) pero la obra objetivo SÍ
- * tiene su propio histórico real — escribe solo con ese dato real, sin
- * ninguna proyección de similitud posible (no hay con qué). Reutiliza
- * `promediarCurvas([curvaPropia], dur)` como mecanismo ya probado de
- * "mantener último valor conocido + marcar sinDatoReferencia" — con 1
- * sola curva, el "promedio" es exactamente la curva propia.
+ * tiene su propio histórico real — escribe solo con ese dato real. Antes
+ * (v5) esto dejaba la proyección PLANA para siempre a partir del último
+ * mes real (bug real confirmado 25-ago-2026, caso "Matilde Throup": 165
+ * personas reales, variación 0 en TODOS los meses futuros de la
+ * "Proyección Headcount", pese a tener `fin_obra` real conocido). Ahora
+ * aplica `aplicarCierreDeObra` sobre la propia curva real — sin ninguna
+ * obra de referencia de por medio, `m0` es siempre el último dato real
+ * GENUINO de la obra misma, así que la rampa de desmovilización hacia 0
+ * en `fin_obra` no necesita ningún ancla adicional.
  */
 async function escribirSoloDatoReal(
   supabase: ReturnType<typeof createServiceClient>,
-  obraObjetivo: { id: string; inicio_obra: string; dur_obra_meses: number },
+  obraObjetivo: {
+    id: string;
+    inicio_obra: string;
+    fin_obra: string | null;
+    dur_obra_meses: number;
+  },
   curvaPropia: (number | null)[],
   inicioObraPeriodo: string,
   session: { user?: { id?: string | null } | null } | null,
 ): Promise<RunForecastModelResult> {
-  const curvaFinal = promediarCurvas(
+  const curvaPropiaAbsoluta = promediarCurvas(
     [curvaPropia],
     obraObjetivo.dur_obra_meses,
   );
+  const mesCierre = mesDeCierre(
+    fechaLocalDesdeString(obraObjetivo.inicio_obra),
+    obraObjetivo.fin_obra ? fechaLocalDesdeString(obraObjetivo.fin_obra) : null,
+    obraObjetivo.dur_obra_meses,
+  );
+  const curvaConCierre = aplicarCierreDeObra(curvaPropiaAbsoluta, mesCierre);
+  // Piso físico + nunca pisar el dato real genuino con el resultado de la
+  // propia rampa (misma función que en el camino principal, ver Fase 13).
+  const curvaFinal = combinarRealConModelo(curvaConCierre, curvaPropia);
   const variacionNeta = aVariacionNeta(curvaFinal);
   const mesesSinDatoReferencia = variacionNeta.filter(
     (v) => v.sinDatoReferencia,
@@ -225,6 +244,16 @@ export interface RunForecastModelResult {
  * estimación por similitud donde no. Si NO hay ninguna obra similar
  * utilizable, cae al fallback anterior (`escribirSoloDatoReal`: solo
  * dato real, sin proyección — no hay con qué proyectar).
+ *
+ * v6 "ancla al nivel real + piso físico" (25-ago-2026, 4ta vuelta — bug
+ * real reportado por el usuario: "cuando bajas 121 personas en Jorge
+ * Edwards ni siquiera revisas si existe tal nivel de dotación Buk...
+ * es sacando más personas que las vigentes"): la v5 seguía sin anclar la
+ * curva de similitud al nivel real de la obra objetivo antes de aplicar
+ * la rampa de cierre — ver `anclarCurvaANivelReal`/`combinarRealConModelo`
+ * en `curve.ts`. También corrige `escribirSoloDatoReal` (antes quedaba
+ * plano para siempre, caso "Matilde Throup") para que aplique la misma
+ * rampa de cierre sobre su propia curva real.
  */
 export async function runForecastModel(
   obraId: string,
@@ -429,20 +458,42 @@ export async function runForecastModel(
   const pico = Math.max(0, ...curvaPromedio.map((p) => p.valor));
   const maxDeltaPorMes = Math.max(3, Math.round(0.25 * pico));
 
+  // Ancla la rampa de cierre al último nivel REAL conocido de la obra
+  // objetivo (no al de la curva de referencia) — bug real corregido
+  // 25-ago-2026, caso "Jorge Edwards": sin esto, `aplicarCierreDeObra`
+  // rampeaba desde el nivel que tuviera la obra de REFERENCIA en ese
+  // punto de avance (ej. 114, "Lira Parque" en su 2do mes de vida), no
+  // desde el nivel real de Jorge Edwards (142), produciendo una
+  // variación de -121 en un solo mes — físicamente imposible. Todo mes
+  // `<= ultimoIndiceReal` se sobreescribe de todas formas con
+  // `curvaPropia` en el merge final, así que el ancla solo cambia lo que
+  // pasa DESPUÉS (los meses realmente proyectados).
+  let ultimoIndiceReal = -1;
+  if (curvaPropia) {
+    for (let i = curvaPropia.length - 1; i >= 0; i--) {
+      if (curvaPropia[i] != null) {
+        ultimoIndiceReal = i;
+        break;
+      }
+    }
+  }
+
   const curvaCicloDeVida = aplicarCicloDeVida(curvaPromedio, {
     mesCierre: mesCierreObjetivo,
     finFaseObraGruesa,
     maxDeltaPorMes,
+    anclaReal:
+      ultimoIndiceReal >= 0
+        ? { indice: ultimoIndiceReal, nivel: curvaPropia![ultimoIndiceReal]! }
+        : undefined,
   });
 
   // Real gana sobre fórmula: superpone el dato real propio (si existe)
-  // encima de la estimación por similitud, mes a mes — el dato real
-  // nunca se toca ni se suaviza, solo se usa para los meses donde el
-  // modelo no tiene ningún real propio con qué reemplazarlo.
-  const curvaFinal: PuntoCurva[] = curvaCicloDeVida.map((punto, i) => {
-    const real = curvaPropia?.[i];
-    return real != null ? { valor: real, sinDatoReferencia: false } : punto;
-  });
+  // encima de la estimación por similitud, mes a mes, con un piso físico
+  // de `valor >= 0` como red de seguridad final (ver Fase 13, 4ta vuelta)
+  // — el dato real nunca se toca ni se suaviza, solo se usa para los
+  // meses donde el modelo no tiene ningún real propio con qué reemplazarlo.
+  const curvaFinal = combinarRealConModelo(curvaCicloDeVida, curvaPropia);
   const variacionNeta = aVariacionNeta(curvaFinal);
   const mesesSinDatoReferencia = variacionNeta.filter(
     (v, i) => v.sinDatoReferencia && curvaPropia?.[i] == null,

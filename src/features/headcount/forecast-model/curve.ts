@@ -33,9 +33,21 @@
  * apenas pasado el último mes real. Ahora el dato real se SUPERPONE
  * sobre la curva de similitud (ciclo de vida completo) en vez de
  * reemplazarla — real donde existe, modelo donde no.
+ *
+ * v6 "ancla al nivel real + piso físico" (25-ago-2026, 4ta vuelta): la v5
+ * seguía sin ANCLAR la curva de similitud al nivel real de la obra
+ * objetivo — `aplicarCierreDeObra` rampeaba desde el último nivel que
+ * tuviera la curva de REFERENCIA (ej. 114, "Lira Parque" en su 2do mes),
+ * no desde el nivel real de la obra objetivo (142, "Jorge Edwards"),
+ * produciendo una variación de -121 en un solo mes — físicamente
+ * imposible. Ahora `anclarCurvaANivelReal` fija el último punto real
+ * conocido antes del cierre, y `combinarRealConModelo` aplica un piso de
+ * `valor >= 0` como red de seguridad final. También corrige el fallback
+ * sin obras de referencia (`escribirSoloDatoReal`, caso "Matilde
+ * Throup"): ahora aplica la misma rampa de cierre sobre su propia curva
+ * real en vez de quedar plana para siempre.
  */
-export const METODO_FORECAST_ACTUAL =
-  "similar_obras_v5_real_mas_similitud_combinados";
+export const METODO_FORECAST_ACTUAL = "similar_obras_v6_ancla_real_piso_fisico";
 
 /**
  * Parsea una fecha "YYYY-MM-DD" (o con hora) a un `Date` LOCAL (año, mes,
@@ -101,10 +113,23 @@ export function curvaPorAvance(
   durObraMeses: number,
 ): (number | null)[] {
   const curva: (number | null)[] = new Array(durObraMeses).fill(null);
+  // Fecha del snapshot que escribió cada índice — para quedarse con el
+  // MÁS RECIENTE cuando 2+ `snapshot_date` distintos caen en el mismo mes
+  // de avance, en vez del último en orden de iteración (que depende del
+  // orden de inserción del `Map` de origen, no de la fecha). Bug real
+  // corregido 25-ago-2026, encontrado por auditoría (no reportado por el
+  // usuario): "Lira Parque" tenía 2 snapshots de agosto-2026 con activos
+  // distintos y quedaba con el más viejo (104) en vez del más reciente
+  // (113), distorsionando el ancla de cualquier obra que la usara como
+  // referencia.
+  const fechaPorIndice: (Date | null)[] = new Array(durObraMeses).fill(null);
   for (const s of snapshots) {
     const mes = diferenciaEnMeses(inicioObra, s.fecha);
-    if (mes >= 0 && mes < durObraMeses) {
+    if (mes < 0 || mes >= durObraMeses) continue;
+    const fechaActual = fechaPorIndice[mes];
+    if (fechaActual == null || s.fecha.getTime() >= fechaActual.getTime()) {
       curva[mes] = s.activos;
+      fechaPorIndice[mes] = s.fecha;
     }
   }
   return curva;
@@ -499,18 +524,79 @@ export function aplicarCierreDeObra(
   return resultado;
 }
 
+/**
+ * Fuerza que el punto en `indice` de la curva sea exactamente `nivelReal`
+ * (marcado como dato real, no `sinDatoReferencia`) — usado para anclar la
+ * curva de SIMILITUD al último nivel real conocido de la obra OBJETIVO
+ * antes de aplicar `aplicarCierreDeObra`, para que su rampa de
+ * desmovilización arranque desde el nivel real (ej. 142 personas) en vez
+ * del nivel de una obra de referencia incipiente (ej. 114, "Lira Parque"
+ * en su 2do mes de vida) — bug real corregido 25-ago-2026, caso "Jorge
+ * Edwards": sin este ancla, `aplicarCierreDeObra` rampeaba desde el nivel
+ * de la REFERENCIA, produciendo una variación de -121 en un solo mes
+ * (físicamente imposible: restaba más gente de la que la obra tenía).
+ * `indice` fuera de rango devuelve la curva intacta.
+ */
+export function anclarCurvaANivelReal(
+  curva: PuntoCurva[],
+  indice: number,
+  nivelReal: number,
+): PuntoCurva[] {
+  if (indice < 0 || indice >= curva.length) return curva;
+  const resultado = curva.map((p) => ({ ...p }));
+  resultado[indice] = { valor: nivelReal, sinDatoReferencia: false };
+  return resultado;
+}
+
+/**
+ * Combina la curva REAL propia de la obra objetivo (donde exista, mes a
+ * mes) con la curva del MODELO (donde no) y aplica un piso físico: nunca
+ * `valor < 0` — red de seguridad final e independiente de
+ * `anclarCurvaANivelReal`, para que ningún bug futuro del modelo pueda
+ * volver a producir una baja mayor a la dotación existente. Antes esta
+ * lógica vivía inline en `run.ts` sin ningún test (brecha de cobertura
+ * real, confirmada por auditoría 25-ago-2026) — se extrae acá como
+ * función pura para poder testear exactamente el punto donde ocurrió el
+ * bug real (la "costura" entre dato real y estimación).
+ */
+export function combinarRealConModelo(
+  curvaModelo: PuntoCurva[],
+  curvaPropia: (number | null)[] | null,
+): PuntoCurva[] {
+  return curvaModelo.map((punto, i) => {
+    const real = curvaPropia?.[i];
+    const valor = real != null ? real : punto.valor;
+    return {
+      valor: Math.max(0, valor),
+      sinDatoReferencia: real != null ? false : punto.sinDatoReferencia,
+    };
+  });
+}
+
 export interface OpcionesCicloDeVida {
   mesCierre: number;
   finFaseObraGruesa: number;
   /** `undefined` o `<= 0` deshabilita el suavizado de saltos. */
   maxDeltaPorMes?: number;
+  /**
+   * Ancla la curva al nivel real conocido de la obra OBJETIVO en
+   * `indice` antes de aplicar la rampa de cierre — ver
+   * `anclarCurvaANivelReal`. Sin esto, `aplicarCierreDeObra` rampea desde
+   * el nivel que tenga la curva de REFERENCIA en ese punto, que puede no
+   * tener ninguna relación de escala con la obra objetivo.
+   */
+  anclaReal?: { indice: number; nivel: number };
 }
 
 /**
  * Orquestador del fix "ciclo de vida" (24-ago-2026): arranque → suavizado
- * → cierre, en ese orden — el cierre va ÚLTIMO para que el limitador de
- * pendiente no aplane la rampa de desmovilización (que ya es suave por
- * construcción, no necesita el limitador).
+ * → ancla real → cierre, en ese orden. El ancla va DESPUÉS del suavizado
+ * (para que no se le aplique el limitador de pendiente al nivel real en
+ * sí — el suavizado ya cumplió su función sobre la curva de referencia)
+ * y ANTES del cierre (para que `aplicarCierreDeObra` encuentre este
+ * punto como su `m0` y rampee desde el nivel real, no desde el de la
+ * curva de referencia — bug real corregido 25-ago-2026, ver
+ * `anclarCurvaANivelReal`).
  */
 export function aplicarCicloDeVida(
   curva: PuntoCurva[],
@@ -521,5 +607,12 @@ export function aplicarCicloDeVida(
     opciones.maxDeltaPorMes != null && opciones.maxDeltaPorMes > 0
       ? suavizarSaltos(conArranque, opciones.maxDeltaPorMes)
       : conArranque;
-  return aplicarCierreDeObra(suavizada, opciones.mesCierre);
+  const anclada = opciones.anclaReal
+    ? anclarCurvaANivelReal(
+        suavizada,
+        opciones.anclaReal.indice,
+        opciones.anclaReal.nivel,
+      )
+    : suavizada;
+  return aplicarCierreDeObra(anclada, opciones.mesCierre);
 }
