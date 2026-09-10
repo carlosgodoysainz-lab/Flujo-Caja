@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import ExcelJS from "exceljs";
 import type {
   CashFlowSeriePunto,
@@ -15,13 +18,21 @@ import {
   MOTOR_CAMBIO_MENSUAL,
 } from "@/features/cash-flow/lib/metodologia-contenido";
 
-// Fuentes Office-safe de Marca Personal CGS (skill marca-carlos-godoy,
-// reemplaza Marca Maestra — decisión explícita del usuario 21-ago-2026):
-// Segoe UI Semibold para títulos/cabeceras (filas con `bold: true`),
-// Segoe UI para el resto — Unbounded/Manrope (las fuentes web de la
-// marca) no están garantizadas en el Excel del destinatario.
-const FUENTE_TITULO = "Segoe UI Semibold";
-const FUENTE_CUERPO = "Segoe UI";
+// Fuente única de marca en Word/Excel/PPTX (skill marca-maestra) — hoy
+// ninguna celda la fijaba, quedaba en la fuente default de Excel.
+const FUENTE_MARCA = "Arial";
+
+// Logo horizontal color (fondo blanco), copiado al repo desde la skill
+// marca-maestra — nunca referenciar la ruta absoluta de la skill (vive en
+// el perfil del usuario, no existiría en otra máquina ni en producción).
+// Proporción real del archivo: 2363×600 (~3.94:1). `import.meta.url` en
+// vez de `__dirname` — el proyecto compila como ESM ("module": "esnext"
+// en tsconfig), donde `__dirname` no está garantizado según el bundler.
+const LOGO_MAESTRA_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "assets",
+  "maestra-logo.jpg",
+);
 
 // Mismo amarillo que el Excel ORIGINAL usaba para marcar proyección — ver
 // el hallazgo inicial ("lo que está en amarillo es lo que falta
@@ -32,13 +43,10 @@ const FILL_PROYECTADO: ExcelJS.Fill = {
   pattern: "solid",
   fgColor: { argb: "FFFFFF00" },
 };
-// Voltio Azul (Marca Personal CGS) — reemplaza el navy de Marca Maestra
-// como fill de cabecera de tabla (decisión explícita del usuario
-// 21-ago-2026). Texto blanco encima pasa WCAG AA (5.27:1).
 const FILL_HEADER: ExcelJS.Fill = {
   type: "pattern",
   pattern: "solid",
-  fgColor: { argb: "FF1554F3" },
+  fgColor: { argb: "FF003865" },
 };
 // Gris — distingue "el modelo de curva no tenía NINGUNA obra de
 // referencia con dato real ese mes de avance" (placeholder, no
@@ -141,34 +149,40 @@ export async function renderReportExcel(params: {
   // --- Hoja "Resumen" ---
   const resumen = workbook.addWorksheet("Resumen");
 
-  // Wordmark CGS — solo en esta hoja (portada del archivo), mismo criterio
-  // de marca que "logo solo en portada/primera hoja". Marca Personal CGS
-  // es un wordmark tipográfico puro (sin isotipo/imagen, por diseño de la
-  // marca — ver references/wordmark.md), así que va como texto, no como
-  // imagen embebida (reemplaza el logo .jpg de Marca Maestra, decisión
-  // explícita del usuario 21-ago-2026).
-  resumen.getCell("A1").value = "CGS";
-  resumen.getCell("A1").font = {
-    name: FUENTE_TITULO,
-    bold: true,
-    size: 20,
-    color: { argb: "FFFF5A1F" },
-  };
+  // Logo Maestra — solo en esta hoja (portada del archivo), mismo criterio
+  // de marca que "logo solo en portada/primera hoja" (ver skill
+  // marca-maestra). 3 filas reservadas arriba para que no se pise con el
+  // texto de abajo; ancho fijo, alto acorde a la proporción real del
+  // archivo (2363×600) para no deformar el logo.
+  // Cast necesario: el `Buffer` que espera `ExcelJS.Image.buffer` no
+  // coincide estructuralmente con el `Buffer` que devuelve `readFileSync`
+  // en esta versión de @types/node (colisión de tipos, no de runtime —
+  // es el mismo objeto real). Se castea el objeto completo, vía `unknown`,
+  // directo al tipo que exporta ExcelJS — evita el choque en la
+  // propiedad `buffer` sin recurrir a `any`.
+  const logoId = workbook.addImage({
+    buffer: readFileSync(LOGO_MAESTRA_PATH),
+    extension: "jpeg",
+  } as unknown as ExcelJS.Image);
+  resumen.addImage(logoId, {
+    tl: { col: 0, row: 0 },
+    ext: { width: 180, height: 46 },
+  });
   resumen.addRow([]);
   resumen.addRow([]);
 
   resumen.addRow(["Flujo de Caja Nómina — Grupo Maestra"]).font = {
-    name: FUENTE_TITULO,
+    name: FUENTE_MARCA,
     bold: true,
     size: 14,
   };
   resumen.addRow([
     `Generado: ${generadoEn.toLocaleString("es-CL")}`,
     `Período: ${periodoDesde} a ${periodoHasta}`,
-  ]).font = { name: FUENTE_CUERPO };
+  ]).font = { name: FUENTE_MARCA };
   resumen.addRow([]);
   resumen.addRow(["KPI", "Valor"]).font = {
-    name: FUENTE_TITULO,
+    name: FUENTE_MARCA,
     bold: true,
   };
 
@@ -179,7 +193,7 @@ export async function renderReportExcel(params: {
     numFmt?: string,
   ) {
     const row = resumen.addRow([label, valor]);
-    row.font = { name: FUENTE_CUERPO };
+    row.font = { name: FUENTE_MARCA };
     if (numFmt && typeof valor === "number") row.getCell(2).numFmt = numFmt;
   }
 
@@ -256,7 +270,7 @@ export async function renderReportExcel(params: {
     [headerRow1, headerRow2].forEach((row) =>
       row.eachCell((cell) => {
         cell.font = {
-          name: FUENTE_TITULO,
+          name: FUENTE_MARCA,
           bold: true,
           color: { argb: "FFFFFFFF" },
         };
@@ -275,7 +289,7 @@ export async function renderReportExcel(params: {
     ]);
     headerRow.eachCell((cell) => {
       cell.font = {
-        name: FUENTE_TITULO,
+        name: FUENTE_MARCA,
         bold: true,
         color: { argb: "FFFFFFFF" },
       };
@@ -299,7 +313,7 @@ export async function renderReportExcel(params: {
     });
     const row = detalle.addRow(filaDotacion);
     filaDotacionNumero = row.number;
-    row.font = { name: FUENTE_CUERPO, color: { argb: "FF475569" } };
+    row.font = { name: FUENTE_MARCA, color: { argb: "FF475569" } };
     for (const colNum of celdasProyectadas)
       row.getCell(colNum).fill = FILL_PROYECTADO;
     row.eachCell((cell, colNumber) => {
@@ -469,8 +483,8 @@ export async function renderReportExcel(params: {
     });
     const row = detalle.addRow(fila);
     row.font = negrita
-      ? { name: FUENTE_TITULO, bold: true }
-      : { name: FUENTE_CUERPO };
+      ? { name: FUENTE_MARCA, bold: true }
+      : { name: FUENTE_MARCA };
     for (const colNum of celdasProyectadas) {
       row.getCell(colNum).fill = FILL_PROYECTADO;
     }
@@ -501,11 +515,10 @@ export async function renderReportExcel(params: {
     });
     const row = detalle.addRow(filaUf);
     row.font = {
-      // Combustión — mismo color que la fila "Total Nómina" ($), Marca
-      // Personal CGS (reemplaza el navy de Marca Maestra).
-      name: FUENTE_CUERPO,
+      // Navy — mismo color que la fila "Total Nómina" ($).
+      name: FUENTE_MARCA,
       italic: true,
-      color: { argb: "FFFF5A1F" },
+      color: { argb: "FF003865" },
     };
     row.eachCell((cell, colNumber) => {
       if (colNumber > 1) cell.numFmt = "#,##0.0";
@@ -546,7 +559,7 @@ export async function renderReportExcel(params: {
       ? " La columna “N°” muestra la dotación (cabezas) que explica el monto RG/RP de esa fila."
       : "");
   detalle.addRow([textoLeyenda]).font = {
-    name: FUENTE_CUERPO,
+    name: FUENTE_MARCA,
     italic: true,
     size: 9,
     color: { argb: "FF94A3B8" },
@@ -560,7 +573,7 @@ export async function renderReportExcel(params: {
   // desde metodologia-contenido.ts — nunca duplicado a mano en 2 lugares.
   const metodologia = workbook.addWorksheet("Metodología");
   metodologia.addRow(["¿Cómo se calcula cada concepto?"]).font = {
-    name: FUENTE_TITULO,
+    name: FUENTE_MARCA,
     bold: true,
     size: 14,
   };
@@ -572,7 +585,7 @@ export async function renderReportExcel(params: {
   ]);
   headerMetodologia.eachCell((cell) => {
     cell.font = {
-      name: FUENTE_TITULO,
+      name: FUENTE_MARCA,
       bold: true,
       color: { argb: "FFFFFFFF" },
     };
@@ -584,21 +597,21 @@ export async function renderReportExcel(params: {
       c.fuenteReal,
       c.formula ?? "—",
     ]);
-    row.font = { name: FUENTE_CUERPO };
+    row.font = { name: FUENTE_MARCA };
     row.alignment = { vertical: "top", wrapText: true };
   }
 
   metodologia.addRow([]);
   metodologia.addRow([
     "¿Por qué sube o baja cada concepto de un mes al siguiente?",
-  ]).font = { name: FUENTE_TITULO, bold: true, size: 12 };
+  ]).font = { name: FUENTE_MARCA, bold: true, size: 12 };
   const headerMotor = metodologia.addRow([
     "Concepto",
     "Motor del cambio mensual",
   ]);
   headerMotor.eachCell((cell) => {
     cell.font = {
-      name: FUENTE_TITULO,
+      name: FUENTE_MARCA,
       bold: true,
       color: { argb: "FFFFFFFF" },
     };
@@ -606,7 +619,7 @@ export async function renderReportExcel(params: {
   });
   for (const m of MOTOR_CAMBIO_MENSUAL) {
     const row = metodologia.addRow([m.concepto, m.explicacion]);
-    row.font = { name: FUENTE_CUERPO };
+    row.font = { name: FUENTE_MARCA };
     row.alignment = { vertical: "top", wrapText: true };
   }
 
@@ -643,7 +656,7 @@ export async function renderReportExcel(params: {
     ]);
     headerPlanObra.eachCell((cell) => {
       cell.font = {
-        name: FUENTE_TITULO,
+        name: FUENTE_MARCA,
         bold: true,
         color: { argb: "FFFFFFFF" },
       };
@@ -666,7 +679,7 @@ export async function renderReportExcel(params: {
         fila.variacionNeta ?? "",
         fila.origenVariacion ? ORIGEN_LABEL[fila.origenVariacion] : "Sin dato",
       ]);
-      row.font = { name: FUENTE_CUERPO };
+      row.font = { name: FUENTE_MARCA };
       if (fila.origenVariacion === "modelo_estimado") {
         row.getCell(11).fill = FILL_PROYECTADO;
         row.getCell(12).fill = FILL_PROYECTADO;
@@ -688,7 +701,7 @@ export async function renderReportExcel(params: {
     planObra.addRow([
       "Amarillo = dotación estimada por el modelo (curva de obras similares). Gris = el modelo no tenía ninguna obra de referencia con dato real ese mes — el valor es un placeholder (0 acumulado), no una estimación real.",
     ]).font = {
-      name: FUENTE_CUERPO,
+      name: FUENTE_MARCA,
       italic: true,
       size: 9,
       color: { argb: "FF94A3B8" },
@@ -899,7 +912,7 @@ function renderProyeccionHeadcount(
   ]);
   headerRow.eachCell((cell) => {
     cell.font = {
-      name: FUENTE_TITULO,
+      name: FUENTE_MARCA,
       bold: true,
       color: { argb: "FFFFFFFF" },
     };
@@ -930,7 +943,7 @@ function renderProyeccionHeadcount(
         return celda.variacionNeta;
       }),
     ]);
-    row.font = { name: FUENTE_CUERPO };
+    row.font = { name: FUENTE_MARCA };
     periodos.forEach((periodo, i) => {
       const celda = celdaPorObraYPeriodo.get(`${obraId}::${periodo}`);
       const cell = row.getCell(COLUMNAS_FIJAS.length + 1 + i);
@@ -976,7 +989,7 @@ function renderProyeccionHeadcount(
       "",
       ...variacionOficinaCentralPorPeriodo.map((v) => v ?? ""),
     ]);
-    filaOficinaCentral.font = { name: FUENTE_CUERPO, italic: true };
+    filaOficinaCentral.font = { name: FUENTE_MARCA, italic: true };
 
     variacionOficinaCentralPorPeriodo.forEach((v, i) => {
       if (v == null) return;
@@ -999,7 +1012,7 @@ function renderProyeccionHeadcount(
     ...periodos.map((periodo) => sumaPorPeriodo.get(periodo) ?? 0),
   ]);
   totalRow.eachCell((cell, colNumber) => {
-    cell.font = { name: FUENTE_TITULO, bold: true };
+    cell.font = { name: FUENTE_MARCA, bold: true };
     if (colNumber > COLUMNAS_FIJAS.length) {
       cell.border = { top: { style: "thin" } };
     }
@@ -1024,7 +1037,7 @@ function renderProyeccionHeadcount(
   headcount.addRow([
     "Variación neta (altas−bajas) por obra y mes. Amarillo = estimado por el modelo (curva de obras similares); gris = sin obra de referencia (placeholder). 'Oficina Central' = RP contractual real + RG sin obra asignada (dato real de Buk cuando el mes no está cerrado en Finanzas), no usa el modelo de similitud por obra. 'Saldo Inicial (Buk)' = nivel real más reciente de Buk por obra, solo de referencia. Para carga manual: edita los meses que necesites y vuelve a subir este mismo archivo en /dotacion — la columna 'Obra ID' (oculta) identifica cada obra, no la borres ni la edites. Fila 'Total' = variación neta de toda la compañía ese mes — mismo dato que alimenta la Dotación del flujo de caja (ver hoja 'Detalle').",
   ]).font = {
-    name: FUENTE_CUERPO,
+    name: FUENTE_MARCA,
     italic: true,
     size: 9,
     color: { argb: "FF94A3B8" },

@@ -59,13 +59,7 @@ export default async function DotacionPage() {
   }
 
   return (
-    // Bug real evitado 21-ago-2026: el layout compartido (main)/layout.tsx
-    // pasó a fondo Carbón (Marca Personal CGS, ver /reporte) — esta página
-    // no entra en el alcance del rediseño ("el diseño del flujo de caja"),
-    // así que se le da su propio fondo claro explícito para que el texto
-    // slate-900/500 siga siendo legible (antes heredaba el bg-white del
-    // layout, ahora heredaría el Carbón oscuro sin este fix).
-    <div className="mx-auto max-w-5xl rounded-lg bg-white p-8 my-6">
+    <div className="mx-auto max-w-5xl p-8">
       <h1 className="text-2xl font-semibold text-slate-900">
         Dotación por obra
       </h1>

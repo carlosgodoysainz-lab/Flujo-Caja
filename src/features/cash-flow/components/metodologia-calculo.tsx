@@ -11,7 +11,7 @@ const COLOR_POR_CONCEPTO: Record<string, string> = {
   Reliquidación: "var(--ok)",
   Cotización: "var(--warn)",
   "Aporte SENCE": "var(--warn)",
-  "Total Nómina": "var(--cgs-signal)",
+  "Total Nómina": "var(--navy-brand)",
 };
 
 /**
@@ -26,18 +26,12 @@ const COLOR_POR_CONCEPTO: Record<string, string> = {
  */
 export function MetodologiaCalculo() {
   return (
-    <details
-      className="rounded-lg border p-4"
-      style={{
-        borderColor: "var(--cgs-line)",
-        backgroundColor: "var(--cgs-surface)",
-      }}
-    >
-      <summary className="font-body cursor-pointer text-sm font-medium text-cgs-text">
+    <details className="rounded-lg border border-slate-200 p-4">
+      <summary className="cursor-pointer text-sm font-medium text-slate-700">
         ¿Cómo se calcula este flujo? — metodología por concepto
       </summary>
-      <div className="font-body mt-4 space-y-3 text-sm">
-        <p className="text-cgs-text-muted">
+      <div className="mt-4 space-y-3 text-sm">
+        <p className="text-slate-500">
           Cada concepto usa dato{" "}
           <strong className="text-[var(--ok)]">real</strong> cuando existe un
           archivo ingerido para ese mes desde SharePoint; si no existe (mes
@@ -50,10 +44,7 @@ export function MetodologiaCalculo() {
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left">
             <thead>
-              <tr
-                className="border-b text-xs text-cgs-text-muted"
-                style={{ borderColor: "var(--cgs-line)" }}
-              >
+              <tr className="border-b border-slate-200 text-xs text-slate-500">
                 <th className="py-1.5 pr-3">Concepto</th>
                 <th className="py-1.5 pr-3">Fuente real</th>
                 <th className="py-1.5">Fórmula (si no hay dato real)</th>
@@ -63,8 +54,7 @@ export function MetodologiaCalculo() {
               {CONCEPTOS_METODOLOGIA.map((c) => (
                 <tr
                   key={c.concepto}
-                  className="border-b align-top"
-                  style={{ borderColor: "var(--cgs-line)" }}
+                  className="border-b border-slate-100 align-top"
                 >
                   <td
                     className="py-2 pr-3 font-medium"
@@ -72,10 +62,8 @@ export function MetodologiaCalculo() {
                   >
                     {c.concepto}
                   </td>
-                  <td className="py-2 pr-3 text-cgs-text-muted">
-                    {c.fuenteReal}
-                  </td>
-                  <td className="py-2 text-cgs-text-muted italic">
+                  <td className="py-2 pr-3 text-slate-600">{c.fuenteReal}</td>
+                  <td className="py-2 text-slate-600 italic">
                     {c.formula ?? "—"}
                   </td>
                 </tr>
@@ -83,7 +71,7 @@ export function MetodologiaCalculo() {
             </tbody>
           </table>
         </div>
-        <p className="text-xs text-cgs-text-muted">
+        <p className="text-xs text-slate-500">
           Fila "Dotación (N°)" de la tabla de detalle: real desde el Excel
           maestro de Flujo de Caja o snapshots de Buk; proyectada acumulando
           altas−bajas por obra hacia adelante — sube en el arranque, se
@@ -92,14 +80,11 @@ export function MetodologiaCalculo() {
           /dotacion para el detalle por obra.
         </p>
 
-        <div
-          className="border-t pt-3"
-          style={{ borderColor: "var(--cgs-line)" }}
-        >
-          <h3 className="text-sm font-medium text-cgs-text">
+        <div className="border-t border-slate-100 pt-3">
+          <h3 className="text-sm font-medium text-slate-700">
             ¿Por qué sube o baja cada concepto de un mes al siguiente?
           </h3>
-          <p className="mt-1 text-xs text-cgs-text-muted">
+          <p className="mt-1 text-xs text-slate-500">
             La tabla de arriba explica QUÉ fórmula usa cada concepto — esto
             explica el MOTOR detrás del movimiento mes a mes: qué lo hace subir
             o bajar, y por qué casi todo se mueve en la misma dirección que la
@@ -108,10 +93,10 @@ export function MetodologiaCalculo() {
           <dl className="mt-3 space-y-2.5 text-sm">
             {MOTOR_CAMBIO_MENSUAL.map((m) => (
               <div key={m.concepto} className="flex gap-3">
-                <dt className="w-32 shrink-0 font-medium text-cgs-text">
+                <dt className="w-32 shrink-0 font-medium text-slate-700">
                   {m.concepto}
                 </dt>
-                <dd className="text-cgs-text-muted">{m.explicacion}</dd>
+                <dd className="text-slate-600">{m.explicacion}</dd>
               </div>
             ))}
           </dl>

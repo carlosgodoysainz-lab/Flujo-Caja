@@ -23,22 +23,21 @@ export async function AlertPanel() {
     // (modificador de opacidad de Tailwind sobre una variable CSS definida
     // como hex, no como canales RGB separados) falla en silencio y deja el
     // fondo transparente. Mismo bug real que rompía el nav (ver
-    // Auto-Blindaje) — rgb(245,166,35) = var(--warn) = #F5A623
-    // (recalibrado 21-ago-2026 para el fondo Carbón de Marca Personal CGS).
+    // Auto-Blindaje) — rgb(122,82,9) = var(--warn) = #7a5209 (oscurecido
+    // 18-ago-2026, auditoría /temple — el valor viejo #b8860b fallaba
+    // contraste WCAG).
     <div
       className="rounded-lg border p-4"
       style={{
-        borderColor: "rgba(245, 166, 35, 0.3)",
-        backgroundColor: "rgba(245, 166, 35, 0.08)",
+        borderColor: "rgba(122, 82, 9, 0.3)",
+        backgroundColor: "rgba(122, 82, 9, 0.05)",
       }}
     >
-      <p className="font-body text-sm font-medium text-[var(--warn)]">
+      <p className="text-sm font-medium text-[var(--warn)]">
         ⚠ {obrasUnicas.length} obra(s) con dotación estimada por el modelo (no
         manual/real)
       </p>
-      <p className="font-body mt-1 text-xs text-cgs-text-muted">
-        {obrasUnicas.join(", ")}
-      </p>
+      <p className="mt-1 text-xs text-slate-500">{obrasUnicas.join(", ")}</p>
     </div>
   );
 }

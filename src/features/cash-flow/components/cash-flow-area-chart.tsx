@@ -6,24 +6,23 @@ import { pathSuavizado } from "../lib/smooth-path";
 import { SELLO_AUTOR_BASE64 } from "../lib/watermark";
 
 /**
- * Gráfico de área para "Total Nómina requerido en el tiempo". Serie ÚNICA
- * (Total Nómina): un solo hue en todo el gráfico — real vs. proyectado se
- * distingue por trazo (sólido/punteado) y opacidad del relleno, NO por un
- * segundo color (ver skill dataviz: "color sigue a la entidad, nunca a su
- * certeza/rango").
+ * Gráfico de área para "Total Nómina requerido en el tiempo" — análogo a
+ * "Escala de Obras" del Carta Gantt de referencia, aplicado al flujo de
+ * caja. Serie ÚNICA (Total Nómina): un solo hue en todo el gráfico — real
+ * vs. proyectado se distingue por trazo (sólido/punteado) y opacidad del
+ * relleno, NO por un segundo color (ver skill dataviz: "color sigue a la
+ * entidad, nunca a su certeza/rango").
  *
- * Paleta Marca Personal CGS (skill marca-carlos-godoy, reemplaza Marca
- * Maestra — decisión explícita del usuario 21-ago-2026), pensada para
- * fondo Carbón (vive dentro del hero oscuro, no sobre blanco). Serie
- * principal en Combustión (`--cgs-signal`, posición 1 de la secuencia de
- * marca para gráficos); la línea "hoy" usa Flúor Lima (`--cgs-disrupt`,
- * reservado para "un único punto crítico" — exactamente lo que es esta
- * línea) en vez de Voltio Azul, porque Voltio da solo 3.37:1 de contraste
- * sobre Carbón (falla como trazo delgado; Flúor da 16.64:1).
+ * Paleta pensada para fondo NAVY (vive dentro del hero oscuro, no sobre
+ * blanco) — bug real reportado: con `--navy-brand` (#003865, casi el mismo
+ * tono que el fondo `--navy` #0a1f3c) la línea/área quedaban invisibles.
+ * Se usa `--gold` (mismo hue que "Escala de Obras" de referencia) para la
+ * serie, y grises translúcidos en vez de los grises pensados para blanco
+ * (#94a3b8, #e2e8f0) para grillas/ejes.
  */
-const LINEA = "var(--cgs-signal)";
+const LINEA = "var(--gold)";
 const GRID = "rgba(255,255,255,0.12)";
-const EJE_TEXTO = "rgba(245,243,239,0.55)";
+const EJE_TEXTO = "rgba(255,255,255,0.55)";
 
 const WIDTH = 900;
 // Más "delgado" (proporción más ancha que alta) — al ensanchar el
@@ -76,7 +75,7 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
 
   if (puntos.length === 0) {
     return (
-      <p className="text-sm text-cgs-text-muted">
+      <p className="text-sm text-slate-500">
         Sin datos calculados todavía — usa &quot;Actualizar reporte&quot;.
       </p>
     );
@@ -159,8 +158,8 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
         ))}
 
         {/* Relleno con degradé — más moderno que la opacidad plana
-            anterior, mismo hue (--cgs-signal) en todo el gráfico, más
-            opaco en el tramo real que en el proyectado. */}
+            anterior, mismo hue (--gold) en todo el gráfico, más opaco en
+            el tramo real que en el proyectado. */}
         <defs>
           <linearGradient id={idGradiente} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={LINEA} stopOpacity={0.5} />
@@ -218,14 +217,14 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
           />
         )}
 
-        {/* Línea "hoy" — único punto crítico del gráfico, Flúor Lima */}
+        {/* Línea "hoy" — accent, distinta de la serie de datos */}
         {idxCorte > 0 && (
           <line
             x1={x(idxCorte)}
             x2={x(idxCorte)}
             y1={PADDING.top}
             y2={HEIGHT - PADDING.bottom}
-            stroke="var(--cgs-disrupt)"
+            stroke="var(--fucsia)"
             strokeWidth={1.5}
           />
         )}
@@ -280,7 +279,7 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
               cy={y(puntos[hoverIdx].monto)}
               r={4}
               fill={LINEA}
-              stroke="var(--cgs-carbon)"
+              stroke="var(--navy)"
               strokeWidth={1.5}
             />
           </g>
@@ -303,35 +302,33 @@ export function CashFlowAreaChart({ serie }: { serie: CashFlowSeriePunto[] }) {
 
       {hoverIdx !== null && (
         <div
-          className="pointer-events-none absolute top-0 rounded-md border px-2.5 py-1.5 text-xs shadow-md"
+          className="pointer-events-none absolute top-0 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs shadow-md"
           style={{
             left: `${Math.min(Math.max((x(hoverIdx) / WIDTH) * 100, 8), 92)}%`,
             transform: "translateX(-50%)",
-            borderColor: "var(--cgs-line)",
-            backgroundColor: "var(--cgs-surface-2)",
           }}
         >
-          <p className="font-mono-cgs font-semibold text-cgs-text">
+          <p className="font-semibold text-slate-900">
             {formatCLPCompacto(puntos[hoverIdx].monto)}
           </p>
-          <p className="text-cgs-text-muted">
+          <p className="text-slate-500">
             {formatMesCorto(puntos[hoverIdx].periodo)} ·{" "}
             {puntos[hoverIdx].esReal ? "Real" : "Proyectado"}
           </p>
         </div>
       )}
 
-      <div className="mt-1 flex gap-4 text-xs text-cgs-text-muted">
+      <div className="mt-1 flex gap-4 text-xs text-white/50">
         <span>
-          <span className="mr-1 inline-block h-0.5 w-3 bg-[var(--cgs-signal)] align-middle" />{" "}
+          <span className="mr-1 inline-block h-0.5 w-3 bg-[var(--gold)] align-middle" />{" "}
           Real
         </span>
         <span>
-          <span className="mr-1 inline-block h-0.5 w-3 border-t border-dashed border-[var(--cgs-signal)] align-middle" />{" "}
+          <span className="mr-1 inline-block h-0.5 w-3 border-t border-dashed border-[var(--gold)] align-middle" />{" "}
           Proyectado
         </span>
         <span>
-          <span className="mr-1 inline-block h-2.5 w-0.5 bg-[var(--cgs-disrupt)] align-middle" />{" "}
+          <span className="mr-1 inline-block h-2.5 w-0.5 bg-[var(--fucsia)] align-middle" />{" "}
           Hoy
         </span>
       </div>

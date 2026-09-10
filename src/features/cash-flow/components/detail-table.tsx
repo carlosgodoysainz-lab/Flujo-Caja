@@ -86,43 +86,31 @@ export function DetailTable({
   }
 
   return (
-    <div className="overflow-x-auto rounded-md bg-cgs-surface p-2">
-      <Table className="font-mono-cgs">
+    <div className="overflow-x-auto">
+      <Table>
         <TableHeader>
-          <TableRow className="border-cgs-line hover:bg-transparent">
-            <TableHead
-              rowSpan={conColumnaN ? 2 : 1}
-              className="font-body font-bold uppercase tracking-wide text-cgs-text-muted"
-            >
-              Concepto
-            </TableHead>
+          <TableRow>
+            <TableHead rowSpan={conColumnaN ? 2 : 1}>Concepto</TableHead>
             {periodos.map((p) =>
               conColumnaN ? (
-                <TableHead
-                  key={p}
-                  colSpan={2}
-                  className="font-body text-center font-bold uppercase tracking-wide text-cgs-text-muted"
-                >
+                <TableHead key={p} colSpan={2} className="text-center">
                   {p.slice(0, 7)}
                 </TableHead>
               ) : (
-                <TableHead
-                  key={p}
-                  className="font-body text-right font-bold uppercase tracking-wide text-cgs-text-muted"
-                >
+                <TableHead key={p} className="text-right">
                   {p.slice(0, 7)}
                 </TableHead>
               ),
             )}
           </TableRow>
           {conColumnaN && (
-            <TableRow className="border-cgs-line hover:bg-transparent">
+            <TableRow>
               {periodos.map((p) => (
                 <Fragment key={p}>
-                  <TableHead className="text-right text-[10px] font-normal text-cgs-text-muted">
+                  <TableHead className="text-right text-[10px] font-normal text-slate-500">
                     $
                   </TableHead>
-                  <TableHead className="text-right text-[10px] font-normal text-cgs-text-muted">
+                  <TableHead className="text-right text-[10px] font-normal text-slate-500">
                     N°
                   </TableHead>
                 </Fragment>
@@ -132,13 +120,13 @@ export function DetailTable({
         </TableHeader>
         <TableBody>
           {dotacionPorPeriodo && dotacionPorPeriodo.size > 0 && (
-            <TableRow className="border-cgs-line border-b-2 hover:bg-white/5">
-              <TableCell className="font-body font-medium text-cgs-text-muted">
+            <TableRow className="border-b-2 border-slate-200">
+              <TableCell className="font-medium text-slate-600">
                 Dotación (N°)
               </TableCell>
               {periodos.map((p) => {
                 const punto = dotacionPorPeriodo.get(p);
-                const clase = `text-right ${punto && !punto.esReal ? "text-cgs-text-muted italic" : "text-cgs-text"}`;
+                const clase = `text-right ${punto && !punto.esReal ? "text-slate-500 italic" : ""}`;
                 return conColumnaN ? (
                   <Fragment key={p}>
                     <TableCell className={clase}>
@@ -157,18 +145,16 @@ export function DetailTable({
           {FILAS.map((fila) => (
             <Fragment key={fila.concepto}>
               <TableRow
-                className={`border-cgs-line hover:bg-white/5 ${
-                  fila.concepto === "total_nomina"
-                    ? "font-semibold text-cgs-signal"
-                    : "text-cgs-text"
-                }`}
+                className={
+                  fila.concepto === "total_nomina" ? "font-semibold" : undefined
+                }
               >
-                <TableCell className="font-body">{fila.label}</TableCell>
+                <TableCell>{fila.label}</TableCell>
                 {periodos.map((p) => {
                   const punto = valorPorConceptoYPeriodo.get(
                     `${fila.concepto}::${p}`,
                   );
-                  const clase = `text-right ${punto && !punto.esReal ? "text-cgs-text-muted italic" : ""}`;
+                  const clase = `text-right ${punto && !punto.esReal ? "text-slate-500 italic" : ""}`;
                   return conColumnaN ? (
                     <Fragment key={p}>
                       <TableCell className={clase}>
@@ -184,13 +170,8 @@ export function DetailTable({
                 })}
               </TableRow>
               {fila.sub?.map((sub) => (
-                <TableRow
-                  key={sub.concepto}
-                  className="border-cgs-line text-cgs-text-muted hover:bg-white/5"
-                >
-                  <TableCell className="font-body pl-6 text-xs">
-                    {sub.label}
-                  </TableCell>
+                <TableRow key={sub.concepto} className="text-slate-500">
+                  <TableCell className="pl-6 text-xs">{sub.label}</TableCell>
                   {periodos.map((p) => {
                     const punto = valorPorConceptoYPeriodo.get(
                       `${sub.concepto}::${p}`,
@@ -202,7 +183,7 @@ export function DetailTable({
                           {punto ? formatCLP(punto.monto) : "—"}
                         </TableCell>
                         <TableCell
-                          className={`text-right text-xs text-cgs-text-muted`}
+                          className={`text-right text-xs text-slate-500`}
                         >
                           {celdaN(sub, p)}
                         </TableCell>
@@ -218,13 +199,8 @@ export function DetailTable({
             </Fragment>
           ))}
           {ufPorPeriodo.size > 0 && (
-            // Voltio Azul SOLO como borde (pasa el umbral 3:1 de UI/no-texto)
-            // — como color de TEXTO sobre Carbón/Surface falla WCAG AA
-            // (3.37:1 < 4.5:1 requerido), por eso el texto va en Combustión.
-            <TableRow className="border-cgs-structure border-t-2 text-cgs-signal hover:bg-white/5">
-              <TableCell className="font-body font-medium">
-                Total Nómina (UF)
-              </TableCell>
+            <TableRow className="border-t-2 border-[var(--navy-brand)] text-[var(--navy-brand)]">
+              <TableCell className="font-medium">Total Nómina (UF)</TableCell>
               {periodos.map((p) => {
                 const totalNomina = valorPorConceptoYPeriodo.get(
                   `total_nomina::${p}`,
@@ -250,7 +226,7 @@ export function DetailTable({
         </TableBody>
       </Table>
       {ufPorPeriodo.size === 0 && (
-        <p className="font-body mt-2 text-xs text-cgs-text-muted">
+        <p className="mt-2 text-xs text-slate-500">
           Serie UF no sincronizada todavía — se actualiza junto con "Actualizar
           reporte".
         </p>

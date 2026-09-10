@@ -28,11 +28,7 @@ export default async function FuentesPage() {
     .limit(20);
 
   return (
-    // Bug real evitado 21-ago-2026: mismo criterio que /dotacion — esta
-    // página queda fuera del alcance del rediseño CGS, con su propio
-    // fondo claro explícito para no heredar el Carbón oscuro del layout
-    // compartido.
-    <div className="mx-auto max-w-3xl rounded-lg bg-white p-8 my-6">
+    <div className="mx-auto max-w-3xl p-8">
       <h1 className="text-2xl font-semibold text-slate-900">
         Fuentes de datos
       </h1>
