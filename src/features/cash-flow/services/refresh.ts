@@ -476,9 +476,10 @@ async function montoCashFlowPorPeriodoStr(
  * pasan a recalcularse solos con los últimos meses reales"): % real de
  * `concepto`/Remuneración, promedio de los últimos N meses REALES de ambos
  * (mismo patrón que `promedioFiniquitoReal6m`/`promedioAnticipoRpReal`).
- * Usado para Anticipo y Reliquidación — Cotización usa
- * `cotizacionPctAprendido` (base de 3 sumandos, no solo Remuneración).
- * `null` si todavía no hay ningún mes real disponible — ahí
+ * Usado para Anticipo y Reliquidación. Cotización usaba el mismo mecanismo
+ * (`cotizacionPctAprendido`, ya eliminada) hasta el 21-sep-2026 — ver esa
+ * fecha más abajo, donde vuelve al 30% fijo por decisión explícita del
+ * usuario. `null` si todavía no hay ningún mes real disponible — ahí
  * `calcularAnticipoProyectado`/`calcularReliquidacionProyectada` caen de
  * vuelta al % fijo (ver formulas.ts).
  */
@@ -512,56 +513,6 @@ async function pctSobreRemuneracionAprendido(
     sumaRemuneracion += remuneracion;
   }
   return sumaRemuneracion > 0 ? sumaConcepto / sumaRemuneracion : null;
-}
-
-/**
- * Mismo auto-aprendizaje que `pctSobreRemuneracionAprendido`, pero para
- * Cotización — su base es (Anticipo + Remuneración + Reliquidación), no
- * solo Remuneración (ver `calcularCotizacion`). Solo considera meses donde
- * Cotización es real (`ingesta_previred` o Excel histórico).
- */
-async function cotizacionPctAprendido(
-  supabase: ReturnType<typeof createServiceClient>,
-  antesDe: Date,
-  n = 6,
-): Promise<number | null> {
-  const { data } = await supabase
-    .from("cash_flow_monthly")
-    .select("periodo, monto")
-    .eq("concepto", "cotizacion")
-    .eq("es_real", true)
-    .lt("periodo", antesDe.toISOString().slice(0, 10))
-    .order("periodo", { ascending: false })
-    .limit(n);
-
-  if (!data || data.length === 0) return null;
-
-  let sumaCotizacion = 0;
-  let sumaBase = 0;
-  for (const fila of data) {
-    const anticipo = await montoCashFlowPorPeriodoStr(
-      supabase,
-      fila.periodo,
-      "anticipo",
-    );
-    const remuneracion = await montoCashFlowPorPeriodoStr(
-      supabase,
-      fila.periodo,
-      "remuneracion",
-    );
-    const reliquidacion = await montoCashFlowPorPeriodoStr(
-      supabase,
-      fila.periodo,
-      "reliquidacion",
-    );
-    if (anticipo == null || remuneracion == null || reliquidacion == null)
-      continue;
-    const base = anticipo + remuneracion + reliquidacion;
-    if (base === 0) continue;
-    sumaCotizacion += Number(fila.monto);
-    sumaBase += base;
-  }
-  return sumaBase > 0 ? sumaCotizacion / sumaBase : null;
 }
 
 /** Promedio de los últimos 6 meses con Finiquito REAL ingerido — metodología pedida explícitamente por el usuario (reemplaza la fórmula del Excel real, que era 7%×Remuneración). 0 si no hay 6 meses reales todavía. */
@@ -797,10 +748,6 @@ export async function refreshCashFlowReport(
       "reliquidacion",
       mes,
     );
-    const cotizacionPctAprendidoMes = await cotizacionPctAprendido(
-      supabase,
-      mes,
-    );
 
     // Aporte SENCE: SIEMPRE manual — si ya hay un valor cargado a mano
     // para este mes (override o carga anterior con dato real), se
@@ -857,7 +804,19 @@ export async function refreshCashFlowReport(
       beneficiosRp: beneficiosCalculado.rp,
       anticipoPctAprendido,
       reliquidacionPctAprendido,
-      cotizacionPctAprendido: cotizacionPctAprendidoMes,
+      // Cotización vuelve al 30% fijo (pedido explícito del usuario,
+      // 21-sep-2026): la reforma previsional (Ley N° 21.735) agrega una
+      // cotización ADICIONAL del empleador en rampa legislada — 1% desde
+      // ago-2025, 3,5% desde ago-2026, 4,25% en 2027, 5% en 2028, hasta
+      // 8,5% en régimen — que un promedio de los últimos 6 meses reales
+      // NUNCA puede anticipar (mira hacia atrás; la reforma es un
+      // calendario hacia adelante). Mantener el auto-aprendizaje aquí
+      // garantizaba que la proyección quedara sistemáticamente atrasada
+      // respecto a cada escalón legal. El 30% fijo es una base más simple
+      // y transparente mientras dure la transición — el dato REAL de
+      // Previred (`cotizacionReal`, ver engine.ts) sigue ganando siempre
+      // que exista, esto solo cambia el respaldo cuando no hay dato real.
+      cotizacionPctAprendido: null,
     });
 
     const calculadoPorConcepto: Record<string, CashFlowConceptoCalculado> = {
