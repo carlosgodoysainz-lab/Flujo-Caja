@@ -46,8 +46,21 @@
  * sin obras de referencia (`escribirSoloDatoReal`, caso "Matilde
  * Throup"): ahora aplica la misma rampa de cierre sobre su propia curva
  * real en vez de quedar plana para siempre.
+ *
+ * v7 "suaviza tras el ancla" (21-sep-2026): la v6 anclaba el PUNTO del
+ * mes real (`anclarCurvaANivelReal`) pero dejaba el mes SIGUIENTE con el
+ * valor absoluto que tenía la curva antes del anclaje — si el anclaje
+ * saltaba mucho, el mes siguiente quedaba con una variación que excedía
+ * por mucho el propio `maxDeltaPorMes` de la obra. Mismo bug que motivó
+ * v6 (saltos físicamente imposibles), un paso más adelante en la cadena.
+ * Casos reales: "Vista Llacolén B" (ancla real subió sep-26 de ~115 a
+ * 167, oct-26 quedaba en -52) y "Lira Parque" (ancla subió sep-26 de ~56
+ * a 129, oct-26 quedaba en -73) — encontrados al re-estimar tras el fix
+ * de vigencia del mismo día (ver refresh.ts). Ahora
+ * `suavizarDesdeIndice` re-aplica el limitador de pendiente a los meses
+ * posteriores al ancla, tomándola como nuevo punto de partida fijo.
  */
-export const METODO_FORECAST_ACTUAL = "similar_obras_v6_ancla_real_piso_fisico";
+export const METODO_FORECAST_ACTUAL = "similar_obras_v7_suaviza_tras_ancla";
 
 /**
  * Parsea una fecha "YYYY-MM-DD" (o con hora) a un `Date` LOCAL (año, mes,
@@ -549,6 +562,47 @@ export function anclarCurvaANivelReal(
 }
 
 /**
+ * Re-suaviza la curva hacia ADELANTE desde `indice` (nunca antes) —
+ * mismo limitador de pendiente que `suavizarSaltos`, pero tomando
+ * `curva[indice].valor` como punto de partida FIJO (nunca se le aplica
+ * el cap a él mismo) y capeando cada paso siguiente contra el resultado
+ * YA re-suavizado del paso anterior. Existe para cerrar el hueco que
+ * dejaba `anclarCurvaANivelReal`: ese anclaje fuerza UN solo punto al
+ * nivel real, pero el punto siguiente seguía con el valor absoluto que
+ * tenía la curva ANTES del anclaje — si el anclaje saltó mucho (real muy
+ * distinto de lo que el modelo traía hasta ahí), el mes siguiente quedaba
+ * con una variación físicamente imposible respecto al nuevo nivel real
+ * (bug real 21-sep-2026, casos "Vista Llacolén B"/"Lira Parque": el
+ * anclaje subía septiembre de ~115/~56 a 167/129 reales, y octubre
+ * quedaba pegado en su valor viejo — una caída de -52/-73 en 1 mes,
+ * excediendo por mucho el propio `maxDeltaPorMes` de esa obra, 32/48).
+ * Es el mismo tipo de bug que `anclarCurvaANivelReal` ya corrigió para el
+ * PUNTO del anclaje — este cierra el mismo hueco para los puntos QUE LE
+ * SIGUEN.
+ */
+export function suavizarDesdeIndice(
+  curva: PuntoCurva[],
+  indice: number,
+  maxDeltaPorMes: number,
+): PuntoCurva[] {
+  if (maxDeltaPorMes <= 0 || indice < 0 || indice >= curva.length) return curva;
+  const resultado = curva.map((p) => ({ ...p }));
+  for (let i = indice + 1; i < resultado.length; i++) {
+    const anterior = resultado[i - 1].valor;
+    const objetivo = curva[i].valor;
+    const delta = Math.max(
+      -maxDeltaPorMes,
+      Math.min(maxDeltaPorMes, objetivo - anterior),
+    );
+    resultado[i] = {
+      valor: anterior + delta,
+      sinDatoReferencia: curva[i].sinDatoReferencia,
+    };
+  }
+  return resultado;
+}
+
+/**
  * Combina la curva REAL propia de la obra objetivo (donde exista, mes a
  * mes) con la curva del MODELO (donde no) y aplica un piso físico: nunca
  * `valor < 0` — red de seguridad final e independiente de
@@ -614,5 +668,18 @@ export function aplicarCicloDeVida(
         opciones.anclaReal.nivel,
       )
     : suavizada;
-  return aplicarCierreDeObra(anclada, opciones.mesCierre);
+  // Re-suaviza los meses DESPUÉS del ancla contra el nuevo nivel real —
+  // sin esto, el mes siguiente al ancla puede quedar con un salto que
+  // excede `maxDeltaPorMes` (ver `suavizarDesdeIndice`).
+  const resuavizada =
+    opciones.anclaReal &&
+    opciones.maxDeltaPorMes != null &&
+    opciones.maxDeltaPorMes > 0
+      ? suavizarDesdeIndice(
+          anclada,
+          opciones.anclaReal.indice,
+          opciones.maxDeltaPorMes,
+        )
+      : anclada;
+  return aplicarCierreDeObra(resuavizada, opciones.mesCierre);
 }

@@ -13,6 +13,7 @@ import {
   interpolarHuecos,
   mesDeCierre,
   promediarCurvas,
+  suavizarDesdeIndice,
   suavizarSaltos,
   type PuntoCurva,
 } from "./curve";
@@ -387,6 +388,85 @@ describe("suavizarSaltos", () => {
   it("el mes 0 nunca se modifica", () => {
     const curva = [conDato(999), conDato(0)];
     expect(suavizarSaltos(curva, 1)[0].valor).toBe(999);
+  });
+});
+
+describe("suavizarDesdeIndice", () => {
+  const conDato = (valor: number): PuntoCurva => ({
+    valor,
+    sinDatoReferencia: false,
+  });
+
+  it("toma curva[indice] como punto de partida FIJO (no le aplica el cap a él mismo) y acota los saltos posteriores", () => {
+    const curva = [conDato(10), conDato(167), conDato(56), conDato(50)];
+    const resultado = suavizarDesdeIndice(curva, 1, 32);
+    // El índice del ancla (1) queda intacto.
+    expect(resultado[1].valor).toBe(167);
+    // Antes del índice, tampoco se toca.
+    expect(resultado[0].valor).toBe(10);
+    // Después, cada paso queda acotado por el cap, encadenado desde 167.
+    expect(resultado[2].valor).toBe(135); // 167 - 32
+    expect(resultado[3].valor).toBe(103); // 135 - 32 (objetivo 50 sigue muy por debajo)
+  });
+
+  it("índice fuera de rango o cap <= 0 deja la curva intacta", () => {
+    const curva = [conDato(10), conDato(20)];
+    expect(suavizarDesdeIndice(curva, 5, 10)).toBe(curva);
+    expect(suavizarDesdeIndice(curva, 0, 0)).toBe(curva);
+  });
+
+  it("último índice no cambia nada (no hay meses posteriores que suavizar)", () => {
+    const curva = [conDato(10), conDato(20)];
+    expect(suavizarDesdeIndice(curva, 1, 5).map((p) => p.valor)).toEqual([
+      10, 20,
+    ]);
+  });
+});
+
+describe("aplicarCicloDeVida — re-suavizado tras el ancla (v7)", () => {
+  const conDato = (valor: number): PuntoCurva => ({
+    valor,
+    sinDatoReferencia: false,
+  });
+
+  it("caso real 'Vista Llacolén B'/'Lira Parque' (21-sep-2026): sin el re-suavizado, el mes siguiente al ancla real quedaba con un salto que excedía por mucho maxDeltaPorMes — ahora queda acotado", () => {
+    const curva = [
+      conDato(100),
+      conDato(115),
+      conDato(56),
+      conDato(50),
+      conDato(48),
+    ];
+    const maxDeltaPorMes = 32;
+    const resultado = aplicarCicloDeVida(curva, {
+      mesCierre: 4,
+      finFaseObraGruesa: 1,
+      maxDeltaPorMes,
+      anclaReal: { indice: 1, nivel: 167 }, // nivel real muy por encima de lo modelado hasta ahí
+    });
+    // El ancla en sí sigue siendo exacta.
+    expect(resultado[1].valor).toBe(167);
+    // Ningún paso posterior al ancla excede el cap — antes de este fix,
+    // el índice 2 hubiese quedado en 56 (salto de -111 contra el ancla).
+    for (let i = 2; i < resultado.length; i++) {
+      expect(
+        Math.abs(resultado[i].valor - resultado[i - 1].valor),
+      ).toBeLessThanOrEqual(maxDeltaPorMes);
+    }
+  });
+
+  it("sin anclaReal, el comportamiento es idéntico a antes (no re-suaviza nada)", () => {
+    const curva = [conDato(10), conDato(20), conDato(90)];
+    const conAncla = aplicarCicloDeVida(curva, {
+      mesCierre: 2,
+      finFaseObraGruesa: 0,
+      maxDeltaPorMes: 30,
+    });
+    const sinLlamarAncla = aplicarCierreDeObra(
+      suavizarSaltos(aplicarArranqueDeObra(curva, 0), 30),
+      2,
+    );
+    expect(conAncla).toEqual(sinLlamarAncla);
   });
 });
 
