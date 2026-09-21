@@ -378,21 +378,68 @@ async function estimarDotacionFaltante(
     runIdsAResolver.length > 0
       ? await supabase
           .from("headcount_forecast_runs")
-          .select("id, metodo")
+          .select("id, metodo, ejecutado_at")
           .in("id", runIdsAResolver)
-      : { data: [] as { id: string; metodo: string }[] };
+      : { data: [] as { id: string; metodo: string; ejecutado_at: string }[] };
   const metodoPorRunId = new Map(
     (runsUsados ?? []).map((r) => [r.id, r.metodo]),
   );
+  const ejecutadoAtPorRunId = new Map(
+    (runsUsados ?? []).map((r) => [r.id, r.ejecutado_at]),
+  );
+
+  // Snapshot real más reciente por obra — un run puede seguir "vigente" en
+  // MÉTODO (misma versión del modelo) pero quedar OBSOLETO EN DATO si Buk
+  // trajo un snapshot real posterior a cuando ese run se ejecutó: la
+  // proyección de los meses futuros se calculó anclada al nivel real de
+  // ESE momento y nunca se entera de lo que pasó después. Hallazgo real
+  // 21-sep-2026: "Vista Llacolén B" y "Lira Parque" proyectaban una caída
+  // grande para septiembre (-46 y -70) que el propio Buk ya había
+  // desmentido con 2 snapshots nuevos (ambas obras siguieron CRECIENDO) —
+  // pero como el método seguía siendo el actual, cada "Actualizar reporte"
+  // las saltaba igual, dejando la proyección desactualizada indefinidamente.
+  // BUG REAL corregido en la misma corrida 21-sep-2026: un `select` sin
+  // `.range()`/`.limit()` sobre esta tabla trunca en silencio al tope de
+  // PostgREST (1000 filas) — con ~23.000 filas reales, la primera versión
+  // de este fix nunca veía el snapshot más reciente de la mayoría de las
+  // obras y por eso no corregía nada (mismo patrón de bug ya documentado
+  // en `getDotacionTotalPorPeriodo`, 17-ago-2026). Fix: paginar con
+  // `.range()` hasta agotar la tabla, igual que ahí.
+  const maxSnapshotPorObra = new Map<string, string>();
+  const TAMANO_PAGINA_SNAPSHOTS = 1000;
+  for (let desde = 0; ; desde += TAMANO_PAGINA_SNAPSHOTS) {
+    const { data: pagina } = await supabase
+      .from("buk_dotacion_snapshots")
+      .select("obra_id, snapshot_date")
+      .order("snapshot_date")
+      .range(desde, desde + TAMANO_PAGINA_SNAPSHOTS - 1);
+    if (!pagina || pagina.length === 0) break;
+    for (const s of pagina) {
+      if (!s.obra_id) continue;
+      const actual = maxSnapshotPorObra.get(s.obra_id);
+      if (!actual || s.snapshot_date > actual)
+        maxSnapshotPorObra.set(s.obra_id, s.snapshot_date);
+    }
+    if (pagina.length < TAMANO_PAGINA_SNAPSHOTS) break;
+  }
 
   const idsConEstimacionVigente = new Set(
     (yaConDato ?? [])
-      .filter(
-        (r) =>
-          !idsProtegidos.has(r.obra_id) &&
-          r.forecast_run_id &&
-          metodoPorRunId.get(r.forecast_run_id) === METODO_FORECAST_ACTUAL,
-      )
+      .filter((r) => {
+        if (idsProtegidos.has(r.obra_id) || !r.forecast_run_id) return false;
+        if (metodoPorRunId.get(r.forecast_run_id) !== METODO_FORECAST_ACTUAL)
+          return false;
+        const ejecutadoAt = ejecutadoAtPorRunId.get(r.forecast_run_id);
+        const maxSnapshot = maxSnapshotPorObra.get(r.obra_id);
+        if (
+          ejecutadoAt &&
+          maxSnapshot &&
+          maxSnapshot > ejecutadoAt.slice(0, 10)
+        ) {
+          return false; // Buk trajo dato real que este run nunca vio.
+        }
+        return true;
+      })
       .map((r) => r.obra_id),
   );
 
