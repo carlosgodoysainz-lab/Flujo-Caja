@@ -59,6 +59,17 @@ const FILL_SIN_DATO: ExcelJS.Fill = {
   fgColor: { argb: "FFD9D9D9" },
 };
 
+// Hoja técnica `_fcn_baseline` de "Proyección Headcount" — contrato
+// compartido con el parser de re-subida
+// (`src/features/headcount/services/parse-headcount-upload.ts`, que debe
+// usar EXACTAMENTE estos mismos valores). `VERSION_BASELINE = 1`: si el
+// formato de esta hoja cambia alguna vez, subir el número acá permite que
+// el parser detecte una versión que no reconoce y caiga a modo
+// compatibilidad en vez de leerla mal en silencio.
+const NOMBRE_HOJA_BASELINE = "_fcn_baseline";
+const MARCA_BASELINE = "FCN_BASELINE";
+const VERSION_BASELINE = 1;
+
 /**
  * Genera el respaldo en Excel que acompaña SIEMPRE al export HTML (ver
  * export-action.ts) — mismos datos, misma fuente (`cash_flow_monthly`),
@@ -920,6 +931,15 @@ function renderProyeccionHeadcount(
   });
 
   const sumaPorPeriodo = new Map<string, number>(periodos.map((p) => [p, 0]));
+  // Valor exacto que esta corrida escribió en cada celda — keyed por
+  // "obraId::periodo", volcado en la hoja técnica `_fcn_baseline` (ver
+  // `escribirHojaBaseline` más abajo). Es lo que le permite al parser de
+  // re-subida (`parse-headcount-upload.ts`) distinguir "el usuario editó
+  // esta celda" de "esto lo escribió el export" — antes de esto, CUALQUIER
+  // celda con dato (incluidas las del modelo o de Buk) se interpretaba
+  // como editada al re-subir, fosilizando toda la grilla como `manual`
+  // (bug real, ver Auto-Blindaje 21-sep-2026).
+  const baseline: { obraId: string; periodo: string; valor: number }[] = [];
 
   for (const [obraId, obra] of obrasOrdenadas) {
     const row = headcount.addRow([
@@ -940,6 +960,7 @@ function renderProyeccionHeadcount(
           periodo,
           (sumaPorPeriodo.get(periodo) ?? 0) + celda.variacionNeta,
         );
+        baseline.push({ obraId, periodo, valor: celda.variacionNeta });
         return celda.variacionNeta;
       }),
     ]);
@@ -1035,11 +1056,38 @@ function renderProyeccionHeadcount(
 
   headcount.addRow([]);
   headcount.addRow([
-    "Variación neta (altas−bajas) por obra y mes. Amarillo = estimado por el modelo (curva de obras similares); gris = sin obra de referencia (placeholder). 'Oficina Central' = RP contractual real + RG sin obra asignada (dato real de Buk cuando el mes no está cerrado en Finanzas), no usa el modelo de similitud por obra. 'Saldo Inicial (Buk)' = nivel real más reciente de Buk por obra, solo de referencia. Para carga manual: edita los meses que necesites y vuelve a subir este mismo archivo en /dotacion — la columna 'Obra ID' (oculta) identifica cada obra, no la borres ni la edites. Fila 'Total' = variación neta de toda la compañía ese mes — mismo dato que alimenta la Dotación del flujo de caja (ver hoja 'Detalle').",
+    "Variación neta (altas−bajas) por obra y mes. Amarillo = estimado por el modelo (curva de obras similares); gris = sin obra de referencia (placeholder). 'Oficina Central' = RP contractual real + RG sin obra asignada (dato real de Buk cuando el mes no está cerrado en Finanzas), no usa el modelo de similitud por obra. 'Saldo Inicial (Buk)' = nivel real más reciente de Buk por obra, solo de referencia. Para carga manual: edita los meses que necesites y vuelve a subir este mismo archivo en /dotacion — la columna 'Obra ID' (oculta) identifica cada obra, no la borres ni la edites. Fila 'Total' = variación neta de toda la compañía ese mes — mismo dato que alimenta la Dotación del flujo de caja (ver hoja 'Detalle'). Este archivo lleva además una hoja técnica interna (no la borres) que le permite al sistema saber exactamente qué celdas editaste al volver a subirlo.",
   ]).font = {
     name: FUENTE_MARCA,
     italic: true,
     size: 9,
     color: { argb: "FF94A3B8" },
   };
+
+  escribirHojaBaseline(workbook, baseline, generadoEn);
+}
+
+/**
+ * Hoja técnica `_fcn_baseline`, oculta con `state: "veryHidden"` (a
+ * diferencia de `hidden`, no aparece en el menú "Mostrar" de Excel — el
+ * usuario no puede desocultarla y "arreglarla" por error). Guarda el valor
+ * EXACTO que esta corrida escribió en cada celda de "Proyección
+ * Headcount", keyed por obraId+periodo. Es la fuente de verdad que usa
+ * `parse-headcount-upload.ts` al re-subir para distinguir "el usuario
+ * cambió este número" de "esto lo puso el export" — antes de esto no
+ * había forma de saberlo, y CUALQUIER celda con dato (incluidas las del
+ * modelo o de Buk) se marcaba como editada, fosilizando toda la grilla
+ * como `origen='manual'` en el próximo refresh (bug real, ver
+ * Auto-Blindaje 21-sep-2026).
+ */
+function escribirHojaBaseline(
+  workbook: ExcelJS.Workbook,
+  baseline: { obraId: string; periodo: string; valor: number }[],
+  generadoEn: Date,
+): void {
+  const hoja = workbook.addWorksheet(NOMBRE_HOJA_BASELINE);
+  hoja.addRow([MARCA_BASELINE, VERSION_BASELINE, generadoEn.toISOString()]);
+  hoja.addRow(["obraId", "periodo", "valor"]);
+  for (const b of baseline) hoja.addRow([b.obraId, b.periodo, b.valor]);
+  hoja.state = "veryHidden";
 }

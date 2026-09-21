@@ -19,6 +19,15 @@ const COL_OBRA = "Obra";
 // Filas especiales de la hoja que NO son obras — ver render-excel.ts.
 const FILAS_EXCLUIDAS = new Set(["Oficina Central", "Total"]);
 
+// Contrato compartido con `render-excel.ts` (`escribirHojaBaseline`) — los
+// 3 valores deben coincidir EXACTO. `VERSION_BASELINE_SOPORTADA`: si el
+// formato de la hoja cambia alguna vez y el export sube su versión, un
+// archivo con una versión distinta se trata como "sin baseline" (modo
+// compatibilidad) en vez de leerse mal en silencio.
+const NOMBRE_HOJA_BASELINE = "_fcn_baseline";
+const MARCA_BASELINE = "FCN_BASELINE";
+const VERSION_BASELINE_SOPORTADA = 1;
+
 // Mismo formato que `etiquetaPeriodoCorta` en render-excel.ts (ej.
 // "may-26") — duplicado deliberadamente en vez de importar entre
 // features (report-export ↔ headcount), Feature-First: cada feature es
@@ -69,6 +78,14 @@ export interface AdvertenciaNombreHeadcountManual {
   nombreReal: string;
 }
 
+/** Una celda que el archivo trae VACÍA pero cuyo baseline tenía un número — ver `clasificarCeldas`. Borrar nunca se interpreta como "poner 0". */
+export interface CeldaBorradaHeadcountManual {
+  obra: string;
+  obraId: string;
+  periodo: string;
+  valorAnterior: number;
+}
+
 export interface HeadcountUploadParseResult {
   celdas: CeldaHeadcountManual[];
   errores: ErrorCeldaHeadcountManual[];
@@ -79,6 +96,138 @@ export interface HeadcountUploadParseResult {
    * solo se reporta como advertencia, nunca bloquea.
    */
   advertenciasNombre: AdvertenciaNombreHeadcountManual[];
+  /**
+   * `true` si el archivo trae la hoja técnica `_fcn_baseline` con una
+   * versión que este parser reconoce — es lo que permite distinguir con
+   * certeza "el usuario editó esta celda" de "esto lo escribió el
+   * export". `false` = "modo compatibilidad" (archivo descargado antes
+   * de este fix, o hoja perdida/corrupta): la clasificación de qué es
+   * edición se resuelve DESPUÉS, comparando contra la base de datos (ver
+   * `upload-manual.ts`) — este parser no tiene esa información.
+   */
+  baselinePresente: boolean;
+  /** `generadoEn` (ISO) grabado en la hoja baseline, si está presente — para mostrarlo en el preview ("este archivo se descargó el..."). */
+  generadoEnArchivo: string | null;
+  /** Cuántas celdas con valor coinciden EXACTO con su baseline — no son ediciones, no aparecen en `celdas`. Solo tiene sentido con `baselinePresente=true`. */
+  celdasSinCambios: number;
+  /** Celdas que el usuario dejó en blanco pero cuyo baseline tenía un número — advertencia, nunca se interpreta como 0. */
+  celdasBorradas: CeldaBorradaHeadcountManual[];
+  /** Total de celdas con algún valor numérico en el archivo (editadas + sin cambios) — denominador para el tope de seguridad del modo compatibilidad. */
+  totalCeldasConValor: number;
+}
+
+/** Celda de mes tal cual viene en la hoja visible, antes de clasificar. `valor: null` = celda vacía. */
+interface CeldaLeida {
+  obraId: string;
+  periodo: string;
+  valor: number | null;
+}
+
+/**
+ * Distingue "el usuario editó esta celda" de "esto lo escribió el export"
+ * — el criterio que faltaba y que causaba el bug: antes, CUALQUIER celda
+ * con dato (incluidas las del modelo o de Buk, que el export llena para
+ * casi toda la grilla) se trataba como editada al re-subir, marcando
+ * `origen='manual'` sobre toda la hoja y congelándola para siempre (ver
+ * Auto-Blindaje 21-sep-2026).
+ *
+ * Pura — no toca ExcelJS ni la BD, para poder testearla directo.
+ */
+export function clasificarCeldas(
+  celdasLeidas: CeldaLeida[],
+  baseline: Map<string, number> | null,
+): {
+  edicionesDetectadas: CeldaHeadcountManual[];
+  sinCambios: number;
+  borradas: { obraId: string; periodo: string; valorAnterior: number }[];
+} {
+  const edicionesDetectadas: CeldaHeadcountManual[] = [];
+  const borradas: { obraId: string; periodo: string; valorAnterior: number }[] =
+    [];
+  let sinCambios = 0;
+
+  for (const { obraId, periodo, valor } of celdasLeidas) {
+    const key = `${obraId}::${periodo}`;
+    const valorBaseline = baseline?.get(key);
+
+    if (valor === null) {
+      // Sin baseline (modo compatibilidad) no hay forma de saber si una
+      // celda vacía "borró" un dato del export o simplemente nunca tuvo
+      // uno — se ignora, igual que antes del fix.
+      if (valorBaseline != null) {
+        borradas.push({ obraId, periodo, valorAnterior: valorBaseline });
+      }
+      continue;
+    }
+
+    if (baseline === null) {
+      // Modo compatibilidad: toda celda con valor es candidata; el
+      // diff real contra la BD lo hace `upload-manual.ts`, que sí tiene
+      // acceso a los datos guardados.
+      edicionesDetectadas.push({ obraId, periodo, variacionNeta: valor });
+      continue;
+    }
+
+    if (valorBaseline === valor) {
+      sinCambios++;
+    } else {
+      edicionesDetectadas.push({ obraId, periodo, variacionNeta: valor });
+    }
+  }
+
+  return { edicionesDetectadas, sinCambios, borradas };
+}
+
+/**
+ * Filtra las candidatas de modo compatibilidad (`baseline === null`, ver
+ * `clasificarCeldas`) contra lo que YA está guardado en la base de datos
+ * — solo lo que difiere se trata como edición real. Vive acá (no en
+ * `upload-manual.ts`, que tiene `"use server"` y exige que TODO export
+ * sea una Server Action async) para poder testearla pura, sin Supabase.
+ */
+export function diffContraBaseDeDatos(
+  candidatas: CeldaHeadcountManual[],
+  variacionExistentePorClave: Map<string, number>,
+): CeldaHeadcountManual[] {
+  return candidatas.filter((c) => {
+    const existente = variacionExistentePorClave.get(
+      `${c.obraId}::${c.periodo}`,
+    );
+    return existente === undefined || existente !== c.variacionNeta;
+  });
+}
+
+/**
+ * Lee la hoja técnica `_fcn_baseline` (ver `render-excel.ts`,
+ * `escribirHojaBaseline`). `null` si la hoja no existe, o si su marca/
+ * versión no coinciden con lo que este parser reconoce — un archivo así
+ * se trata como "sin baseline" (modo compatibilidad), nunca se intenta
+ * leer a medias.
+ */
+function leerBaseline(
+  workbook: ExcelJS.Workbook,
+): { baseline: Map<string, number>; generadoEn: string | null } | null {
+  const hoja = workbook.getWorksheet(NOMBRE_HOJA_BASELINE);
+  if (!hoja) return null;
+
+  const filaMarca = hoja.getRow(1);
+  const marca = String(filaMarca.getCell(1).value ?? "");
+  const version = Number(filaMarca.getCell(2).value);
+  if (marca !== MARCA_BASELINE || version !== VERSION_BASELINE_SOPORTADA) {
+    return null;
+  }
+  const generadoEn = String(filaMarca.getCell(3).value ?? "") || null;
+
+  const baseline = new Map<string, number>();
+  for (let rowNumber = 3; rowNumber <= hoja.rowCount; rowNumber++) {
+    const row = hoja.getRow(rowNumber);
+    const obraId = String(row.getCell(1).value ?? "").trim();
+    const periodo = String(row.getCell(2).value ?? "").trim();
+    const valor = Number(row.getCell(3).value);
+    if (!obraId || !periodo || Number.isNaN(valor)) continue;
+    baseline.set(`${obraId}::${periodo}`, valor);
+  }
+  return { baseline, generadoEn };
 }
 
 /**
@@ -134,9 +283,10 @@ export async function parseHeadcountUpload(
     if (periodo) columnasMes.push({ col, periodo });
   }
 
-  const celdas: CeldaHeadcountManual[] = [];
+  const celdasLeidas: CeldaLeida[] = [];
   const errores: ErrorCeldaHeadcountManual[] = [];
   const advertenciasNombre: AdvertenciaNombreHeadcountManual[] = [];
+  const nombrePorObraId = new Map<string, string>();
 
   for (
     let rowNumber = headerRowNumber + 1;
@@ -168,6 +318,7 @@ export async function parseHeadcountUpload(
       });
       continue;
     }
+    nombrePorObraId.set(obraId, nombreReal);
     if (nombreReal !== obraNombreEnArchivo) {
       advertenciasNombre.push({
         obraId,
@@ -178,7 +329,14 @@ export async function parseHeadcountUpload(
 
     for (const { col, periodo } of columnasMes) {
       const raw = row.getCell(col).value;
-      if (raw === null || raw === undefined || raw === "") continue; // celda no editada, se omite.
+      if (raw === null || raw === undefined || raw === "") {
+        // Celda vacía: se pasa igual a `clasificarCeldas` con `valor: null`
+        // — es lo que le permite detectar una celda BORRADA (el export le
+        // había puesto un número y el usuario lo dejó en blanco), que
+        // nunca se interpreta como "poner 0".
+        celdasLeidas.push({ obraId, periodo, valor: null });
+        continue;
+      }
 
       const parsed = z.number().int().safeParse(raw);
       if (!parsed.success) {
@@ -189,29 +347,29 @@ export async function parseHeadcountUpload(
         });
         continue;
       }
-      celdas.push({ obraId, periodo, variacionNeta: parsed.data });
+      celdasLeidas.push({ obraId, periodo, valor: parsed.data });
     }
   }
 
-  return { celdas, errores, advertenciasNombre };
-}
+  const baselineLeido = leerBaseline(workbook);
+  const { edicionesDetectadas, sinCambios, borradas } = clasificarCeldas(
+    celdasLeidas,
+    baselineLeido?.baseline ?? null,
+  );
 
-/**
- * Encadena `acumulado` (dotación absoluta) desde un saldo inicial, mes a
- * mes, para las celdas de UNA obra ya ordenadas por período ascendente —
- * `headcount_by_obra.acumulado` nunca debe quedar `null` (lo lee
- * `plan-obra-dotacion.ts` como dotación proyectada; dejarlo vacío rompe
- * esa columna en silencio).
- */
-export function calcularAcumuladosDesdeSaldoInicial(
-  saldoInicial: number,
-  celdasOrdenadas: { periodo: string; variacionNeta: number }[],
-): Map<string, number> {
-  const resultado = new Map<string, number>();
-  let acumulado = saldoInicial;
-  for (const c of celdasOrdenadas) {
-    acumulado += c.variacionNeta;
-    resultado.set(c.periodo, acumulado);
-  }
-  return resultado;
+  return {
+    celdas: edicionesDetectadas,
+    errores,
+    advertenciasNombre,
+    baselinePresente: baselineLeido !== null,
+    generadoEnArchivo: baselineLeido?.generadoEn ?? null,
+    celdasSinCambios: sinCambios,
+    celdasBorradas: borradas.map((b) => ({
+      obra: nombrePorObraId.get(b.obraId) ?? b.obraId,
+      obraId: b.obraId,
+      periodo: b.periodo,
+      valorAnterior: b.valorAnterior,
+    })),
+    totalCeldasConValor: celdasLeidas.filter((c) => c.valor !== null).length,
+  };
 }

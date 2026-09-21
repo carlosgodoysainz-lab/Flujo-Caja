@@ -770,4 +770,111 @@ describe("renderReportExcel", () => {
     const wb = await leerWorkbook(buffer);
     expect(wb.getWorksheet("Proyección Headcount")).toBeUndefined();
   });
+
+  it("con planObraDotacion, escribe la hoja técnica '_fcn_baseline' (veryHidden) con exactamente el mismo valor de cada celda visible — contrato compartido con parse-headcount-upload.ts", async () => {
+    const PLAN_OBRA_DOTACION: PlanObraDotacionFila[] = [
+      {
+        obraId: "obra-1",
+        obraNombre: "Obra Alfa",
+        comuna: "Ñuñoa",
+        tipo: "DS19",
+        cliente: "Maestra",
+        unidades: 120,
+        inicioObra: "2026-06-01",
+        finObra: "2027-06-01",
+        durObraMeses: 12,
+        periodo: "2026-06-01",
+        dotacionReal: 50,
+        dotacionProyectada: 50,
+        variacionNeta: 50,
+        origenVariacion: "buk_real",
+      },
+      {
+        obraId: "obra-1",
+        obraNombre: "Obra Alfa",
+        comuna: "Ñuñoa",
+        tipo: "DS19",
+        cliente: "Maestra",
+        unidades: 120,
+        inicioObra: "2026-06-01",
+        finObra: "2027-06-01",
+        durObraMeses: 12,
+        periodo: "2026-07-01",
+        dotacionReal: null,
+        dotacionProyectada: 65,
+        variacionNeta: 15,
+        origenVariacion: "modelo_estimado",
+      },
+    ];
+
+    const buffer = await renderReportExcel({
+      serie: [
+        {
+          periodo: "2026-07-01",
+          concepto: "total_nomina",
+          monto: 100_000_000,
+          esReal: true,
+          metodoCalculo: null,
+        },
+      ],
+      kpis: KPIS,
+      ufPorPeriodo: new Map(),
+      periodoDesde: "2026-06-01",
+      periodoHasta: "2026-07-01",
+      generadoEn: new Date(2026, 7, 4),
+      planObraDotacion: PLAN_OBRA_DOTACION,
+    });
+
+    const wb = await leerWorkbook(buffer);
+    const baselineSheet = wb.getWorksheet("_fcn_baseline");
+    expect(baselineSheet).toBeDefined();
+    expect(baselineSheet!.state).toBe("veryHidden");
+    expect(baselineSheet!.getRow(1).getCell(1).value).toBe("FCN_BASELINE");
+    expect(baselineSheet!.getRow(1).getCell(2).value).toBe(1);
+
+    const baselinePorClave = new Map<string, number>();
+    for (let r = 3; r <= baselineSheet!.rowCount; r++) {
+      const row = baselineSheet!.getRow(r);
+      const obraId = row.getCell(1).value as string;
+      const periodo = row.getCell(2).value as string;
+      const valor = row.getCell(3).value as number;
+      baselinePorClave.set(`${obraId}::${periodo}`, valor);
+    }
+
+    // Cada celda numérica visible de la grilla ("Proyección Headcount")
+    // debe tener su entrada exacta en el baseline — es lo que impide que
+    // export y parser se desincronicen (ver Auto-Blindaje 21-sep-2026).
+    const headcount = wb.getWorksheet("Proyección Headcount")!;
+    expect(baselinePorClave.get("obra-1::2026-06-01")).toBe(50);
+    expect(headcount.getRow(2).getCell(11).value).toBe(
+      baselinePorClave.get("obra-1::2026-06-01"),
+    );
+    expect(baselinePorClave.get("obra-1::2026-07-01")).toBe(15);
+    expect(headcount.getRow(2).getCell(12).value).toBe(
+      baselinePorClave.get("obra-1::2026-07-01"),
+    );
+    expect(baselinePorClave.size).toBe(2);
+  });
+
+  it("sin planObraDotacion, NO escribe la hoja '_fcn_baseline'", async () => {
+    const buffer = await renderReportExcel({
+      serie: [
+        {
+          periodo: "2026-07-01",
+          concepto: "total_nomina",
+          monto: 100_000_000,
+          esReal: true,
+          metodoCalculo: null,
+        },
+      ],
+      kpis: KPIS,
+      ufPorPeriodo: new Map(),
+      periodoDesde: "2026-07-01",
+      periodoHasta: "2026-07-01",
+      generadoEn: new Date(2026, 7, 4),
+    });
+
+    const wb = await leerWorkbook(buffer);
+    expect(wb.getWorksheet("_fcn_baseline")).toBeUndefined();
+  });
 });

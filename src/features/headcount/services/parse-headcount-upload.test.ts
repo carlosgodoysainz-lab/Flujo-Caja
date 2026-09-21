@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import ExcelJS from "exceljs";
 import {
   parseHeadcountUpload,
-  calcularAcumuladosDesdeSaldoInicial,
+  clasificarCeldas,
+  diffContraBaseDeDatos,
 } from "./parse-headcount-upload";
 
 /**
@@ -10,6 +11,11 @@ import {
  * `renderProyeccionHeadcount` (render-excel.ts): Obra ID (col 1, oculta),
  * Obra, ..., columnas de mes con etiqueta "may-26" etc. — para probar el
  * parser sin depender de un archivo real en disco.
+ *
+ * `baseline`: si se provee, escribe la hoja técnica `_fcn_baseline` con
+ * EXACTAMENTE el mismo contrato que `escribirHojaBaseline` en
+ * render-excel.ts (marca "FCN_BASELINE", versión 1). `undefined` = no
+ * escribir la hoja (simula un archivo descargado antes del fix).
  */
 async function construirWorkbook(
   filas: {
@@ -17,6 +23,11 @@ async function construirWorkbook(
     obraNombre: string;
     celdas: Record<string, unknown>; // etiqueta de mes -> valor
   }[],
+  opciones?: {
+    baseline?: { obraId: string; periodo: string; valor: number }[];
+    versionBaseline?: number;
+    generadoEn?: string;
+  },
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Proyección Headcount");
@@ -65,12 +76,26 @@ async function construirWorkbook(
     -2,
   ]);
   sheet.addRow(["", "Total", "", "", "", "", "", "", "", "", 5, 8, 3]);
+
+  if (opciones?.baseline) {
+    const baselineSheet = workbook.addWorksheet("_fcn_baseline");
+    baselineSheet.addRow([
+      "FCN_BASELINE",
+      opciones.versionBaseline ?? 1,
+      opciones.generadoEn ?? "2026-09-01T12:00:00.000Z",
+    ]);
+    baselineSheet.addRow(["obraId", "periodo", "valor"]);
+    for (const b of opciones.baseline) {
+      baselineSheet.addRow([b.obraId, b.periodo, b.valor]);
+    }
+  }
+
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }
 
 describe("parseHeadcountUpload", () => {
-  it("parsea celdas válidas y excluye 'Oficina Central'/'Total'", async () => {
+  it("SIN baseline (archivo pre-fix), toda celda con valor es candidata — modo compatibilidad", async () => {
     const buffer = await construirWorkbook([
       {
         obraId: "obra-1",
@@ -81,10 +106,136 @@ describe("parseHeadcountUpload", () => {
     const obrasConocidas = new Map([["obra-1", "Jorge Edwards"]]);
     const resultado = await parseHeadcountUpload(buffer, obrasConocidas);
 
+    expect(resultado.baselinePresente).toBe(false);
     expect(resultado.errores).toEqual([]);
     expect(resultado.celdas).toEqual([
       { obraId: "obra-1", periodo: "2026-05-01", variacionNeta: 10 },
       { obraId: "obra-1", periodo: "2026-06-01", variacionNeta: -5 },
+    ]);
+  });
+
+  it("REGRESIÓN DEL BUG: el archivo tal cual salió del export (todas las celdas = baseline) no genera NINGUNA edición", async () => {
+    const buffer = await construirWorkbook(
+      [
+        {
+          obraId: "obra-1",
+          obraNombre: "Jorge Edwards",
+          celdas: { "may-26": 10, "jun-26": -5, "jul-26": 3 },
+        },
+      ],
+      {
+        baseline: [
+          { obraId: "obra-1", periodo: "2026-05-01", valor: 10 },
+          { obraId: "obra-1", periodo: "2026-06-01", valor: -5 },
+          { obraId: "obra-1", periodo: "2026-07-01", valor: 3 },
+        ],
+      },
+    );
+    const obrasConocidas = new Map([["obra-1", "Jorge Edwards"]]);
+    const resultado = await parseHeadcountUpload(buffer, obrasConocidas);
+
+    expect(resultado.baselinePresente).toBe(true);
+    expect(resultado.celdas).toEqual([]);
+    expect(resultado.celdasSinCambios).toBe(3);
+    expect(resultado.errores).toEqual([]);
+  });
+
+  it("con baseline, solo las celdas que difieren del baseline son ediciones", async () => {
+    const buffer = await construirWorkbook(
+      [
+        {
+          obraId: "obra-1",
+          obraNombre: "Jorge Edwards",
+          celdas: { "may-26": 8, "jun-26": -5, "jul-26": 3 },
+        },
+      ],
+      {
+        baseline: [
+          { obraId: "obra-1", periodo: "2026-05-01", valor: 10 }, // el usuario lo cambió a 8
+          { obraId: "obra-1", periodo: "2026-06-01", valor: -5 }, // igual
+          { obraId: "obra-1", periodo: "2026-07-01", valor: 3 }, // igual
+        ],
+      },
+    );
+    const obrasConocidas = new Map([["obra-1", "Jorge Edwards"]]);
+    const resultado = await parseHeadcountUpload(buffer, obrasConocidas);
+
+    expect(resultado.celdas).toEqual([
+      { obraId: "obra-1", periodo: "2026-05-01", variacionNeta: 8 },
+    ]);
+    expect(resultado.celdasSinCambios).toBe(2);
+  });
+
+  it("celda con valor donde el baseline no tenía nada (export dejó vacío) cuenta como edición", async () => {
+    const buffer = await construirWorkbook(
+      [
+        {
+          obraId: "obra-1",
+          obraNombre: "Jorge Edwards",
+          celdas: { "may-26": 7 },
+        },
+      ],
+      { baseline: [] }, // ninguna celda tenía dato en el export
+    );
+    const obrasConocidas = new Map([["obra-1", "Jorge Edwards"]]);
+    const resultado = await parseHeadcountUpload(buffer, obrasConocidas);
+
+    expect(resultado.celdas).toEqual([
+      { obraId: "obra-1", periodo: "2026-05-01", variacionNeta: 7 },
+    ]);
+  });
+
+  it("celda vaciada por el usuario donde el baseline tenía número: no es edición, aparece en celdasBorradas", async () => {
+    const buffer = await construirWorkbook(
+      [
+        {
+          obraId: "obra-1",
+          obraNombre: "Jorge Edwards",
+          celdas: { "jun-26": -5 }, // may-26 quedó vacío
+        },
+      ],
+      {
+        baseline: [
+          { obraId: "obra-1", periodo: "2026-05-01", valor: 12 },
+          { obraId: "obra-1", periodo: "2026-06-01", valor: -5 },
+        ],
+      },
+    );
+    const obrasConocidas = new Map([["obra-1", "Jorge Edwards"]]);
+    const resultado = await parseHeadcountUpload(buffer, obrasConocidas);
+
+    expect(resultado.celdas).toEqual([]);
+    expect(resultado.celdasBorradas).toEqual([
+      {
+        obra: "Jorge Edwards",
+        obraId: "obra-1",
+        periodo: "2026-05-01",
+        valorAnterior: 12,
+      },
+    ]);
+  });
+
+  it("hoja baseline con versión desconocida se trata como ausente (modo compatibilidad)", async () => {
+    const buffer = await construirWorkbook(
+      [
+        {
+          obraId: "obra-1",
+          obraNombre: "Jorge Edwards",
+          celdas: { "may-26": 10 },
+        },
+      ],
+      {
+        baseline: [{ obraId: "obra-1", periodo: "2026-05-01", valor: 10 }],
+        versionBaseline: 99,
+      },
+    );
+    const obrasConocidas = new Map([["obra-1", "Jorge Edwards"]]);
+    const resultado = await parseHeadcountUpload(buffer, obrasConocidas);
+
+    expect(resultado.baselinePresente).toBe(false);
+    // Sin baseline confiable, toda celda con valor es candidata.
+    expect(resultado.celdas).toEqual([
+      { obraId: "obra-1", periodo: "2026-05-01", variacionNeta: 10 },
     ]);
   });
 
@@ -145,7 +296,7 @@ describe("parseHeadcountUpload", () => {
     ]);
   });
 
-  it("celdas en blanco se omiten sin generar error (no editadas)", async () => {
+  it("celdas en blanco sin baseline se omiten sin generar error ni edición", async () => {
     const buffer = await construirWorkbook([
       { obraId: "obra-1", obraNombre: "Jorge Edwards", celdas: {} },
     ]);
@@ -154,24 +305,52 @@ describe("parseHeadcountUpload", () => {
 
     expect(resultado.celdas).toEqual([]);
     expect(resultado.errores).toEqual([]);
+    expect(resultado.celdasBorradas).toEqual([]);
   });
 });
 
-describe("calcularAcumuladosDesdeSaldoInicial", () => {
-  it("encadena el acumulado desde el saldo inicial, mes a mes", () => {
-    const resultado = calcularAcumuladosDesdeSaldoInicial(100, [
-      { periodo: "2026-05-01", variacionNeta: 10 },
-      { periodo: "2026-06-01", variacionNeta: -5 },
-      { periodo: "2026-07-01", variacionNeta: 20 },
+describe("clasificarCeldas", () => {
+  it("sin baseline (null), toda celda con valor es candidata y ninguna celda vacía es 'borrada'", () => {
+    const resultado = clasificarCeldas(
+      [
+        { obraId: "o1", periodo: "2026-05-01", valor: 10 },
+        { obraId: "o1", periodo: "2026-06-01", valor: null },
+      ],
+      null,
+    );
+    expect(resultado.edicionesDetectadas).toEqual([
+      { obraId: "o1", periodo: "2026-05-01", variacionNeta: 10 },
     ]);
-    expect([...resultado.entries()]).toEqual([
-      ["2026-05-01", 110],
-      ["2026-06-01", 105],
-      ["2026-07-01", 125],
-    ]);
+    expect(resultado.borradas).toEqual([]);
+    expect(resultado.sinCambios).toBe(0);
   });
 
-  it("sin ninguna celda, devuelve un mapa vacío", () => {
-    expect(calcularAcumuladosDesdeSaldoInicial(100, [])).toEqual(new Map());
+  it("con baseline, celda con el mismo valor no es edición", () => {
+    const baseline = new Map([["o1::2026-05-01", 10]]);
+    const resultado = clasificarCeldas(
+      [{ obraId: "o1", periodo: "2026-05-01", valor: 10 }],
+      baseline,
+    );
+    expect(resultado.edicionesDetectadas).toEqual([]);
+    expect(resultado.sinCambios).toBe(1);
+  });
+});
+
+describe("diffContraBaseDeDatos", () => {
+  it("descarta las candidatas cuyo valor coincide con lo ya guardado", () => {
+    const candidatas = [
+      { obraId: "o1", periodo: "2026-05-01", variacionNeta: 10 },
+      { obraId: "o1", periodo: "2026-06-01", variacionNeta: -5 },
+      { obraId: "o1", periodo: "2026-07-01", variacionNeta: 3 },
+    ];
+    const existente = new Map([
+      ["o1::2026-05-01", 10], // igual, no es edición real
+      ["o1::2026-06-01", -8], // distinto, sí es edición real
+      // 2026-07-01 no existe en BD -> es edición real
+    ]);
+    expect(diffContraBaseDeDatos(candidatas, existente)).toEqual([
+      { obraId: "o1", periodo: "2026-06-01", variacionNeta: -5 },
+      { obraId: "o1", periodo: "2026-07-01", variacionNeta: 3 },
+    ]);
   });
 });
