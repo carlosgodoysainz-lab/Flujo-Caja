@@ -6,6 +6,7 @@ import {
   getCashFlowSeries,
   getResumenKpis,
   getUfPorPeriodo,
+  getAguinaldoAnticipoPorPeriodo,
 } from "@/features/cash-flow/services/queries";
 import {
   getDotacionTotalPorPeriodo,
@@ -118,6 +119,10 @@ export async function exportReportAsHtml(
     );
     const dotacionPorConceptoYPeriodoExcel =
       await getDotacionPorConceptoYPeriodo(desdeExcel, periodoHasta);
+    const aguinaldoAnticipoPorPeriodo = await getAguinaldoAnticipoPorPeriodo(
+      desdeExcel,
+      periodoHasta,
+    );
 
     const generadoEn = new Date();
     const periodoDesdeStr = periodoDesde.toISOString().slice(0, 10);
@@ -150,6 +155,7 @@ export async function exportReportAsHtml(
       planObraDotacion,
       oficinaCentralPorPeriodo,
       saldoInicialPorObra,
+      aguinaldoAnticipoPorPeriodo,
     });
 
     const fechaSlug = generadoEn.toISOString().slice(0, 10);

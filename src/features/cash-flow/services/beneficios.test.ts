@@ -207,7 +207,7 @@ describe("calcularBeneficiosDelMes", () => {
     expect(item?.metodoCalculo).toBe("pendiente_ingreso_manual");
   });
 
-  it("agrega correctamente por población: rg y rp suman independiente", () => {
+  it("agrega correctamente por población: rg y rp (pagados con remuneración) suman independiente del aguinaldo (pagado con anticipo)", () => {
     const septiembre = new Date(2026, 8, 1);
     const result = calcularBeneficiosDelMes({
       mes: septiembre,
@@ -217,10 +217,25 @@ describe("calcularBeneficiosDelMes", () => {
       promedio6mPorEvento: SIN_PROMEDIOS,
     });
 
-    // RG en septiembre: aguinaldo (50.000×60) + aporte sindical mensual (500.000) + gift card (2×20.000, dotacionRg=60 está en tramo medio → 3×20.000)
-    const esperadoRg = 50_000 * 60 + 500_000 + 3 * 20_000;
+    // RG pagado con REMUNERACIÓN en septiembre: aporte sindical mensual
+    // (500.000) + gift card (dotacionRg=60 está en tramo medio → 3×20.000)
+    // — el aguinaldo (50.000×60) se paga con el Anticipo, no acá.
+    const esperadoRg = 500_000 + 3 * 20_000;
     expect(result.rg.monto).toBe(esperadoRg);
-    expect(result.rp.monto).toBe(150_000 * 40);
+    expect(result.rp.monto).toBe(0);
+    // El aguinaldo va en anticipoRg/anticipoRp.
+    expect(result.anticipoRg.monto).toBe(50_000 * 60);
+    expect(result.anticipoRp.monto).toBe(150_000 * 40);
+  });
+
+  it("pagaConDeEvento clasifica los aguinaldos como anticipo y el resto como remuneración", async () => {
+    const { pagaConDeEvento } = await import("./beneficios");
+    expect(pagaConDeEvento("aguinaldo_fiestas_patrias", "rg")).toBe("anticipo");
+    expect(pagaConDeEvento("aguinaldo_navidad", "rp")).toBe("anticipo");
+    expect(pagaConDeEvento("aporte_sindical_mensual", "rg")).toBe(
+      "remuneracion",
+    );
+    expect(pagaConDeEvento("bono_natalidad", "rp")).toBe("remuneracion");
   });
 
   it("el agregado por población es 'real' si al menos un componente es real", () => {

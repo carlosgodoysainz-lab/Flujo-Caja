@@ -24,6 +24,8 @@ const BASE: CashFlowInputs = {
   },
   beneficiosRg: SIN_BENEFICIOS,
   beneficiosRp: SIN_BENEFICIOS,
+  beneficiosAnticipoRg: SIN_BENEFICIOS,
+  beneficiosAnticipoRp: SIN_BENEFICIOS,
   anticipoPctAprendido: null,
   reliquidacionPctAprendido: null,
   cotizacionPctAprendido: null,
@@ -120,6 +122,45 @@ describe("calcularMesCashFlow", () => {
     expect(result.anticipo.metodoCalculo).toBe(
       "formula_pct_aprendido_anticipo_remuneracion",
     );
+  });
+
+  it("los aguinaldos (beneficiosAnticipoRg/Rp) suman al Anticipo PROYECTADO, no a Remuneración — se pagan con la quincena, no con el sueldo de fin de mes", () => {
+    const result = calcularMesCashFlow({
+      ...BASE,
+      remuneracionReal: 100_000_000,
+      anticipoPctAprendido: 0.2,
+      beneficiosAnticipoRg: {
+        monto: 3_000_000,
+        esReal: false,
+        metodoCalculo: "formula_fecha_fija",
+      },
+      beneficiosAnticipoRp: {
+        monto: 500_000,
+        esReal: false,
+        metodoCalculo: "formula_fecha_fija",
+      },
+    });
+
+    // 20% de 100M = 20M, + 3M + 0,5M de aguinaldo = 23,5M
+    expect(result.anticipo.monto).toBe(23_500_000);
+    // Remuneración NO se mueve por el aguinaldo del Anticipo.
+    expect(result.remuneracion.monto).toBe(100_000_000);
+  });
+
+  it("con Anticipo REAL, el aguinaldo NO se suma aparte — el real ya lo trae pagado", () => {
+    const result = calcularMesCashFlow({
+      ...BASE,
+      remuneracionReal: 100_000_000,
+      anticipoReal: 25_000_000,
+      beneficiosAnticipoRg: {
+        monto: 3_000_000,
+        esReal: false,
+        metodoCalculo: "formula_fecha_fija",
+      },
+    });
+
+    expect(result.anticipo.monto).toBe(25_000_000);
+    expect(result.anticipo.esReal).toBe(true);
   });
 
   it("con % de Reliquidación aprendido, usa ese % en vez del 1% fijo", () => {

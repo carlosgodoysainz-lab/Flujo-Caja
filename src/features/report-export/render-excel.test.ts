@@ -224,7 +224,7 @@ describe("renderReportExcel", () => {
     expect(detalle.getRow(5).getCell(2).value).toBe(100_000_000);
   });
 
-  it("Remuneración proyectada por costo-por-cabeza queda linkeada a la fila Dotación (N°) del mes anterior y actual", async () => {
+  it("Remuneración proyectada por costo-por-cabeza queda linkeada SOLO a la Dotación (N°) del propio mes — el costo base ya no se encadena del mes anterior (fix 24-sep-2026)", async () => {
     const buffer = await renderReportExcel({
       serie: [
         {
@@ -237,9 +237,6 @@ describe("renderReportExcel", () => {
         {
           periodo: "2026-07-01",
           concepto: "remuneracion",
-          // costo x cabeza puro sería 100M/800*820 = 102.500.000 -- el
-          // real incluye 1.500.000 de Beneficios/Bonos implícitos, que
-          // quedan como residual fijo sumado a la fórmula.
           monto: 104_000_000,
           esReal: false,
           metodoCalculo: "costo_por_cabeza_x_dotacion",
@@ -270,12 +267,8 @@ describe("renderReportExcel", () => {
     expect(filaRemuneracionNumero).not.toBeNull();
     const celdaRemunJulio = detalle.getRow(filaRemuneracionNumero!).getCell(3)
       .value as ExcelJS.CellFormulaValue;
-    // Bx = Remuneración junio (real, mes anterior, misma fila, col B);
-    // B2 = Dotación junio; C2 = Dotación julio. Residual = 104.000.000 -
-    // (100.000.000/800*820).
-    expect(celdaRemunJulio.formula).toBe(
-      `=B${filaRemuneracionNumero}/B2*C2+1500000`,
-    );
+    // C2 = Dotación julio (820). Tasa efectiva = 104.000.000 / 820.
+    expect(celdaRemunJulio.formula).toBe(`=C2*${104_000_000 / 820}`);
     expect(celdaRemunJulio.result).toBe(104_000_000);
   });
 

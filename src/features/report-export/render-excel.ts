@@ -117,6 +117,15 @@ export async function renderReportExcel(params: {
    */
   saldoInicialPorObra?: Map<string, number>;
   /**
+   * Aguinaldo (Fiestas Patrias + Navidad, RG+RP) YA incluido dentro del
+   * Anticipo de cada período — ver `getAguinaldoAnticipoPorPeriodo` en
+   * queries.ts. Solo para que la fórmula de Anticipo en "Detalle" refleje
+   * que el aguinaldo se paga con el Anticipo (aclaración explícita del
+   * usuario 24-sep-2026), no con la Remuneración. Si no se provee, la
+   * fórmula de Anticipo asume aguinaldo $0 (comportamiento previo).
+   */
+  aguinaldoAnticipoPorPeriodo?: Map<string, number>;
+  /**
    * Períodos ANTERIORES a este (YYYY-MM-DD) quedan agrupados/colapsados
    * en la hoja "Detalle" (outline de columnas de Excel) en vez de
    * mostrarse expandidos — pedido explícito del usuario 17-ago-2026: "el
@@ -141,6 +150,7 @@ export async function renderReportExcel(params: {
     planObraDotacion,
     oficinaCentralPorPeriodo,
     saldoInicialPorObra,
+    aguinaldoAnticipoPorPeriodo,
     columnasAgrupadasHastaPeriodo,
     periodoDesde,
     periodoHasta,
@@ -378,16 +388,28 @@ export async function renderReportExcel(params: {
       // historia real todavía. Bug real corregido 24-sep-2026: esta
       // fórmula quedaba hardcodeada en 0.24 aunque `monto` ya reflejaba el
       // % real aplicado — si alguien recalculaba el Excel (F9), el valor
-      // cambiaba y dejaba de coincidir con lo que la app mostraba. Se
-      // deriva el % REAL desde el propio monto ya calculado, así la
-      // fórmula y el valor nunca se desincronizan.
+      // cambiaba y dejaba de coincidir con lo que la app mostraba.
+      //
+      // El aguinaldo (Fiestas Patrias/Navidad) se paga CON el Anticipo, no
+      // con la Remuneración (aclaración explícita del usuario, mismo día:
+      // "los aguinaldos se pagan con los anticipos, así funciona en la
+      // realidad") — `monto` ya lo trae sumado (ver engine.ts), así que se
+      // descuenta ANTES de derivar el % real sobre Remuneración, y se
+      // vuelve a sumar como un número aparte en la fórmula. Así, si se
+      // edita la Dotación y Excel recalcula, el aguinaldo no escala
+      // proporcionalmente con la Remuneración (no depende de ella).
       const remuneracionPunto = valorPorConceptoYPeriodo.get(
         `remuneracion::${periodos[i]}`,
       );
       if (!remuneracionPunto || remuneracionPunto.monto === 0) return null;
-      const pctReal = monto / remuneracionPunto.monto;
+      const aguinaldo = Math.round(
+        aguinaldoAnticipoPorPeriodo?.get(periodos[i]) ?? 0,
+      );
+      const pctReal = (monto - aguinaldo) / remuneracionPunto.monto;
+      const sufijoAguinaldo =
+        aguinaldo !== 0 ? `${aguinaldo >= 0 ? "+" : ""}${aguinaldo}` : "";
       return {
-        formula: `=${refCelda(col, filaRemun)}*${pctReal}`,
+        formula: `=${refCelda(col, filaRemun)}*${pctReal}${sufijoAguinaldo}`,
         result: monto,
       };
     }
@@ -431,42 +453,22 @@ export async function renderReportExcel(params: {
       concepto === "remuneracion" &&
       metodoCalculo === "costo_por_cabeza_x_dotacion"
     ) {
-      // Único caso con dependencia de OTRO período: costo promedio por
-      // cabeza del mes anterior × dotación actual. Sin columna anterior
-      // en este mismo sheet (primer período del rango) no hay celda a
-      // la que enlazar — se deja como valor plano en ese caso.
-      if (i === 0 || !filaDotacionNumero) return null;
-      const colAnterior = colValor(i - 1);
-      const remunAnteriorPunto = valorPorConceptoYPeriodo.get(
-        `remuneracion::${periodos[i - 1]}`,
-      );
-      const dotacionAnteriorPunto = dotacionPorPeriodo?.get(periodos[i - 1]);
+      // El costo base YA NO se encadena del mes anterior (fix real
+      // 24-sep-2026 — ver `costoBasePorCabezaPura` en refresh.ts: es el
+      // promedio de los últimos 3 meses REALES, fijo, sin beneficios). No
+      // hay una celda de "mes anterior" a la que enlazar ese costo, así
+      // que se deriva la tasa efectiva de ESTE período (monto ÷ dotación
+      // de este mismo mes, que incluye los beneficios pagados con
+      // Remuneración como un residual dentro de la tasa) y se linkea SOLO
+      // a la Dotación actual — si se edita la Dotación, el monto se
+      // recalcula proporcionalmente.
+      if (!filaDotacionNumero) return null;
       const dotacionActualPunto = dotacionPorPeriodo?.get(periodos[i]);
-      if (
-        !remunAnteriorPunto ||
-        !dotacionAnteriorPunto?.total ||
-        !dotacionActualPunto?.total
-      )
-        return null;
-      // Residual = Beneficios/Bonos del mes (se suman de forma implícita
-      // dentro de Remuneración, ver engine.ts) — no tiene su propia celda
-      // linkeable, así que queda como número fijo sumado a la fórmula:
-      // la parte costo-por-cabeza × dotación SÍ queda viva (cambia si se
-      // edita la Dotación), el residual de Beneficios es una foto fija.
-      const baseFormula =
-        (remunAnteriorPunto.monto / dotacionAnteriorPunto.total) *
-        dotacionActualPunto.total;
-      const residual = Math.round(monto - baseFormula);
-      const refRemunAnterior = refCelda(
-        colAnterior,
-        filaNumeroPorConcepto.get("remuneracion")!,
-      );
-      const refDotacionAnterior = refCelda(colAnterior, filaDotacionNumero);
+      if (!dotacionActualPunto?.total) return null;
+      const tasaEfectiva = monto / dotacionActualPunto.total;
       const refDotacionActual = refCelda(col, filaDotacionNumero);
-      const sufijoResidual =
-        residual !== 0 ? `${residual >= 0 ? "+" : ""}${residual}` : "";
       return {
-        formula: `=${refRemunAnterior}/${refDotacionAnterior}*${refDotacionActual}${sufijoResidual}`,
+        formula: `=${refDotacionActual}*${tasaEfectiva}`,
         result: monto,
       };
     }

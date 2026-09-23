@@ -607,6 +607,17 @@ function pctSobreRemuneracionAprendidoPura(
   concepto: string,
   antesDe: Date,
   n = 6,
+  /**
+   * Aguinaldo (Fiestas Patrias/Navidad) YA incluido dentro del Anticipo
+   * real de ese período — para descontarlo antes de aprender el %
+   * (aclaración explícita del usuario, 24-sep-2026: "los aguinaldos se
+   * pagan con los anticipos"). Sin esto, septiembre/diciembre inflarían
+   * el % aprendido con un componente que no es "adelanto de sueldo"
+   * habitual. Solo se pasa para `concepto === "anticipo"` — se construye
+   * en el mismo loop de `refreshCashFlowReport` a medida que se procesa
+   * cada mes (ver `aguinaldoAnticipoPorPeriodo`).
+   */
+  aguinaldoAnticipoPorPeriodo?: Map<string, number>,
 ): number | null {
   const antesDeStr = antesDe.toISOString().slice(0, 10);
   const lista = cache.realOrdenadoPorConcepto.get(concepto) ?? [];
@@ -632,7 +643,8 @@ function pctSobreRemuneracionAprendidoPura(
       remuneracionFila.monto === 0
     )
       continue;
-    sumaConcepto += fila.monto;
+    const aguinaldo = aguinaldoAnticipoPorPeriodo?.get(fila.periodo) ?? 0;
+    sumaConcepto += fila.monto - aguinaldo;
     sumaRemuneracion += remuneracionFila.monto;
   }
   return sumaRemuneracion > 0 ? sumaConcepto / sumaRemuneracion : null;
@@ -822,6 +834,12 @@ export async function refreshCashFlowReport(
   const cashFlowCache = await cargarCashFlowMonthlyCache(supabase);
   const payrollCache = await cargarPayrollLineItemsCache(supabase);
   const beneficiosCache = await cargarBeneficiosCache(supabase);
+  // Aguinaldo (RG+RP) por período, calculado a medida que el loop procesa
+  // cada mes — ver `pctSobreRemuneracionAprendidoPura`. Solo cubre los
+  // meses dentro del rango pedido en ESTE refresh; si un mes real con
+  // aguinaldo queda fuera del rango, su % aprendido simplemente no lo
+  // descuenta (degradación segura, no un error).
+  const aguinaldoAnticipoPorPeriodo = new Map<string, number>();
 
   let mesesRecalculados = 0;
   for (const mes of meses) {
@@ -875,6 +893,8 @@ export async function refreshCashFlowReport(
       cashFlowCache,
       "anticipo",
       mes,
+      6,
+      aguinaldoAnticipoPorPeriodo,
     );
 
     // Aporte SENCE: SIEMPRE manual — si ya hay un valor cargado a mano
@@ -918,6 +938,14 @@ export async function refreshCashFlowReport(
       realPorEvento: realPorEventoBeneficio,
       promedio6mPorEvento,
     });
+    // Deja el aguinaldo de ESTE mes disponible para que meses POSTERIORES
+    // del mismo loop puedan descontarlo del % de Anticipo aprendido (ver
+    // `pctSobreRemuneracionAprendidoPura`).
+    aguinaldoAnticipoPorPeriodo.set(
+      periodoStr,
+      beneficiosCalculado.anticipoRg.monto +
+        beneficiosCalculado.anticipoRp.monto,
+    );
 
     const calculado = calcularMesCashFlow({
       remuneracionReal,
@@ -933,6 +961,8 @@ export async function refreshCashFlowReport(
       finiquitoFallback,
       beneficiosRg: beneficiosCalculado.rg,
       beneficiosRp: beneficiosCalculado.rp,
+      beneficiosAnticipoRg: beneficiosCalculado.anticipoRg,
+      beneficiosAnticipoRp: beneficiosCalculado.anticipoRp,
       anticipoPctAprendido,
       // Reliquidación vuelve al 1% fijo (24-sep-2026, decisión explícita
       // del usuario, mismo criterio que Cotización más abajo): el 2,75%
@@ -1089,8 +1119,13 @@ export async function refreshCashFlowReport(
       // `promedioAnticipoRpRealPura`) y RG absorbe el residual — al revés
       // de como era antes (bug real corregido 20-ago-2026, ver comentario
       // de esa función). RG+RP sigue sumando exacto el Anticipo total ya
-      // calculado (24% × Remuneración, ver engine.ts).
-      const rp = Math.round(promedioAnticipoRpRealPura(cashFlowCache, mes));
+      // calculado (24% × Remuneración + aguinaldos, ver engine.ts) — el
+      // aguinaldo RP se suma explícito acá (24-sep-2026) para que RP no
+      // absorba también el aguinaldo RG por error de redondeo del
+      // residual.
+      const rp =
+        Math.round(promedioAnticipoRpRealPura(cashFlowCache, mes)) +
+        beneficiosCalculado.anticipoRp.monto;
       anticipoRpFila = {
         monto: rp,
         esReal: false,

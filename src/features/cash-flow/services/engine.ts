@@ -77,6 +77,17 @@ export interface CashFlowInputs {
   beneficiosRg: CashFlowConceptoCalculado;
   beneficiosRp: CashFlowConceptoCalculado;
   /**
+   * Aguinaldos (Fiestas Patrias, Navidad) por población — mismo catálogo
+   * que `beneficiosRg`/`beneficiosRp` (ver `beneficios.ts`), pero estos
+   * SÍ son un sumando aparte: se pagan CON EL ANTICIPO, no con la
+   * Remuneración de fin de mes (aclaración explícita del usuario,
+   * 24-sep-2026: "los aguinaldos se pagan con los anticipos, así funciona
+   * en la realidad"). Se suman al Anticipo PROYECTADO únicamente — cuando
+   * el Anticipo es real, el aguinaldo ya viene incluido en ese monto.
+   */
+  beneficiosAnticipoRg: CashFlowConceptoCalculado;
+  beneficiosAnticipoRp: CashFlowConceptoCalculado;
+  /**
    * % real de Anticipo/Remuneración, promedio de los últimos meses reales
    * (ver `pctSobreRemuneracionAprendido` en `refresh.ts`) — auto-
    * aprendizaje pedido explícito del usuario 24-ago-2026: "los % fijos
@@ -149,6 +160,13 @@ export function calcularMesCashFlow(
     metodoCalculo: remuneracionBase.metodoCalculo,
   };
 
+  // Aguinaldos (Fiestas Patrias/Navidad) — se pagan CON el Anticipo, no
+  // con la Remuneración (ver CashFlowInputs.beneficiosAnticipoRg/Rp). Solo
+  // se suman al Anticipo PROYECTADO: cuando el Anticipo es real, ya trae
+  // el aguinaldo pagado adentro — sumarlo otra vez lo duplicaría.
+  const beneficiosAnticipoTotal =
+    inputs.beneficiosAnticipoRg.monto + inputs.beneficiosAnticipoRp.monto;
+
   const anticipo: CashFlowConceptoCalculado =
     inputs.anticipoReal !== null
       ? {
@@ -157,10 +175,11 @@ export function calcularMesCashFlow(
           metodoCalculo: "ingesta_real",
         }
       : {
-          monto: calcularAnticipoProyectado(
-            remuneracion.monto,
-            inputs.anticipoPctAprendido ?? undefined,
-          ),
+          monto:
+            calcularAnticipoProyectado(
+              remuneracion.monto,
+              inputs.anticipoPctAprendido ?? undefined,
+            ) + beneficiosAnticipoTotal,
           esReal: false,
           metodoCalculo:
             inputs.anticipoPctAprendido != null

@@ -98,6 +98,36 @@ export async function getUfPorPeriodo(
   return resultado;
 }
 
+/**
+ * Aguinaldo (Fiestas Patrias + Navidad, RG+RP) ya incluido dentro del
+ * Anticipo de cada período — ver `beneficios.ts` (`pagaCon: "anticipo"`,
+ * aclaración explícita del usuario 24-sep-2026: "los aguinaldos se pagan
+ * con los anticipos"). Solo para que el Excel exportado pueda escribir la
+ * fórmula real de Anticipo (`=Remuneración×% + aguinaldo`, ver
+ * `render-excel.ts`) — no participa en ningún cálculo del motor.
+ */
+export async function getAguinaldoAnticipoPorPeriodo(
+  periodoDesde: Date,
+  periodoHasta: Date,
+): Promise<Map<string, number>> {
+  const supabase = createServiceClient();
+  const { data } = await supabase
+    .from("beneficios_line_items")
+    .select("periodo, monto")
+    .in("tipo_evento", ["aguinaldo_fiestas_patrias", "aguinaldo_navidad"])
+    .gte("periodo", periodoDesde.toISOString().slice(0, 10))
+    .lte("periodo", periodoHasta.toISOString().slice(0, 10));
+
+  const resultado = new Map<string, number>();
+  for (const fila of data ?? []) {
+    resultado.set(
+      fila.periodo,
+      (resultado.get(fila.periodo) ?? 0) + Number(fila.monto),
+    );
+  }
+  return resultado;
+}
+
 export interface ResumenKpis {
   /** Mes CALENDARIO actual (hoy) — no el último del rango, que puede ser futuro. */
   totalMesActual: number;
