@@ -1,0 +1,12 @@
+{
+  "date": "2026-09-23",
+  "composite": 84,
+  "dimensions": { "seguridad": 95, "datos": 95, "cache": 80, "web": 59 },
+  "findings": { "critical": 1, "high": 3, "medium": 4, "low": 5 },
+  "coverage": {
+    "owasp": "8/10",
+    "threatdb_run": "21/21",
+    "rls_tables": "16/16"
+  },
+  "deep_layer": { "ran": false, "mode": null, "resilience_score": null }
+}
