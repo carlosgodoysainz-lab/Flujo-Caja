@@ -74,6 +74,9 @@ export async function subirHeadcountManual(
   formData: FormData,
 ): Promise<HeadcountUploadResult> {
   const session = await auth();
+  if (!session?.user?.id) {
+    return { ...RESULTADO_VACIO, errores: ["Sesión no disponible."] };
+  }
   const supabase = createServiceClient();
 
   const archivo = formData.get("archivo");

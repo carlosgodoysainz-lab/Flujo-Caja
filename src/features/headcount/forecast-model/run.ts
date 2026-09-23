@@ -273,6 +273,16 @@ export async function runForecastModel(
   obraId: string,
 ): Promise<RunForecastModelResult> {
   const session = await auth();
+  if (!session?.user?.id) {
+    return {
+      estado: "error",
+      obraId,
+      obrasReferenciaUsadas: 0,
+      mesesEstimados: 0,
+      mesesSinDatoReferencia: 0,
+      errores: ["Sesión no disponible."],
+    };
+  }
   const supabase = createServiceClient();
   const errores: string[] = [];
 

@@ -93,196 +93,293 @@ function mesAnteriorA(mes: Date): Date {
   return new Date(mes.getFullYear(), mes.getMonth() - 1, 1);
 }
 
-async function sumaLineItems(
-  supabase: ReturnType<typeof createServiceClient>,
-  periodo: Date,
-  conceptos: string[],
-): Promise<number | null> {
-  const { data } = await supabase
-    .from("payroll_line_items")
-    .select("monto")
-    .eq("periodo", periodo.toISOString().slice(0, 10))
-    .in("concepto", conceptos);
-
-  if (!data || data.length === 0) return null;
-  return data.reduce((acc, row) => acc + Number(row.monto), 0);
-}
-
-/** Monto ya guardado en `cash_flow_monthly` para un concepto/mes — usado para leer la Remuneración del mes anterior (real o ya proyectada) y así encadenar el modelo costo-por-cabeza mes a mes. */
-async function montoCashFlow(
-  supabase: ReturnType<typeof createServiceClient>,
-  periodo: Date,
-  concepto: string,
-): Promise<number | null> {
-  const { data } = await supabase
-    .from("cash_flow_monthly")
-    .select("monto")
-    .eq("periodo", periodo.toISOString().slice(0, 10))
-    .eq("concepto", concepto)
-    .maybeSingle();
-  return data ? Number(data.monto) : null;
-}
-
-/** Fila existente de `cash_flow_monthly` para un concepto/mes — para no pisar un override manual (ver `override.ts`) en el próximo refresh. */
-async function filaExistente(
-  supabase: ReturnType<typeof createServiceClient>,
-  periodo: Date,
-  concepto: string,
-): Promise<{
+interface CashFlowMonthlyFila {
   monto: number;
   esReal: boolean;
   metodoCalculo: string | null;
-} | null> {
-  const { data } = await supabase
-    .from("cash_flow_monthly")
-    .select("monto, es_real, metodo_calculo")
-    .eq("periodo", periodo.toISOString().slice(0, 10))
-    .eq("concepto", concepto)
-    .maybeSingle();
-  if (!data) return null;
-  return {
-    monto: Number(data.monto),
-    esReal: data.es_real,
-    metodoCalculo: data.metodo_calculo,
-  };
 }
 
-async function promedioRemuneracionReal(
+/**
+ * Cache en memoria de TODO `cash_flow_monthly` (tabla chica — 606 filas hoy,
+ * cabe entera) — reemplaza las ~10 funciones que antes hacían 1 query
+ * (`.eq().maybeSingle()` o `.limit()`) POR MES dentro del loop de
+ * `refreshCashFlowReport` (auditoría /temple 23-sep-2026: cientos de
+ * round-trips secuenciales por refresh, ~9 min medidos). Se carga UNA vez
+ * antes del loop de meses (`cargarCashFlowMonthlyCache`) y se actualiza en
+ * memoria después de cada mes calculado (`actualizarCacheCashFlow`) — un mes
+ * posterior del mismo rango puede depender del valor recién calculado de un
+ * mes anterior (ej. `costoPromedioPorCabezaMesAnterior`, o un mes que recién
+ * se volvió `es_real=true` en este mismo refresh vía ingesta de Pagos
+ * Mensuales), así que el cache DEBE reflejar las escrituras de la iteración
+ * anterior — no solo el estado de la BD al momento de arrancar el refresh.
+ */
+interface CashFlowMonthlyCache {
+  porPeriodoConcepto: Map<string, CashFlowMonthlyFila>;
+  /** Solo filas es_real=true, por concepto, ordenadas DESCENDENTE por período — para los `promedio*Real`/`pctAprendido` que miran hacia atrás. */
+  realOrdenadoPorConcepto: Map<string, { periodo: string; monto: number }[]>;
+}
+
+function claveCf(periodo: string, concepto: string): string {
+  return `${periodo}::${concepto}`;
+}
+
+async function cargarCashFlowMonthlyCache(
   supabase: ReturnType<typeof createServiceClient>,
-  antesDe: Date,
-  n = 3,
-): Promise<number> {
+): Promise<CashFlowMonthlyCache> {
   const { data } = await supabase
     .from("cash_flow_monthly")
-    .select("monto")
-    .eq("concepto", "remuneracion")
-    .eq("es_real", true)
-    .lt("periodo", antesDe.toISOString().slice(0, 10))
-    .order("periodo", { ascending: false })
-    .limit(n);
+    .select("periodo, concepto, monto, es_real, metodo_calculo")
+    .limit(20000);
 
-  if (!data || data.length === 0) return 0;
-  return data.reduce((acc, row) => acc + Number(row.monto), 0) / data.length;
+  const cache: CashFlowMonthlyCache = {
+    porPeriodoConcepto: new Map(),
+    realOrdenadoPorConcepto: new Map(),
+  };
+  for (const fila of data ?? []) {
+    cache.porPeriodoConcepto.set(claveCf(fila.periodo, fila.concepto), {
+      monto: Number(fila.monto),
+      esReal: fila.es_real,
+      metodoCalculo: fila.metodo_calculo,
+    });
+    if (fila.es_real) {
+      if (!cache.realOrdenadoPorConcepto.has(fila.concepto)) {
+        cache.realOrdenadoPorConcepto.set(fila.concepto, []);
+      }
+      cache.realOrdenadoPorConcepto
+        .get(fila.concepto)!
+        .push({ periodo: fila.periodo, monto: Number(fila.monto) });
+    }
+  }
+  for (const lista of cache.realOrdenadoPorConcepto.values()) {
+    lista.sort((a, b) => (a.periodo < b.periodo ? 1 : -1)); // descendente
+  }
+  return cache;
+}
+
+/** Registra en el cache el valor recién calculado de un mes — para que los meses POSTERIORES del mismo refresh (procesados a continuación, en orden cronológico) lo vean sin volver a consultar la BD. */
+function actualizarCacheCashFlow(
+  cache: CashFlowMonthlyCache,
+  periodo: string,
+  concepto: string,
+  fila: CashFlowMonthlyFila,
+): void {
+  const anterior = cache.porPeriodoConcepto.get(claveCf(periodo, concepto));
+  cache.porPeriodoConcepto.set(claveCf(periodo, concepto), fila);
+  if (fila.esReal && !anterior?.esReal) {
+    if (!cache.realOrdenadoPorConcepto.has(concepto)) {
+      cache.realOrdenadoPorConcepto.set(concepto, []);
+    }
+    // Los meses se procesan en orden cronológico ascendente, así que este
+    // período es siempre el más reciente visto hasta ahora — va al frente
+    // de la lista ordenada descendente.
+    cache.realOrdenadoPorConcepto
+      .get(concepto)!
+      .unshift({ periodo, monto: fila.monto });
+  }
+}
+
+type PayrollLineItemsCache = Map<string, Map<string, number>>;
+
+async function cargarPayrollLineItemsCache(
+  supabase: ReturnType<typeof createServiceClient>,
+): Promise<PayrollLineItemsCache> {
+  const { data } = await supabase
+    .from("payroll_line_items")
+    .select("periodo, concepto, monto")
+    .limit(20000);
+
+  const cache: PayrollLineItemsCache = new Map();
+  for (const fila of data ?? []) {
+    if (!cache.has(fila.periodo)) cache.set(fila.periodo, new Map());
+    const porConcepto = cache.get(fila.periodo)!;
+    porConcepto.set(
+      fila.concepto,
+      (porConcepto.get(fila.concepto) ?? 0) + Number(fila.monto),
+    );
+  }
+  return cache;
+}
+
+function sumaLineItemsPura(
+  cache: PayrollLineItemsCache,
+  periodo: Date,
+  conceptos: string[],
+): number | null {
+  const porConcepto = cache.get(periodo.toISOString().slice(0, 10));
+  if (!porConcepto) return null;
+  let suma = 0;
+  let encontrado = false;
+  for (const concepto of conceptos) {
+    const monto = porConcepto.get(concepto);
+    if (monto != null) {
+      suma += monto;
+      encontrado = true;
+    }
+  }
+  return encontrado ? suma : null;
+}
+
+/** Monto ya guardado en `cash_flow_monthly` para un concepto/mes — usado para leer la Remuneración del mes anterior (real o ya proyectada) y así encadenar el modelo costo-por-cabeza mes a mes. */
+function montoCashFlowPura(
+  cache: CashFlowMonthlyCache,
+  periodo: Date,
+  concepto: string,
+): number | null {
+  return (
+    cache.porPeriodoConcepto.get(
+      claveCf(periodo.toISOString().slice(0, 10), concepto),
+    )?.monto ?? null
+  );
+}
+
+/** Fila existente de `cash_flow_monthly` para un concepto/mes — para no pisar un override manual (ver `override.ts`) en el próximo refresh. */
+function filaExistentePura(
+  cache: CashFlowMonthlyCache,
+  periodo: Date,
+  concepto: string,
+): CashFlowMonthlyFila | null {
+  return (
+    cache.porPeriodoConcepto.get(
+      claveCf(periodo.toISOString().slice(0, 10), concepto),
+    ) ?? null
+  );
+}
+
+function promedioRealPura(
+  cache: CashFlowMonthlyCache,
+  concepto: string,
+  antesDe: Date,
+  n: number,
+): number[] {
+  const antesDeStr = antesDe.toISOString().slice(0, 10);
+  const lista = cache.realOrdenadoPorConcepto.get(concepto) ?? [];
+  const montos: number[] = [];
+  for (const fila of lista) {
+    if (montos.length >= n) break;
+    if (fila.periodo < antesDeStr) montos.push(fila.monto);
+  }
+  return montos;
+}
+
+function promedioRemuneracionRealPura(
+  cache: CashFlowMonthlyCache,
+  antesDe: Date,
+  n = 3,
+): number {
+  const montos = promedioRealPura(cache, "remuneracion", antesDe, n);
+  if (montos.length === 0) return 0;
+  return montos.reduce((a, b) => a + b, 0) / montos.length;
 }
 
 /**
  * Promedio de los últimos N meses REALES de Anticipo RP — mismo patrón que
- * `promedioRemuneracionReal`/`promedioFiniquitoReal6m`. Bug real corregido
- * 20-ago-2026: el split de Anticipo RG/RP proyectado calculaba RP como
- * RESIDUAL (Total − RG), y como RG = 24% × Remuneración_RG, ese residual
- * equivale matemáticamente a 24% × Remuneración_RP también — pero la gente
- * que realmente pide Anticipo en RP (Anexo Oficina Central) es un grupo
- * chico y ESTABLE (~4 personas), no escala con toda la planilla RP.
- * Confirmado contra el Excel real de Finanzas: su Anticipo RP se mantiene
- * PLANO (~5,5M) en todos los meses proyectados, mientras el residual de
- * este código saltaba a 66M+ (usuario: "los anticipos del RP aumentan sin
- * lógica en la proyección... deberían mantener la constante"). Ahora RP
- * es el ANCLA (promedio histórico real) y RG absorbe el residual — al
- * revés de antes.
+ * `promedioRemuneracionRealPura`. Bug real corregido 20-ago-2026: el split
+ * de Anticipo RG/RP proyectado calculaba RP como RESIDUAL (Total − RG), y
+ * como RG = 24% × Remuneración_RG, ese residual equivale matemáticamente a
+ * 24% × Remuneración_RP también — pero la gente que realmente pide Anticipo
+ * en RP (Anexo Oficina Central) es un grupo chico y ESTABLE (~4 personas),
+ * no escala con toda la planilla RP. Ahora RP es el ANCLA (promedio
+ * histórico real) y RG absorbe el residual — al revés de antes.
  */
-async function promedioAnticipoRpReal(
-  supabase: ReturnType<typeof createServiceClient>,
+function promedioAnticipoRpRealPura(
+  cache: CashFlowMonthlyCache,
   antesDe: Date,
   n = 3,
-): Promise<number> {
-  const { data } = await supabase
-    .from("cash_flow_monthly")
-    .select("monto")
-    .eq("concepto", "anticipo_rp")
-    .eq("es_real", true)
-    .lt("periodo", antesDe.toISOString().slice(0, 10))
-    .order("periodo", { ascending: false })
-    .limit(n);
-
-  if (!data || data.length === 0) return 0;
-  return data.reduce((acc, row) => acc + Number(row.monto), 0) / data.length;
+): number {
+  const montos = promedioRealPura(cache, "anticipo_rp", antesDe, n);
+  if (montos.length === 0) return 0;
+  return montos.reduce((a, b) => a + b, 0) / montos.length;
 }
 
-/** Ajuste de +1% simple (NO acumulativo) pedido explícitamente por el usuario 25-ago-2026 sobre el ancla histórica de RP — ver `promedioRemuneracionRpReal`. Siempre +1% del promedio base, nunca compuesto mes a mes (cada mes se recalcula desde el promedio real, no desde el mes anterior ya ajustado). */
+/** Ajuste de +1% simple (NO acumulativo) pedido explícitamente por el usuario 25-ago-2026 sobre el ancla histórica de RP — ver `promedioRemuneracionRpRealPura`. Siempre +1% del promedio base, nunca compuesto mes a mes (cada mes se recalcula desde el promedio real, no desde el mes anterior ya ajustado). */
 const AJUSTE_RP_INTERES_SIMPLE = 1.01;
 
 /**
- * Promedio de los últimos N meses REALES de Remuneración RP ($), + 1%
- * de interés simple — mismo patrón que `promedioAnticipoRpReal`, aplicado
- * al split $ de Remuneración. Bug real corregido 24-ago-2026: el split
- * RG/RP de Remuneración calculaba RP como RESIDUAL (Total − RG) usando
- * `proporcionRgHistorica` — y como esa razón se mantiene casi constante
- * pero el TOTAL de Remuneración sube/baja con el ciclo de obras, RP (una
- * población chica y estable, Anexo/Oficina Central) absorbía el 100% de
- * ese movimiento (usuario: "el RP los sigues mostrando con un alza
- * significativa de un mes para otro... mantenla constante"). Ahora RP es
- * el ANCLA (promedio histórico real) y RG absorbe el residual — mismo
- * criterio ya aplicado a Anticipo RP el 20-ago-2026 y a la dotación N° de
- * RP el 24-ago-2026 (ver `promedioDotacionRpReal` en dotacion-total.ts).
- *
- * Ajuste +1% (25-ago-2026, pedido explícito del usuario, "interés simple
- * no acumulativo, respetando beneficios/pagos que ya considera el
- * modelo"): se aplica SOLO sobre este promedio histórico base — NUNCA
- * sobre los beneficios/bonos del mes (ver `refresh.ts`, se suman después,
- * sin tocar), y SIEMPRE como +1% del promedio real (no compuesto: cada
- * mes recalcula el promedio de los últimos meses reales y le suma 1%,
- * nunca +1% sobre un valor ya ajustado el mes anterior).
- *
+ * Promedio de los últimos N meses REALES de Remuneración RP ($), + 1% de
+ * interés simple — mismo patrón que `promedioAnticipoRpRealPura`, aplicado
+ * al split $ de Remuneración. RP es el ANCLA (promedio histórico real) y RG
+ * absorbe el residual (bug real corregido 24-ago-2026, ver Auto-Blindaje).
  * `null` si no hay ningún mes real todavía (cae al split proporcional
- * histórico, comportamiento anterior a este fix).
+ * histórico, comportamiento anterior a ese fix).
  */
-async function promedioRemuneracionRpReal(
-  supabase: ReturnType<typeof createServiceClient>,
+function promedioRemuneracionRpRealPura(
+  cache: CashFlowMonthlyCache,
   antesDe: Date,
   n = 3,
-): Promise<number | null> {
-  const { data } = await supabase
-    .from("cash_flow_monthly")
-    .select("monto")
-    .eq("concepto", "remuneracion_rp")
-    .eq("es_real", true)
-    .lt("periodo", antesDe.toISOString().slice(0, 10))
-    .order("periodo", { ascending: false })
-    .limit(n);
-
-  if (!data || data.length === 0) return null;
-  const promedio =
-    data.reduce((acc, row) => acc + Number(row.monto), 0) / data.length;
+): number | null {
+  const montos = promedioRealPura(cache, "remuneracion_rp", antesDe, n);
+  if (montos.length === 0) return null;
+  const promedio = montos.reduce((a, b) => a + b, 0) / montos.length;
   return promedio * AJUSTE_RP_INTERES_SIMPLE;
 }
 
-/** Valor real ya cargado en `beneficios_line_items` para el mes — key `tipoEvento::poblacion`, ver beneficios.ts. */
-async function realBeneficiosDelMes(
-  supabase: ReturnType<typeof createServiceClient>,
-  mes: Date,
-): Promise<Map<string, number>> {
-  const { data } = await supabase
-    .from("beneficios_line_items")
-    .select("tipo_evento, poblacion, monto")
-    .eq("periodo", mes.toISOString().slice(0, 10))
-    .eq("es_real", true);
-
-  const mapa = new Map<string, number>();
-  for (const fila of data ?? []) {
-    mapa.set(`${fila.tipo_evento}::${fila.poblacion}`, Number(fila.monto));
-  }
-  return mapa;
+interface BeneficiosCache {
+  realPorPeriodo: Map<string, Map<string, number>>;
+  realOrdenadoPorClave: Map<string, { periodo: string; monto: number }[]>;
 }
 
-/** Promedio de los últimos 6 meses REALES de un tipo de evento/población — mismo patrón que `promedioFiniquitoReal6m`, generalizado para los eventos sin fecha fija del catálogo de beneficios (ver beneficios.ts). */
-async function promedioBeneficioReal6m(
+function claveBeneficio(tipoEvento: string, poblacion: string): string {
+  return `${tipoEvento}::${poblacion}`;
+}
+
+async function cargarBeneficiosCache(
   supabase: ReturnType<typeof createServiceClient>,
+): Promise<BeneficiosCache> {
+  const { data } = await supabase
+    .from("beneficios_line_items")
+    .select("periodo, tipo_evento, poblacion, monto")
+    .eq("es_real", true)
+    .limit(20000);
+
+  const cache: BeneficiosCache = {
+    realPorPeriodo: new Map(),
+    realOrdenadoPorClave: new Map(),
+  };
+  for (const fila of data ?? []) {
+    const clave = claveBeneficio(fila.tipo_evento, fila.poblacion);
+    if (!cache.realPorPeriodo.has(fila.periodo)) {
+      cache.realPorPeriodo.set(fila.periodo, new Map());
+    }
+    cache.realPorPeriodo.get(fila.periodo)!.set(clave, Number(fila.monto));
+
+    if (!cache.realOrdenadoPorClave.has(clave)) {
+      cache.realOrdenadoPorClave.set(clave, []);
+    }
+    cache.realOrdenadoPorClave
+      .get(clave)!
+      .push({ periodo: fila.periodo, monto: Number(fila.monto) });
+  }
+  for (const lista of cache.realOrdenadoPorClave.values()) {
+    lista.sort((a, b) => (a.periodo < b.periodo ? 1 : -1));
+  }
+  return cache;
+}
+
+/** Valor real ya cargado en `beneficios_line_items` para el mes — key `tipoEvento::poblacion`, ver beneficios.ts. */
+function realBeneficiosDelMesPura(
+  cache: BeneficiosCache,
+  mes: Date,
+): Map<string, number> {
+  return cache.realPorPeriodo.get(mes.toISOString().slice(0, 10)) ?? new Map();
+}
+
+/** Promedio de los últimos 6 meses REALES de un tipo de evento/población — mismo patrón que `promedioFiniquitoReal6mPura`, generalizado para los eventos sin fecha fija del catálogo de beneficios (ver beneficios.ts). */
+function promedioBeneficioReal6mPura(
+  cache: BeneficiosCache,
   tipoEvento: string,
   poblacion: string,
   antesDe: Date,
-): Promise<number> {
-  const { data } = await supabase
-    .from("beneficios_line_items")
-    .select("monto")
-    .eq("tipo_evento", tipoEvento)
-    .eq("poblacion", poblacion)
-    .eq("es_real", true)
-    .lt("periodo", antesDe.toISOString().slice(0, 10))
-    .order("periodo", { ascending: false })
-    .limit(6);
-
-  if (!data || data.length === 0) return 0;
-  return data.reduce((acc, row) => acc + Number(row.monto), 0) / data.length;
+): number {
+  const antesDeStr = antesDe.toISOString().slice(0, 10);
+  const lista =
+    cache.realOrdenadoPorClave.get(claveBeneficio(tipoEvento, poblacion)) ?? [];
+  const montos: number[] = [];
+  for (const fila of lista) {
+    if (montos.length >= 6) break;
+    if (fila.periodo < antesDeStr) montos.push(fila.monto);
+  }
+  if (montos.length === 0) return 0;
+  return montos.reduce((a, b) => a + b, 0) / montos.length;
 }
 
 /**
@@ -456,81 +553,51 @@ async function estimarDotacionFaltante(
   return { obrasEstimadas, obrasSinDatoAun };
 }
 
-/** Monto real ya guardado en `cash_flow_monthly` para un periodo/concepto, buscando directo por el string de periodo (evita reconstruir un `Date` desde un string que ya viene de la DB — riesgo de desfase de zona horaria). */
-async function montoCashFlowPorPeriodoStr(
-  supabase: ReturnType<typeof createServiceClient>,
-  periodoStr: string,
-  concepto: string,
-): Promise<number | null> {
-  const { data } = await supabase
-    .from("cash_flow_monthly")
-    .select("monto")
-    .eq("periodo", periodoStr)
-    .eq("concepto", concepto)
-    .maybeSingle();
-  return data ? Number(data.monto) : null;
-}
-
 /**
  * AUTO-APRENDIZAJE (24-ago-2026, pedido explícito del usuario: "los % fijos
  * pasan a recalcularse solos con los últimos meses reales"): % real de
  * `concepto`/Remuneración, promedio de los últimos N meses REALES de ambos
- * (mismo patrón que `promedioFiniquitoReal6m`/`promedioAnticipoRpReal`).
+ * (mismo patrón que `promedioFiniquitoReal6mPura`/`promedioAnticipoRpRealPura`).
  * Usado para Anticipo y Reliquidación. Cotización usaba el mismo mecanismo
  * (`cotizacionPctAprendido`, ya eliminada) hasta el 21-sep-2026 — ver esa
  * fecha más abajo, donde vuelve al 30% fijo por decisión explícita del
  * usuario. `null` si todavía no hay ningún mes real disponible — ahí
  * `calcularAnticipoProyectado`/`calcularReliquidacionProyectada` caen de
- * vuelta al % fijo (ver formulas.ts).
+ * vuelta al % fijo (ver formulas.ts). PURA — ver `CashFlowMonthlyCache`.
  */
-async function pctSobreRemuneracionAprendido(
-  supabase: ReturnType<typeof createServiceClient>,
+function pctSobreRemuneracionAprendidoPura(
+  cache: CashFlowMonthlyCache,
   concepto: string,
   antesDe: Date,
   n = 6,
-): Promise<number | null> {
-  const { data } = await supabase
-    .from("cash_flow_monthly")
-    .select("periodo, monto")
-    .eq("concepto", concepto)
-    .eq("es_real", true)
-    .lt("periodo", antesDe.toISOString().slice(0, 10))
-    .order("periodo", { ascending: false })
-    .limit(n);
-
-  if (!data || data.length === 0) return null;
-
+): number | null {
+  const antesDeStr = antesDe.toISOString().slice(0, 10);
+  const lista = cache.realOrdenadoPorConcepto.get(concepto) ?? [];
   let sumaConcepto = 0;
   let sumaRemuneracion = 0;
-  for (const fila of data) {
-    const remuneracion = await montoCashFlowPorPeriodoStr(
-      supabase,
-      fila.periodo,
-      "remuneracion",
-    );
+  let vistos = 0;
+  for (const fila of lista) {
+    if (vistos >= n) break;
+    if (fila.periodo >= antesDeStr) continue;
+    vistos++;
+    const remuneracion = cache.porPeriodoConcepto.get(
+      claveCf(fila.periodo, "remuneracion"),
+    )?.monto;
     if (remuneracion == null || remuneracion === 0) continue;
-    sumaConcepto += Number(fila.monto);
+    sumaConcepto += fila.monto;
     sumaRemuneracion += remuneracion;
   }
   return sumaRemuneracion > 0 ? sumaConcepto / sumaRemuneracion : null;
 }
 
-/** Promedio de los últimos 6 meses con Finiquito REAL ingerido — metodología pedida explícitamente por el usuario (reemplaza la fórmula del Excel real, que era 7%×Remuneración). 0 si no hay 6 meses reales todavía. */
-async function promedioFiniquitoReal6m(
-  supabase: ReturnType<typeof createServiceClient>,
+/** Promedio de los últimos 6 meses con Finiquito REAL ingerido — metodología pedida explícitamente por el usuario (reemplaza la fórmula del Excel real, que era 7%×Remuneración). 0 si no hay 6 meses reales todavía. PURA. */
+function promedioFiniquitoReal6mPura(
+  cache: CashFlowMonthlyCache,
   antesDe: Date,
-): Promise<number> {
-  const { data } = await supabase
-    .from("cash_flow_monthly")
-    .select("monto")
-    .eq("concepto", "finiquito")
-    .eq("es_real", true)
-    .lt("periodo", antesDe.toISOString().slice(0, 10))
-    .order("periodo", { ascending: false })
-    .limit(6);
-
-  if (!data || data.length === 0) return 0;
-  return data.reduce((acc, row) => acc + Number(row.monto), 0) / data.length;
+): number {
+  const montos = promedioRealPura(cache, "finiquito", antesDe, 6);
+  if (montos.length === 0) return 0;
+  return montos.reduce((a, b) => a + b, 0) / montos.length;
 }
 
 /**
@@ -546,6 +613,16 @@ export async function refreshCashFlowReport(
   periodoHasta: Date,
 ): Promise<RefreshReportResult> {
   const session = await auth();
+  if (!session?.user?.id) {
+    return {
+      reportSnapshotId: null,
+      estado: "error",
+      documentosIngeridos: 0,
+      mesesRecalculados: 0,
+      obrasEstimadas: 0,
+      errores: [{ fuente: "Sesión", mensaje: "Sesión no disponible." }],
+    };
+  }
   const supabase = createServiceClient();
   const errores: RefreshReportResult["errores"] = [];
   let documentosIngeridos = 0;
@@ -687,27 +764,38 @@ export async function refreshCashFlowReport(
     periodoHasta,
   );
 
+  // Cache en memoria de las 3 tablas chicas que el cálculo mes a mes
+  // consultaba una y otra vez (ver Auto-Blindaje 23-sep-2026, hallazgo
+  // /temple: cientos de round-trips secuenciales por refresh, ~9 min
+  // medidos). Se cargan UNA vez acá; `cashFlowCache` se actualiza dentro
+  // del loop después de cada mes (ver `actualizarCacheCashFlow`) para que
+  // los meses posteriores vean lo que se acaba de calcular, igual que
+  // antes lo veían leyendo la fila recién escrita por la iteración anterior.
+  const cashFlowCache = await cargarCashFlowMonthlyCache(supabase);
+  const payrollCache = await cargarPayrollLineItemsCache(supabase);
+  const beneficiosCache = await cargarBeneficiosCache(supabase);
+
   let mesesRecalculados = 0;
   for (const mes of meses) {
     const periodoStr = mes.toISOString().slice(0, 10);
     const anterior = mesAnteriorA(mes);
 
-    const anticipoReal = await sumaLineItems(supabase, mes, [
+    const anticipoReal = sumaLineItemsPura(payrollCache, mes, [
       "anticipo_rg",
       "anticipo_rp",
     ]);
-    const remuneracionReal = await sumaLineItems(supabase, mes, [
+    const remuneracionReal = sumaLineItemsPura(payrollCache, mes, [
       "remuneracion_rg",
       "remuneracion_rp",
     ]);
-    const reliquidacionReal = await sumaLineItems(supabase, mes, [
+    const reliquidacionReal = sumaLineItemsPura(payrollCache, mes, [
       "reliquidacion",
     ]);
-    const finiquitoReal = await sumaLineItems(supabase, mes, ["finiquito"]);
-    const cotizacionReal = await sumaLineItems(supabase, mes, ["cotizacion"]);
+    const finiquitoReal = sumaLineItemsPura(payrollCache, mes, ["finiquito"]);
+    const cotizacionReal = sumaLineItemsPura(payrollCache, mes, ["cotizacion"]);
 
-    const remuneracionMesAnterior = await montoCashFlow(
-      supabase,
+    const remuneracionMesAnterior = montoCashFlowPura(
+      cashFlowCache,
       anterior,
       "remuneracion",
     );
@@ -720,15 +808,17 @@ export async function refreshCashFlowReport(
         ? remuneracionMesAnterior / dotacionMesAnterior
         : null;
 
-    const remuneracionFallbackPromedioHistorico =
-      await promedioRemuneracionReal(supabase, mes);
+    const remuneracionFallbackPromedioHistorico = promedioRemuneracionRealPura(
+      cashFlowCache,
+      mes,
+    );
 
     // Finiquito: SIEMPRE promedio de los últimos 6 meses reales — pedido
     // explícito del usuario 21-ago-2026, simplificando el modelo anterior
     // (correlación con bajas netas de dotación, pedido explícito del
     // 13-ago-2026, revertido el mismo día que se confirmó esto).
     const finiquitoFallback: { monto: number; metodoCalculo: string } = {
-      monto: await promedioFiniquitoReal6m(supabase, mes),
+      monto: promedioFiniquitoReal6mPura(cashFlowCache, mes),
       metodoCalculo: "promedio_ultimos_6_meses_reales",
     };
 
@@ -738,13 +828,13 @@ export async function refreshCashFlowReport(
     // últimos 6 meses reales cada vez que corre este refresh. `null`
     // mientras no haya suficiente historia real todavía (ver formulas.ts,
     // caen de vuelta al % fijo original).
-    const anticipoPctAprendido = await pctSobreRemuneracionAprendido(
-      supabase,
+    const anticipoPctAprendido = pctSobreRemuneracionAprendidoPura(
+      cashFlowCache,
       "anticipo",
       mes,
     );
-    const reliquidacionPctAprendido = await pctSobreRemuneracionAprendido(
-      supabase,
+    const reliquidacionPctAprendido = pctSobreRemuneracionAprendidoPura(
+      cashFlowCache,
       "reliquidacion",
       mes,
     );
@@ -752,7 +842,7 @@ export async function refreshCashFlowReport(
     // Aporte SENCE: SIEMPRE manual — si ya hay un valor cargado a mano
     // para este mes (override o carga anterior con dato real), se
     // preserva; nunca se calcula por fórmula.
-    const senceFilaExistente = await filaExistente(supabase, mes, "sence");
+    const senceFilaExistente = filaExistentePura(cashFlowCache, mes, "sence");
     const senceManual = senceFilaExistente?.esReal
       ? senceFilaExistente.monto
       : null;
@@ -766,11 +856,14 @@ export async function refreshCashFlowReport(
       mes,
       dotacionPorPeriodo,
     );
-    const realPorEventoBeneficio = await realBeneficiosDelMes(supabase, mes);
+    const realPorEventoBeneficio = realBeneficiosDelMesPura(
+      beneficiosCache,
+      mes,
+    );
     const promedio6mPorEvento = new Map<string, number>();
     for (const evento of eventosPromedio6Meses()) {
-      const promedio = await promedioBeneficioReal6m(
-        supabase,
+      const promedio = promedioBeneficioReal6mPura(
+        beneficiosCache,
         evento.tipoEvento,
         evento.poblacion,
         mes,
@@ -833,7 +926,7 @@ export async function refreshCashFlowReport(
     // refresh: se preserva el valor cargado a mano o desde el Excel
     // maestro, y el total se recalcula sobre esos valores finales.
     for (const concepto of CONCEPTOS_CALCULADOS) {
-      const existente = await filaExistente(supabase, mes, concepto);
+      const existente = filaExistentePura(cashFlowCache, mes, concepto);
       if (
         existente?.metodoCalculo &&
         METODOS_PRESERVADOS.includes(existente.metodoCalculo)
@@ -857,14 +950,18 @@ export async function refreshCashFlowReport(
     // real ingerido (SharePoint o Excel histórico, vía el preserve-check
     // de abajo); si no, split proporcional usando la razón real de los
     // últimos meses — pedido explícito del usuario, "como en el Excel".
-    const remuneracionRgReal = await sumaLineItems(supabase, mes, [
+    const remuneracionRgReal = sumaLineItemsPura(payrollCache, mes, [
       "remuneracion_rg",
     ]);
-    const remuneracionRpReal = await sumaLineItems(supabase, mes, [
+    const remuneracionRpReal = sumaLineItemsPura(payrollCache, mes, [
       "remuneracion_rp",
     ]);
-    const anticipoRgReal = await sumaLineItems(supabase, mes, ["anticipo_rg"]);
-    const anticipoRpReal = await sumaLineItems(supabase, mes, ["anticipo_rp"]);
+    const anticipoRgReal = sumaLineItemsPura(payrollCache, mes, [
+      "anticipo_rg",
+    ]);
+    const anticipoRpReal = sumaLineItemsPura(payrollCache, mes, [
+      "anticipo_rp",
+    ]);
 
     // Beneficios/Bonos se suman de forma IMPLÍCITA dentro de Remuneración
     // (ver engine.ts) — acá se reparten en el desglose RG/RP informativo
@@ -886,12 +983,12 @@ export async function refreshCashFlowReport(
       };
     } else {
       // RP es el ANCLA (promedio de los últimos meses reales, ver
-      // `promedioRemuneracionRpReal`) y RG absorbe el residual — al revés
-      // de como era antes (bug real corregido 24-ago-2026: RP subía y
-      // bajaba sin ningún dato real nuevo, arrastrado por el ciclo de
+      // `promedioRemuneracionRpRealPura`) y RG absorbe el residual — al
+      // revés de como era antes (bug real corregido 24-ago-2026: RP subía
+      // y bajaba sin ningún dato real nuevo, arrastrado por el ciclo de
       // obras vía `proporcionRgHistorica`, pese a que su propia población
       // es chica y estable). Mismo criterio que Anticipo RG/RP.
-      const rpPromedio = await promedioRemuneracionRpReal(supabase, mes);
+      const rpPromedio = promedioRemuneracionRpRealPura(cashFlowCache, mes);
       if (rpPromedio != null) {
         const rp = Math.round(rpPromedio) + beneficiosCalculado.rp.monto;
         remuneracionRpFila = {
@@ -946,11 +1043,11 @@ export async function refreshCashFlowReport(
       };
     } else {
       // RP es el ANCLA (promedio de los últimos meses reales, ver
-      // `promedioAnticipoRpReal`) y RG absorbe el residual — al revés de
-      // como era antes (bug real corregido 20-ago-2026, ver comentario de
-      // esa función). RG+RP sigue sumando exacto el Anticipo total ya
+      // `promedioAnticipoRpRealPura`) y RG absorbe el residual — al revés
+      // de como era antes (bug real corregido 20-ago-2026, ver comentario
+      // de esa función). RG+RP sigue sumando exacto el Anticipo total ya
       // calculado (24% × Remuneración, ver engine.ts).
-      const rp = Math.round(await promedioAnticipoRpReal(supabase, mes));
+      const rp = Math.round(promedioAnticipoRpRealPura(cashFlowCache, mes));
       anticipoRpFila = {
         monto: rp,
         esReal: false,
@@ -965,8 +1062,8 @@ export async function refreshCashFlowReport(
 
     // Preservar RG/RP también si ya vienen de un método protegido (Excel
     // histórico / override) — igual que los conceptos principales arriba.
-    const existenteRemuneracionRg = await filaExistente(
-      supabase,
+    const existenteRemuneracionRg = filaExistentePura(
+      cashFlowCache,
       mes,
       "remuneracion_rg",
     );
@@ -980,8 +1077,8 @@ export async function refreshCashFlowReport(
         metodoCalculo: existenteRemuneracionRg.metodoCalculo,
       };
     }
-    const existenteRemuneracionRp = await filaExistente(
-      supabase,
+    const existenteRemuneracionRp = filaExistentePura(
+      cashFlowCache,
       mes,
       "remuneracion_rp",
     );
@@ -995,8 +1092,8 @@ export async function refreshCashFlowReport(
         metodoCalculo: existenteRemuneracionRp.metodoCalculo,
       };
     }
-    const existenteAnticipoRg = await filaExistente(
-      supabase,
+    const existenteAnticipoRg = filaExistentePura(
+      cashFlowCache,
       mes,
       "anticipo_rg",
     );
@@ -1010,8 +1107,8 @@ export async function refreshCashFlowReport(
         metodoCalculo: existenteAnticipoRg.metodoCalculo,
       };
     }
-    const existenteAnticipoRp = await filaExistente(
-      supabase,
+    const existenteAnticipoRp = filaExistentePura(
+      cashFlowCache,
       mes,
       "anticipo_rp",
     );
@@ -1073,13 +1170,23 @@ export async function refreshCashFlowReport(
       errores.push({ fuente: `Cálculo ${periodoStr}`, mensaje: error.message });
     } else {
       mesesRecalculados++;
+      // Mantiene `cashFlowCache` sincronizado con lo recién escrito — los
+      // meses siguientes de este mismo loop (procesados en orden
+      // cronológico ascendente) dependen de estos valores.
+      for (const c of conceptos) {
+        actualizarCacheCashFlow(cashFlowCache, periodoStr, c.concepto, {
+          monto: c.monto,
+          esReal: c.esReal,
+          metodoCalculo: c.metodoCalculo,
+        });
+      }
     }
 
     // Guarda el detalle por evento — auditable, y necesario para que
     // futuros meses puedan promediar los "últimos 6 reales" de eventos
-    // sin fecha fija (ver promedioBeneficioReal6m). Re-escribir una fila
-    // ya real es un no-op: `calcularBeneficiosDelMes` la lee primero y
-    // devuelve el mismo monto, nunca la reemplaza por fórmula.
+    // sin fecha fija (ver promedioBeneficioReal6mPura). Re-escribir una
+    // fila ya real es un no-op: `calcularBeneficiosDelMes` la lee primero
+    // y devuelve el mismo monto, nunca la reemplaza por fórmula.
     const { error: beneficiosError } = await supabase
       .from("beneficios_line_items")
       .upsert(
