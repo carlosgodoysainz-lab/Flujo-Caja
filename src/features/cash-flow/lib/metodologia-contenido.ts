@@ -13,14 +13,14 @@ export const CONCEPTOS_METODOLOGIA = [
     fuenteReal:
       'Real desde 2 fuentes, en orden de prioridad: (1) el Excel MAESTRO de Flujo de Caja (carpeta "Flujo de Caja", Finanzas) para meses ya cerrados — la más completa históricamente; (2) "solicitud requerimientos anticipo <mes> <año>.xlsx" ingerido de SharePoint para meses recientes que el Excel maestro todavía no cierra. Ambas ya traen RG/RP separado, sin RUT ni nombre de persona.',
     formula:
-      "Si no hay dato real: % × Remuneración del mismo mes (total). Ese % se AUTO-APRENDE en cada 'Actualizar reporte': se recalcula como el promedio real de Anticipo÷Remuneración de los últimos 6 meses reales (empieza en 24%, la misma fórmula del Excel maestro de Finanzas, y se ajusta solo si el real promedia otro valor — sin editar código). El desglose RG/RP proyectado ancla RP en el promedio de los últimos 3 meses reales (RP es un grupo chico y estable de gente que pide Anticipo, no escala con toda la planilla RP — bug real corregido 20-ago-2026, antes RP salía como residual y se inflaba junto con Remuneración) y RG absorbe el residual (Total − RP). Se evaluó un modelo costo-por-cabeza con dotación propia de Anticipo (18-ago-2026) y se revirtió el mismo día: el Anticipo es por naturaleza un adelanto de un % del sueldo de cada persona, no un costo fijo por cabeza.",
+      "Si no hay dato real: % × Remuneración del mismo mes (total). Ese % se AUTO-APRENDE en cada 'Actualizar reporte': se recalcula como el promedio real de Anticipo÷Remuneración de los últimos 6 meses REALES de AMBOS conceptos en el mismo mes (empieza en 24%, la misma fórmula del Excel maestro de Finanzas, y se ajusta solo si el real promedia otro valor — sin editar código). El desglose RG/RP proyectado ancla RP en el promedio de los últimos 3 meses reales (RP es un grupo chico y estable de gente que pide Anticipo, no escala con toda la planilla RP — bug real corregido 20-ago-2026, antes RP salía como residual y se inflaba junto con Remuneración) y RG absorbe el residual (Total − RP). Se evaluó un modelo costo-por-cabeza con dotación propia de Anticipo (18-ago-2026) y se revirtió el mismo día: el Anticipo es por naturaleza un adelanto de un % del sueldo de cada persona, no un costo fijo por cabeza.",
   },
   {
     concepto: "Remuneración (RG/RP)",
     fuenteReal:
       'Real desde las mismas 2 fuentes que Anticipo: el Excel maestro (histórico, ya separa RG/RP con su dotación real en la columna "N°") o el archivo "Solicitud de Requerimiento remuneración" de SharePoint para meses recientes.',
     formula:
-      "Si no hay dato real: costo promedio por cabeza del mes anterior (Remuneración$ mes anterior ÷ dotación mes anterior) × dotación del mes actual — el total. El desglose RG/RP proyectado usa la razón real RG/(RG+RP) promedio de los últimos 3 meses reales. La dotación es real (Excel histórico o snapshot de Buk) o proyectada acumulando altas−bajas por obra (curva de obras similares — ver /dotacion). Si tampoco hay dato de dotación: promedio de los últimos 3 meses reales. Incluye de forma IMPLÍCITA los Beneficios/Bonos del Convenio Colectivo Lira Parque (RG) y del Anexo Beneficio Oficina Central (RP) — aguinaldos, aporte sindical, etc. (ver beneficios.ts) — no aparecen como fila aparte, quedan sumados dentro de este monto.",
+      "Si no hay dato real: costo promedio por cabeza × dotación del mes actual — el total. El costo por cabeza es el promedio de los últimos 3 meses REALES de (Remuneración SIN Beneficios/aguinaldos ÷ dotación real de ese mismo mes), fijo hacia adelante — no se encadena mes a mes (fix real 24-sep-2026: antes se usaba el costo del mes inmediatamente anterior, y como ese monto ya incluía los aguinaldos del mes, un aguinaldo de septiembre quedaba incrustado en el costo por cabeza y se arrastraba para siempre a todos los meses siguientes). El desglose RG/RP proyectado usa la razón real RG/(RG+RP) promedio de los últimos 3 meses reales. La dotación es real (Buk) o proyectada acumulando altas−bajas por obra (ver /dotacion). Si tampoco hay dato de dotación: promedio de los últimos 3 meses reales. Incluye de forma IMPLÍCITA los Beneficios/Bonos del Convenio Colectivo Lira Parque (RG) y del Anexo Beneficio Oficina Central (RP) — aguinaldos, aporte sindical, etc. (ver beneficios.ts) del MES ACTUAL — no aparecen como fila aparte, quedan sumados dentro de este monto, pero ya no contaminan el costo base de los meses futuros.",
   },
   {
     concepto: "Finiquito",
@@ -34,14 +34,14 @@ export const CONCEPTOS_METODOLOGIA = [
     fuenteReal:
       'Real cuando existe el archivo "Solicitud de Requerimiento reliquidación" ingerido para ese mes.',
     formula:
-      "Si no hay dato real: % × Remuneración del mismo mes. Empieza en 1% (fórmula original del Excel) y se AUTO-APRENDE en cada 'Actualizar reporte' como el promedio real de Reliquidación÷Remuneración de los últimos 6 meses reales — mismo mecanismo que Anticipo.",
+      "Si no hay dato real: 1% fijo × Remuneración del mismo mes (decisión explícita del usuario, 24-sep-2026, revierte el auto-aprendizaje: el % aprendido arrastraba una reliquidación puntual grande de un mes atípico en vez de reflejar el 1% habitual).",
   },
   {
     concepto: "Cotización",
     fuenteReal:
       'Real desde 2 fuentes: (1) el comprobante oficial de pago de Previred ("comprobante previred <Empresa> <RG|RP>.pdf", carpeta "Pagos Mensuales/imposiciones/imposiciones <mes> <año>") — se suma el TOTAL GENERAL ya calculado y confirmado por Previred de todos los comprobantes del mes, cruzado contra "TOTAL A PAGAR" del mismo documento (si no coinciden, se descarta ese comprobante en vez de arriesgar el monto); (2) el Excel maestro de Flujo de Caja para meses históricos que ya lo tenían. Nunca se parsea el archivo .txt crudo de Previred (~70-100 columnas por trabajador) — ese layout requeriría adivinar qué campos exactos sumar, riesgo real para un dato financiero.',
     formula:
-      "Si no hay dato real de ninguna de las 2 fuentes: % × (Anticipo + Remuneración + Reliquidación) del mismo mes. Empieza en 30% (fórmula original del Excel) y se AUTO-APRENDE en cada 'Actualizar reporte' como el promedio real de Cotización÷(Anticipo+Remuneración+Reliquidación) de los últimos 6 meses reales. Como Remuneración ya incluye Beneficios/Bonos de forma implícita, quedan incluidos en la base sin un 4to sumando.",
+      "Si no hay dato real de ninguna de las 2 fuentes: 30% fijo × (Anticipo + Remuneración + Reliquidación) del mismo mes (decisión explícita del usuario, 21-sep-2026: la reforma previsional — Ley N° 21.735 — agrega una cotización adicional del empleador en rampa legislada, 1% desde ago-2025 hasta 8,5% en régimen, que un promedio de meses reales nunca puede anticipar porque mira hacia atrás). Como Remuneración ya incluye Beneficios/Bonos de forma implícita, quedan incluidos en la base sin un 4to sumando.",
   },
   {
     concepto: "Aporte SENCE",
@@ -76,7 +76,7 @@ export const MOTOR_CAMBIO_MENSUAL = [
   {
     concepto: "Remuneración",
     explicacion:
-      "Sube o baja principalmente porque cambia la DOTACIÓN, no el costo por persona (que se mantiene relativamente estable mes a mes): Remuneración ≈ costo promedio por cabeza del mes anterior × dotación del mes actual. Si la dotación crece 5%, Remuneración proyectada crece ≈5% en el mismo sentido.",
+      "Sube o baja principalmente porque cambia la DOTACIÓN, no el costo por persona (que se mantiene FIJO — promedio de los últimos 3 meses reales, sin beneficios): Remuneración ≈ costo base por cabeza × dotación del mes actual + Beneficios del propio mes. Si la dotación crece 5%, Remuneración proyectada crece ≈5% en el mismo sentido. Un mes con aguinaldo (sep/dic) sube por Beneficios, no por el costo base — y ese aguinaldo no se arrastra a los meses siguientes.",
   },
   {
     concepto: "Anticipo",
@@ -86,7 +86,7 @@ export const MOTOR_CAMBIO_MENSUAL = [
   {
     concepto: "Reliquidación",
     explicacion:
-      "Igual que Anticipo: sigue a Remuneración (un % de ella, auto-aprendido — empieza en 1%) — mismo sentido, sin dinámica propia.",
+      "Sigue a Remuneración (1% fijo de ella) — mismo sentido, sin dinámica propia.",
   },
   {
     concepto: "Finiquito",
@@ -96,7 +96,7 @@ export const MOTOR_CAMBIO_MENSUAL = [
   {
     concepto: "Cotización",
     explicacion:
-      "Cuando hay comprobante Previred real, sube o baja con la dotación real pagada ese mes (más/menos gente cotizando). Sin dato real, la fórmula (% auto-aprendido de Anticipo+Remuneración+Reliquidación, empieza en 30%) sigue a Remuneración — que como componente más grande de esa suma, arrastra a Cotización en la misma dirección, misma causa raíz: la dotación.",
+      "Cuando hay comprobante Previred real, sube o baja con la dotación real pagada ese mes (más/menos gente cotizando). Sin dato real, la fórmula (30% fijo de Anticipo+Remuneración+Reliquidación) sigue a Remuneración — que como componente más grande de esa suma, arrastra a Cotización en la misma dirección, misma causa raíz: la dotación.",
   },
   {
     concepto: "Aporte SENCE",

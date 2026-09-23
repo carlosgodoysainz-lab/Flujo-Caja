@@ -14,6 +14,7 @@ import {
   getDotacionTotalPorPeriodo,
   dotacionRgRpDelMes,
   proporcionRgHistorica,
+  type DotacionTotalPunto,
 } from "@/features/headcount/services/dotacion-total";
 import { runForecastModel } from "@/features/headcount/forecast-model/run";
 import { METODO_FORECAST_ACTUAL } from "@/features/headcount/forecast-model/curve";
@@ -219,17 +220,53 @@ function sumaLineItemsPura(
   return encontrado ? suma : null;
 }
 
-/** Monto ya guardado en `cash_flow_monthly` para un concepto/mes — usado para leer la Remuneración del mes anterior (real o ya proyectada) y así encadenar el modelo costo-por-cabeza mes a mes. */
-function montoCashFlowPura(
-  cache: CashFlowMonthlyCache,
-  periodo: Date,
-  concepto: string,
+/**
+ * Costo promedio por cabeza "limpio" — promedio de los últimos N meses
+ * REALES de (Remuneración real, SIN beneficios/aguinaldos) ÷ dotación real
+ * de ese mismo mes. Fijo hacia adelante (NO se encadena mes a mes) — fix
+ * de un hallazgo real (24-sep-2026, comparando contra el Excel tradicional
+ * del usuario): antes se usaba el costo del MES ANTERIOR
+ * (`remuneración mes anterior ÷ dotación mes anterior`, ver
+ * Auto-Blindaje), y como `remuneración` en `cash_flow_monthly` YA incluye
+ * los beneficios/aguinaldos del mes (ver `engine.ts`), un aguinaldo de
+ * septiembre quedaba incrustado en el costo por cabeza y se propagaba PARA
+ * SIEMPRE a todos los meses siguientes (+10,8% permanente medido en la
+ * comparación). Acá se usa `remuneracionReal` de `payroll_line_items` (que
+ * nunca incluye beneficios — esos se calculan aparte en `beneficios.ts` y
+ * se suman después, sobre la base) ÷ la dotación REAL de ese mismo mes —
+ * nunca la proyectada. Mismo patrón de "promedio de los últimos N meses
+ * reales, mirando hacia atrás mes a mes" que `proporcionAnticipoRgHistoricaPura`
+ * en `dotacion-total.ts`.
+ */
+function costoBasePorCabezaPura(
+  payrollCache: PayrollLineItemsCache,
+  dotacionPorPeriodo: Map<string, DotacionTotalPunto>,
+  antesDe: Date,
+  n = 3,
 ): number | null {
-  return (
-    cache.porPeriodoConcepto.get(
-      claveCf(periodo.toISOString().slice(0, 10), concepto),
-    )?.monto ?? null
-  );
+  const razones: number[] = [];
+  let mesesAtras = 1;
+  let guard = 0;
+  while (razones.length < n && guard < 24) {
+    const cursor = new Date(
+      antesDe.getFullYear(),
+      antesDe.getMonth() - mesesAtras,
+      1,
+    );
+    const periodoStr = cursor.toISOString().slice(0, 10);
+    const remuneracion = sumaLineItemsPura(payrollCache, cursor, [
+      "remuneracion_rg",
+      "remuneracion_rp",
+    ]);
+    const dotacion = dotacionPorPeriodo.get(periodoStr);
+    if (remuneracion != null && dotacion?.esReal && dotacion.total > 0) {
+      razones.push(remuneracion / dotacion.total);
+    }
+    mesesAtras++;
+    guard++;
+  }
+  if (razones.length === 0) return null;
+  return razones.reduce((a, b) => a + b, 0) / razones.length;
 }
 
 /** Fila existente de `cash_flow_monthly` para un concepto/mes — para no pisar un override manual (ver `override.ts`) en el próximo refresh. */
@@ -580,12 +617,23 @@ function pctSobreRemuneracionAprendidoPura(
     if (vistos >= n) break;
     if (fila.periodo >= antesDeStr) continue;
     vistos++;
-    const remuneracion = cache.porPeriodoConcepto.get(
+    // Fix real (24-sep-2026): antes tomaba cualquier "remuneracion" en el
+    // cache, real o YA PROYECTADA por este mismo refresh (ver
+    // `actualizarCacheCashFlow`) — un mes con Anticipo real pero
+    // Remuneración todavía proyectada inflaba/desinflaba el % aprendido
+    // con un denominador que no es un dato real. Ahora exige que la
+    // Remuneración de ESE mismo período también sea real.
+    const remuneracionFila = cache.porPeriodoConcepto.get(
       claveCf(fila.periodo, "remuneracion"),
-    )?.monto;
-    if (remuneracion == null || remuneracion === 0) continue;
+    );
+    if (
+      remuneracionFila == null ||
+      !remuneracionFila.esReal ||
+      remuneracionFila.monto === 0
+    )
+      continue;
     sumaConcepto += fila.monto;
-    sumaRemuneracion += remuneracion;
+    sumaRemuneracion += remuneracionFila.monto;
   }
   return sumaRemuneracion > 0 ? sumaConcepto / sumaRemuneracion : null;
 }
@@ -778,7 +826,6 @@ export async function refreshCashFlowReport(
   let mesesRecalculados = 0;
   for (const mes of meses) {
     const periodoStr = mes.toISOString().slice(0, 10);
-    const anterior = mesAnteriorA(mes);
 
     const anticipoReal = sumaLineItemsPura(payrollCache, mes, [
       "anticipo_rg",
@@ -794,19 +841,16 @@ export async function refreshCashFlowReport(
     const finiquitoReal = sumaLineItemsPura(payrollCache, mes, ["finiquito"]);
     const cotizacionReal = sumaLineItemsPura(payrollCache, mes, ["cotizacion"]);
 
-    const remuneracionMesAnterior = montoCashFlowPura(
-      cashFlowCache,
-      anterior,
-      "remuneracion",
-    );
-    const dotacionMesAnterior =
-      dotacionPorPeriodo.get(anterior.toISOString().slice(0, 10))?.total ??
-      null;
     const dotacionActual = dotacionPorPeriodo.get(periodoStr)?.total ?? null;
-    const costoPromedioPorCabezaMesAnterior =
-      remuneracionMesAnterior != null && dotacionMesAnterior
-        ? remuneracionMesAnterior / dotacionMesAnterior
-        : null;
+    // Costo base "limpio" (sin beneficios/aguinaldos), fijo — ver
+    // `costoBasePorCabezaPura`. Reemplaza el costo del MES ANTERIOR
+    // (bug real corregido 24-sep-2026: encadenaba los aguinaldos para
+    // siempre, ver el comentario de la función).
+    const costoPromedioPorCabezaMesAnterior = costoBasePorCabezaPura(
+      payrollCache,
+      dotacionPorPeriodo,
+      mes,
+    );
 
     const remuneracionFallbackPromedioHistorico = promedioRemuneracionRealPura(
       cashFlowCache,
@@ -822,20 +866,14 @@ export async function refreshCashFlowReport(
       metodoCalculo: "promedio_ultimos_6_meses_reales",
     };
 
-    // Auto-aprendizaje de los % fijos (24-ago-2026, pedido explícito del
-    // usuario): Anticipo/Reliquidación/Cotización dejan de depender SOLO
-    // de un % hardcodeado — se recalculan como el promedio real de los
-    // últimos 6 meses reales cada vez que corre este refresh. `null`
-    // mientras no haya suficiente historia real todavía (ver formulas.ts,
-    // caen de vuelta al % fijo original).
+    // Auto-aprendizaje (24-ago-2026, pedido explícito del usuario):
+    // Anticipo deja de depender SOLO de un % hardcodeado — se recalcula
+    // como el promedio real de los últimos 6 meses reales cada vez que
+    // corre este refresh. `null` mientras no haya suficiente historia
+    // real todavía (ver formulas.ts, cae de vuelta al 24% fijo).
     const anticipoPctAprendido = pctSobreRemuneracionAprendidoPura(
       cashFlowCache,
       "anticipo",
-      mes,
-    );
-    const reliquidacionPctAprendido = pctSobreRemuneracionAprendidoPura(
-      cashFlowCache,
-      "reliquidacion",
       mes,
     );
 
@@ -896,7 +934,12 @@ export async function refreshCashFlowReport(
       beneficiosRg: beneficiosCalculado.rg,
       beneficiosRp: beneficiosCalculado.rp,
       anticipoPctAprendido,
-      reliquidacionPctAprendido,
+      // Reliquidación vuelve al 1% fijo (24-sep-2026, decisión explícita
+      // del usuario, mismo criterio que Cotización más abajo): el 2,75%
+      // aprendido arrastraba un outlier real de un mes puntual (una
+      // reliquidación grande de abr-26) en vez de reflejar el 1% habitual
+      // — confirmado comparando contra el Excel tradicional del usuario.
+      reliquidacionPctAprendido: null,
       // Cotización vuelve al 30% fijo (pedido explícito del usuario,
       // 21-sep-2026): la reforma previsional (Ley N° 21.735) agrega una
       // cotización ADICIONAL del empleador en rampa legislada — 1% desde

@@ -59,10 +59,27 @@ export async function getPlanObraConDotacion(
 
   if (!obras || obras.length === 0) return [];
 
-  const { data: snapshots } = await supabase
-    .from("buk_dotacion_snapshots")
-    .select("obra_id, snapshot_date, activos")
-    .not("obra_id", "is", null);
+  // BUG REAL corregido 24-sep-2026: sin `.range()`, PostgREST trunca en
+  // silencio al tope server-side (~1000 filas) — `buk_dotacion_snapshots`
+  // tiene ~23.000, el mismo patrón de bug ya encontrado y corregido 3
+  // veces en otros archivos (ver `dotacion-total.ts`, `refresh.ts`). Fix:
+  // paginar con `.range()` hasta agotar la tabla.
+  const snapshots: {
+    obra_id: string | null;
+    snapshot_date: string;
+    activos: number;
+  }[] = [];
+  const TAMANO_PAGINA_SNAPSHOTS = 1000;
+  for (let desde = 0; ; desde += TAMANO_PAGINA_SNAPSHOTS) {
+    const { data: pagina } = await supabase
+      .from("buk_dotacion_snapshots")
+      .select("obra_id, snapshot_date, activos")
+      .not("obra_id", "is", null)
+      .range(desde, desde + TAMANO_PAGINA_SNAPSHOTS - 1);
+    if (!pagina || pagina.length === 0) break;
+    snapshots.push(...pagina);
+    if (pagina.length < TAMANO_PAGINA_SNAPSHOTS) break;
+  }
 
   const dotacionRealPorObraYPeriodo = new Map<string, number>();
   for (const s of snapshots ?? []) {
@@ -147,10 +164,25 @@ export async function getPlanObraConDotacion(
  */
 export async function getSaldoInicialPorObra(): Promise<Map<string, number>> {
   const supabase = createServiceClient();
-  const { data: snapshots } = await supabase
-    .from("buk_dotacion_snapshots")
-    .select("obra_id, snapshot_date, activos")
-    .not("obra_id", "is", null);
+  // BUG REAL corregido 24-sep-2026: mismo patrón de truncamiento silencioso
+  // que `getPlanObraConDotacion` — ver ese comentario. Paginado con
+  // `.range()`.
+  const snapshots: {
+    obra_id: string | null;
+    snapshot_date: string;
+    activos: number;
+  }[] = [];
+  const TAMANO_PAGINA_SNAPSHOTS = 1000;
+  for (let desde = 0; ; desde += TAMANO_PAGINA_SNAPSHOTS) {
+    const { data: pagina } = await supabase
+      .from("buk_dotacion_snapshots")
+      .select("obra_id, snapshot_date, activos")
+      .not("obra_id", "is", null)
+      .range(desde, desde + TAMANO_PAGINA_SNAPSHOTS - 1);
+    if (!pagina || pagina.length === 0) break;
+    snapshots.push(...pagina);
+    if (pagina.length < TAMANO_PAGINA_SNAPSHOTS) break;
+  }
 
   const maxFechaPorObra = new Map<string, string>();
   for (const s of snapshots ?? []) {

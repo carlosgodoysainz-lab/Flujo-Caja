@@ -37,10 +37,13 @@ export interface CashFlowInputs {
    */
   senceFallback: { monto: number; metodoCalculo: string };
   /**
-   * Costo promedio por cabeza del MES ANTERIOR (Remuneración$ ÷ dotación),
-   * para proyectar Remuneración como precio×cantidad. `null` si no hay
-   * dotación real/estimada disponible para el mes anterior — ver
-   * `dotacion-total.ts`.
+   * Costo promedio por cabeza — la "P" (precio) del modelo Remuneración =
+   * precio × cantidad. Pese al nombre del campo (histórico, se mantiene
+   * para no romper la firma), YA NO es el costo del mes anterior: desde el
+   * 24-sep-2026 es el promedio de los últimos 3 meses REALES de
+   * (Remuneración SIN beneficios/aguinaldos) ÷ dotación real, fijo hacia
+   * adelante — ver `costoBasePorCabezaPura` en `refresh.ts`. `null` si no
+   * hay suficiente historia real todavía.
    */
   costoPromedioPorCabezaMesAnterior: number | null;
   /** Dotación total estimada/real del mes ACTUAL — la "cantidad" del modelo. */

@@ -373,14 +373,30 @@ export async function renderReportExcel(params: {
     if (concepto === "anticipo") {
       const filaRemun = filaNumeroPorConcepto.get("remuneracion");
       if (!filaRemun) return null;
+      // El % de Anticipo se AUTO-APRENDE (ver `pctSobreRemuneracionAprendidoPura`
+      // en refresh.ts) — nunca es 0.24 fijo salvo que la compañía no tenga
+      // historia real todavía. Bug real corregido 24-sep-2026: esta
+      // fórmula quedaba hardcodeada en 0.24 aunque `monto` ya reflejaba el
+      // % real aplicado — si alguien recalculaba el Excel (F9), el valor
+      // cambiaba y dejaba de coincidir con lo que la app mostraba. Se
+      // deriva el % REAL desde el propio monto ya calculado, así la
+      // fórmula y el valor nunca se desincronizan.
+      const remuneracionPunto = valorPorConceptoYPeriodo.get(
+        `remuneracion::${periodos[i]}`,
+      );
+      if (!remuneracionPunto || remuneracionPunto.monto === 0) return null;
+      const pctReal = monto / remuneracionPunto.monto;
       return {
-        formula: `=${refCelda(col, filaRemun)}*0.24`,
+        formula: `=${refCelda(col, filaRemun)}*${pctReal}`,
         result: monto,
       };
     }
     if (concepto === "reliquidacion") {
       const filaRemun = filaNumeroPorConcepto.get("remuneracion");
       if (!filaRemun) return null;
+      // Reliquidación es 1% fijo desde el 24-sep-2026 (ya no se
+      // auto-aprende, ver refresh.ts) — 0.01 siempre coincide con el
+      // monto real.
       return {
         formula: `=${refCelda(col, filaRemun)}*0.01`,
         result: monto,

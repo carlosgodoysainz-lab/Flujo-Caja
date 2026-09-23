@@ -119,11 +119,23 @@ export async function getDotacionTotalPorPeriodo(
   }
 
   if (ultimoPeriodoReal && ultimoTotalReal != null) {
-    const { data: variaciones } = await supabase
-      .from("headcount_by_obra")
-      .select("periodo, variacion_neta")
-      .gt("periodo", ultimoPeriodoReal)
-      .limit(1000);
+    // Paginado con `.range()` (24-sep-2026) en vez de `.limit(1000)` fijo —
+    // mismo criterio defensivo que el resto del archivo: hoy son ~30 obras
+    // × meses futuros (bajo riesgo real de superar 1000), pero un
+    // `.limit()` fijo trunca en silencio si algún día se supera, sin
+    // avisar (el mismo patrón de bug ya corregido 3 veces acá arriba).
+    const variaciones: { periodo: string; variacion_neta: number }[] = [];
+    const TAMANO_PAGINA_VARIACIONES = 1000;
+    for (let desde = 0; ; desde += TAMANO_PAGINA_VARIACIONES) {
+      const { data: pagina } = await supabase
+        .from("headcount_by_obra")
+        .select("periodo, variacion_neta")
+        .gt("periodo", ultimoPeriodoReal)
+        .range(desde, desde + TAMANO_PAGINA_VARIACIONES - 1);
+      if (!pagina || pagina.length === 0) break;
+      variaciones.push(...pagina);
+      if (pagina.length < TAMANO_PAGINA_VARIACIONES) break;
+    }
 
     const variacionNetaPorPeriodo = new Map<string, number>();
     for (const v of variaciones ?? []) {

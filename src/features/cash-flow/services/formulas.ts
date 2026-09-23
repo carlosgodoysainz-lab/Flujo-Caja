@@ -3,36 +3,41 @@
  * REDEFINIDAS a partir de (a) las fórmulas reales confirmadas en el Excel
  * "Flujo de Caja" (`scripts/inspect-flujo-caja-formulas.ts`, estables en 7
  * meses distintos) y (b) la corrección explícita del usuario sobre la
- * metodología deseada, que en 2 conceptos difiere a propósito de lo que
- * hacía el Excel (ver TECH-SPEC §7 y Auto-Blindaje):
+ * metodología deseada (ver TECH-SPEC §7 y Auto-Blindaje). Estado actual
+ * (24-sep-2026, tras comparar contra el Excel tradicional del usuario):
  *
- *   Concepto        | Excel real          | Metodología redefinida (usada acá)
- *   ----------------|----------------------|-------------------------------------
- *   Anticipo        | 24% × Remun. (RG)    | Igual, confirmado 2 veces (17-ago y 18-ago-2026) — el Anticipo es por
- *                                              naturaleza un adelanto de un % del sueldo de cada persona, no un
- *                                              costo fijo por cabeza (se evaluó un modelo costo-por-cabeza con
- *                                              dotación propia de Anticipo y se revirtió — ver Auto-Blindaje)
- *   Remuneración     | (prevMonto/prevHC)×HC | Igual — modelo costo-por-cabeza × dotación (ver dotacion-total.ts)
- *   Finiquito        | 7% × Remuneración    | Promedio de los ÚLTIMOS 6 MESES REALES (decisión explícita del usuario)
- *   Reliquidación    | 1% × Remuneración    | Igual (el usuario confirmó mantener la fórmula del Excel)
- *   Cotización       | 30% × (Rem+Reliq+Ant)| Igual, confirmado — Beneficios/Bonos (ver beneficios.ts) se suman de
- *                                              forma IMPLÍCITA dentro de Remuneración (no es un sumando aparte
- *                                              acá), así que ya quedan incluidos sin tocar esta fórmula
- *   Aporte SENCE     | siempre manual       | Igual — NUNCA fórmula, ver override.ts
+ *   Concepto        | Metodología usada acá
+ *   ----------------|-------------------------------------------------------
+ *   Anticipo        | % AUTO-APRENDIDO de Remuneración (empieza en 24% fijo)
+ *                     — el Anticipo es por naturaleza un adelanto de un % del
+ *                     sueldo de cada persona, no un costo fijo por cabeza
+ *   Remuneración     | costo base por cabeza (promedio de los últimos 3 meses
+ *                     REALES, SIN beneficios) × dotación — ver
+ *                     `costoBasePorCabezaPura` en refresh.ts
+ *   Finiquito        | Promedio de los ÚLTIMOS 6 MESES REALES (decisión
+ *                     explícita del usuario)
+ *   Reliquidación    | 1% FIJO de Remuneración (24-sep-2026: vuelve a fijo —
+ *                     el % aprendido arrastraba un outlier real puntual)
+ *   Cotización       | 30% FIJO de (Rem+Reliq+Ant) (21-sep-2026: vuelve a
+ *                     fijo — la reforma previsional, Ley N° 21.735, sube el
+ *                     % legislado hacia adelante y un promedio de meses
+ *                     reales nunca puede anticiparlo). Beneficios/Bonos (ver
+ *                     beneficios.ts) van IMPLÍCITOS dentro de Remuneración,
+ *                     así que ya quedan incluidos sin un 4to sumando
+ *   Aporte SENCE     | Siempre manual — NUNCA fórmula, ver override.ts
  *
  * IMPORTANTE: estas son fórmulas de RESPALDO — se usan solo cuando no hay
  * dato real ingerido para el concepto/mes correspondiente (ver `engine.ts`).
  * Cuando existe un archivo real de SharePoint (o un override manual) para
  * ese mes, ese valor real siempre tiene prioridad.
  *
- * AUTO-APRENDIZAJE (24-ago-2026, pedido explícito del usuario): Anticipo,
- * Cotización y Reliquidación ya NO usan solo estos % fijos — `refresh.ts`
- * calcula, en cada "Actualizar reporte", el % REAL promedio de los
- * últimos meses reales (ver `pctSobreRemuneracionAprendido`/
- * `cotizacionPctAprendido` ahí) y lo pasa a `engine.ts` como el 2do
- * parámetro `pct` de cada función de abajo. Los % de ESTA constante solo
- * se usan como fallback final cuando todavía no hay suficiente historia
- * real (compañía/obra nueva) — nunca se editan a mano en el código.
+ * AUTO-APRENDIZAJE (24-ago-2026, pedido explícito del usuario) — vigente
+ * SOLO para Anticipo: `refresh.ts` calcula, en cada "Actualizar reporte",
+ * el % REAL promedio de los últimos 6 meses reales (ver
+ * `pctSobreRemuneracionAprendidoPura` ahí) y lo pasa a `engine.ts` como el
+ * 2do parámetro `pct` de `calcularAnticipoProyectado`. `ANTICIPO_PCT` solo
+ * se usa como fallback final cuando todavía no hay suficiente historia real
+ * (compañía/obra nueva) — nunca se edita a mano en el código.
  */
 
 export const ANTICIPO_PCT = 0.24;
@@ -63,9 +68,10 @@ export function calcularAnticipoProyectado(
 
 /**
  * Reliquidaciones proyectadas ≈ % de Remuneraciones del mismo mes
- * (fallback). `pct` es el % aprendido de los últimos meses reales (ver
- * `refresh.ts`); sin historia real todavía, cae a `RELIQUIDACION_PCT`
- * (1%, la fórmula original del Excel).
+ * (fallback). Siempre `RELIQUIDACION_PCT` (1% fijo) — `refresh.ts` ya no
+ * auto-aprende este % (revertido 24-sep-2026, arrastraba un outlier real
+ * puntual). El parámetro `pct` sigue existiendo por si algún caller externo
+ * lo necesita, pero `refresh.ts` siempre pasa `undefined`.
  */
 export function calcularReliquidacionProyectada(
   remuneracion: number,
