@@ -83,4 +83,4 @@ Skills restantes en _inactive/: [lista o "ninguno"]
 
 - Este comando es seguro: solo mueve carpetas de `_inactive/` a `skills/`.
 - Si un skill ya esta en `skills/`, no lo mueve de nuevo.
-- El Decision Router en CLAUDE.md NO se actualiza automaticamente. Los skills activados funcionan cuando se invocan directamente, aunque no aparezcan en el router.
+- El Decision Router en AGENTS.md (Factory OS) NO se actualiza automaticamente. Los skills activados funcionan cuando se invocan directamente, aunque no aparezcan en el router.

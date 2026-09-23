@@ -61,9 +61,9 @@ Delega tareas complejas a agentes via `Task` tool:
 
 ### Comandos Slash Disponibles
 - `/avivar` → Este comando (contexto inicial)
-- `/a2a-report` → Reporte para comunicar a otra IA
-- `/generar-prp` → Generar La Pieza (plan de construcción)
-- `/new-app` → Crear nueva aplicación desde cero
+- `/plan` → Planificar una nueva app o feature (La Herrería)
+- `/build` → Generar La Pieza y construir desde el Blueprint
+- `/despachar` → Despachar trabajo a ejecución
 
 ---
 
@@ -119,7 +119,8 @@ Si ninguno existe: el proyecto aún no ha iniciado build, proceder normalmente.
 
 ### 1. Leer Identidad del Proyecto
 
-Lee `CLAUDE.md` y extrae:
+Lee el Factory OS — `AGENTS.md` (Forge 5.5+; `CLAUDE.md` solo lo importa) o
+`CLAUDE.md` en proyectos anteriores — y extrae:
 - **Nombre del proyecto**
 - **Problema que resuelve** (propuesta de valor)
 - **Usuario target** (avatar)

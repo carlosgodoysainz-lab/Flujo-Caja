@@ -338,7 +338,7 @@ export const deleteItem = tool({
 
 ```typescript
 // En el componente, manejar confirmacion
-const handleToolConfirm = async (toolCallId: string, result: any) => {
+const handleToolConfirm = async (toolCallId: string, result: unknown) => {
   sendMessage({
     text: '',
     toolResults: [{

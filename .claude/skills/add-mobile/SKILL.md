@@ -534,8 +534,8 @@ export async function POST(request: NextRequest) {
     if (error) throw error;
 
     return NextResponse.json({ success: true, subscription_id: data.id });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Error desconocido' }, { status: 500 });
   }
 }
 
@@ -549,8 +549,8 @@ export async function DELETE(request: NextRequest) {
       .eq('endpoint', endpoint);
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Error desconocido' }, { status: 500 });
   }
 }
 ```
@@ -613,7 +613,7 @@ export async function POST(request: NextRequest) {
           .eq('id', sub.id);
 
         sent++;
-      } catch (err: any) {
+      } catch (err: unknown) {
         // 4xx = subscription invalida, eliminar (excepto 429 rate limit)
         const status = err.statusCode;
         if ((status && status >= 400 && status < 500 && status !== 429) || !status) {
@@ -627,8 +627,8 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true, sent, failed });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Error desconocido' }, { status: 500 });
   }
 }
 ```

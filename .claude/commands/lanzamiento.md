@@ -200,6 +200,10 @@ Crear `GTM-STRATEGY-[nombre].md`:
 | Revenue | $[X] | $[X] | $[X] |
 ```
 
+> **Contrato de Salida.** Antes de escribir el documento, aplica
+> `.claude/skills/el-crisol/assets/contrato-de-salida.md`: sin dato no hay número,
+> toda recomendación cita su documento fuente, y sin research no hay landscape.
+
 ## Output
 
 ```

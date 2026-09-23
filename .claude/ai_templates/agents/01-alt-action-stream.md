@@ -72,7 +72,7 @@ Usuario: (no puede discutir, VIO el calculo)
  * Parsea JSON incompleto cerrando brackets automaticamente.
  * Permite procesar respuestas mientras llegan en streaming.
  */
-export function closeAndParseJson(str: string): any | null {
+export function closeAndParseJson(str: string): unknown | null {
   const stack: string[] = []
   let i = 0
 
@@ -311,7 +311,7 @@ export function useActionStream(endpoint = '/api/agent') {
   const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const sendPrompt = useCallback(async (prompt: string, context?: any) => {
+  const sendPrompt = useCallback(async (prompt: string, context?: Record<string, unknown>) => {
     setIsStreaming(true)
     setError(null)
     setActions([])

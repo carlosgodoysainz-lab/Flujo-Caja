@@ -17,9 +17,9 @@ Workflow automatizado de release: merge main, typecheck, lint, build, review pre
 - Review pre-landing encuentra issues CRITICAL (preguntar por cada uno)
 
 **Nunca detenerse por:**
-- Cambios sin commitear (siempre incluirlos)
-- Contenido del CHANGELOG (auto-generar)
-- Aprobación del commit message (auto-commit)
+- Cambios sin commitear (siempre incluirlos) — preguntarlo en cada archivo convierte un ship de 2 minutos en un interrogatorio.
+- Contenido del CHANGELOG (auto-generar) — el commit ya dice qué cambió; pedir que lo repitas a mano solo agrega drift entre los dos.
+- Aprobación del commit message (auto-commit) — el mensaje se corrige con `git commit --amend` en 5 segundos; el PR es el punto real de revisión.
 
 ---
 
@@ -30,6 +30,7 @@ Workflow automatizado de release: merge main, typecheck, lint, build, review pre
 2. `git status` (nunca usar `-uall`). Cambios sin commitear se incluyen siempre.
 
 3. `git diff main...HEAD --stat` y `git log main..HEAD --oneline` para entender qué se está despachando.
+4. **Lista Roja:** `git diff --name-only main...HEAD` contra las 6 reglas de `.claude/skills/forge-reference/SKILL.md`. Si hay hit, decirlo antes de los gates — es el último punto donde preguntar sale barato.
 
 ---
 
@@ -64,7 +65,53 @@ npm run build 2>&1 | tee /tmp/despachar-build.txt
 
 **Si cualquier gate falla:** Mostrar errores y **STOP**. No proceder.
 
-**Si todos pasan:** Continuar — solo notar los conteos brevemente.
+**Si todos pasan:** Continuar. **Pega la salida cruda**: el reporte del Paso 3 incluye las
+últimas 5 líneas literales de cada `/tmp/despachar-*.txt`, tal cual, dentro de un bloque de
+código.
+
+- ❌ Resumir un gate sin pegar su salida — porque un "3/3 verde" sin evidencia es
+  indistinguible de uno fabricado, y llega justo antes de abrir un PR.
+- ❌ Escribir "typecheck falló" en vez del texto de `tsc` — porque el mensaje literal
+  (`archivo(línea,columna): error TSxxxx`) es lo que el usuario necesita para arreglarlo, y
+  parafrasearlo pierde el único dato accionable.
+- ❌ Marcar un gate que no corriste — porque el comando que no se ejecutó no tiene
+  `/tmp/despachar-*.txt`, y un gate sin archivo se reporta como **no corrido**, nunca como
+  pasado.
+
+Formato del reporte del Paso 3:
+
+```
+Quality Gates
+─────────────
+typecheck  →  <últimas 5 líneas de /tmp/despachar-typecheck.txt>
+lint       →  <últimas 5 líneas de /tmp/despachar-lint.txt>
+build      →  <últimas 5 líneas de /tmp/despachar-build.txt>
+```
+
+Si un `/tmp/despachar-*.txt` no existe, ese gate se reporta como `no corrido` y
+`/despachar` **para** — no se abre un PR con un gate sin evidencia.
+
+#### Espejo de CI (advisory)
+
+Si el repo tiene `.github/workflows/*.yml`, léelos y **reporta** qué gates corre el CI que
+tú no corriste localmente. Marca el reporte como **"espejo parcial"**.
+
+- ❌ Ejecutar los `run:` que extraigas de un workflow — porque las matrices, los `needs:`,
+  los pasos de deploy y los comandos que esperan secrets del CI convierten eso en un
+  footgun: correrías algo distinto de lo que el CI corre, o algo destructivo.
+- ❌ Inventar gates que el CI no corre ni omitir uno que sí corre — porque un espejo que
+  diverge del CI da confianza falsa, que es exactamente el problema que este paso existe
+  para resolver.
+
+Formato:
+
+```
+Espejo de CI: parcial — .github/workflows/<archivo>.yml
+  corrido local:    typecheck · lint · build
+  solo en CI:       <job/step que no corriste>  (no ejecutado aquí)
+```
+
+Si no hay `.github/workflows/`, omite esta sección en silencio.
 
 ---
 
@@ -177,9 +224,9 @@ gh pr create --title "<type>: <resumen>" --body "$(cat <<'EOF'
 <hallazgos del Paso 4, o "Sin issues encontrados.">
 
 ## Quality Gates
-- [x] TypeScript typecheck pasado
-- [x] ESLint pasado
-- [x] Next.js build exitoso
+- typecheck: <resultado real> — `<última línea de /tmp/despachar-typecheck.txt>`
+- lint: <resultado real> — `<última línea de /tmp/despachar-lint.txt>`
+- build: <resultado real> — `<última línea de /tmp/despachar-build.txt>`
 
 🔨 Despachado con [Forge](https://github.com/getforja/forge-pro)
 EOF

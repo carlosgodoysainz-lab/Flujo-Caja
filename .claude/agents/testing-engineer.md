@@ -109,6 +109,7 @@ describe('calculateTotal', () => {
 
 ### Testeando Zod Schemas
 
+<!-- forge-audit-ignore: secret -- fixture de test dentro de safeParse(), no es una credencial real -->
 ```typescript
 // src/features/auth/types/auth-schemas.test.ts
 import { describe, it, expect } from 'vitest';
@@ -200,7 +201,7 @@ describe('createTask action', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (createClient as any).mockResolvedValue(mockSupabase);
+    vi.mocked(createClient).mockResolvedValue(mockSupabase);
     mockSupabase.auth.getUser.mockResolvedValue({
       data: { user: { id: 'user-123' } },
     });

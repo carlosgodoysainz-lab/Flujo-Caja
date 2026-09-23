@@ -3,7 +3,10 @@
 # ============================================================
 # Structured threat entries for Security Audit (Skill #9).
 # Categories: owasp-2025, vibe-coding, mcp-security, golden-path,
-#             infrastructure, blog-security-tips, data-privacy
+#             infrastructure, blog-security-tips, data-privacy, payments
+#
+# La taxonomia de la categoria `payments` esta inspirada en
+# https://github.com/Hainrixz/agente-pagokit (MIT) — reescrita al esquema de Forge.
 #
 # Each entry: id, category, name, description, severity,
 #             owasp (mapping), golden_path_check, mitigation, automated
@@ -11,8 +14,8 @@
 # automated: true = security-scan.sh hook can detect this
 # ============================================================
 
-version: "1.0.0"
-last_updated: "2026-03-16"
+version: "1.1.0"
+last_updated: "2026-09-21"
 
 threats:
 
@@ -116,7 +119,7 @@ threats:
     description: "User input passed to exec(), spawn(), or system() calls in server-side code."
     severity: critical
     owasp: "A03:2025"
-    golden_path_check: "grep -rE '(exec|spawn|execSync)\\(' src/app/\\|src/features/"
+    golden_path_check: "grep -rE '(exec|spawn|execSync)\\(' src/app/ src/features/"
     mitigation: "Never pass user input to shell commands. Use libraries with parameterized APIs."
     automated: false
 
@@ -812,4 +815,59 @@ threats:
     owasp: ""
     golden_path_check: "Check for /terms or /legal/terms route"
     mitigation: "Add Terms of Service page. Require acceptance during registration."
+    automated: false
+
+
+  # ========================================
+  # Payments — webhooks, montos y entitlements
+  # ========================================
+
+  - id: PAY-001
+    category: payments
+    name: "Webhook body parsed as JSON before signature verification"
+    description: "Handler calls await request.json() and only then verifies the signature. Parsing consumes and re-serializes the stream, so the exact bytes the provider signed are gone: verification either throws or gets skipped."
+    severity: critical
+    owasp: "A07:2025"
+    golden_path_check: "grep -rn 'await request.json()' src/ — in any webhook handler; a handler must read await request.text() and pass that raw string to the provider verifier"
+    mitigation: "Read the body with await request.text(), verify with the provider SDK (validateEvent / stripe.webhooks.constructEvent), and JSON.parse only the already-verified payload."
+    automated: true
+
+  - id: PAY-002
+    category: payments
+    name: "Charge amount or price id taken from the client"
+    description: "Checkout or payment-intent creation reads amount, currency or price/product id from the request body instead of resolving it server-side. The client can pay 1 cent for a 99-dollar plan."
+    severity: critical
+    owasp: "A01:2025"
+    golden_path_check: "grep -rnE '(amount|unit_amount|price|priceId|productId|currency)[[:space:]]*:[[:space:]]*(body|params|searchParams|input|formData)\\.' src/ — the value must come from an env constant or a server-side product table"
+    mitigation: "Keep the price catalog server-side (env constant or DB table). The client sends a plan slug; the server resolves slug to price id to amount."
+    automated: true
+
+  - id: PAY-003
+    category: payments
+    name: "Money handled as floating point"
+    description: "Amounts stored or computed as floats (parseFloat, price * 1.16, toFixed) instead of integers in minor units. Binary floating point loses cents and the ledger stops reconciling."
+    severity: high
+    owasp: ""
+    golden_path_check: "grep -rnE '(parseFloat\\(|Number\\()[^)]*(price|amount|total|subtotal)' src/ — money must live as integer minor units (price_cents)"
+    mitigation: "Store and compute money as integers in minor units (price_cents, like the purchases table in add-payments). Convert to decimal only at render time."
+    automated: true
+
+  - id: PAY-004
+    category: payments
+    name: "Access granted on a checkout event instead of the active-subscription event"
+    description: "Handler flips has_access on checkout.session.completed / checkout.updated without confirming server-side that the subscription is active. A checkout can complete while the payment still fails, expires or is refunded."
+    severity: high
+    owasp: "A01:2025"
+    golden_path_check: "grep -rn -A 15 \"case 'checkout\" src/ — report ONLY if has_access/entitlement is written inside that branch without a server-side subscriptions.retrieve() (or equivalent) first"
+    mitigation: "Grant access on subscription.active (Polar) or customer.subscription.created|updated (Stripe). If you must act on checkout, retrieve the subscription from the provider API first, as add-payments does."
+    automated: true
+
+  - id: PAY-005
+    category: payments
+    name: "Webhook handler without idempotency"
+    description: "Providers retry webhooks. With no idempotency guard the same event is applied twice: duplicated purchases rows, double entitlement, double-counted revenue."
+    severity: high
+    owasp: ""
+    golden_path_check: "Read each handler under src/app/api/webhooks/ — each must key on the provider event or subscription id (unique constraint, upsert onConflict, or a processed_events table) before mutating state"
+    mitigation: "Upsert on a provider id with onConflict, or insert the event id into a processed_events table with a unique constraint and bail on conflict."
     automated: false

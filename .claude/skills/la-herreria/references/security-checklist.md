@@ -40,6 +40,7 @@ This is not a penetration test (that requires runtime access). It is a code and 
 SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname = 'public';
 -- Every table with user data must show rowsecurity = true
 ```
+<!-- forge-audit-ignore: client-user-id -- mal ejemplo deliberado: el bloque siguiente enseña la versión correcta -->
 ```typescript
 // RED FLAG: trusting client-provided ID
 const { data } = await supabase.from('invoices').select('*').eq('user_id', body.userId)
@@ -492,6 +493,9 @@ CREATE TABLE audit_log (
 -- Index for querying by user or time
 CREATE INDEX idx_audit_user ON audit_log(user_id);
 CREATE INDEX idx_audit_time ON audit_log(created_at);
+
+-- RLS obligatoria: una tabla sin política es una tabla pública.
+ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 ```
 Log: user deletions, role changes, payments, data exports, admin actions.
 

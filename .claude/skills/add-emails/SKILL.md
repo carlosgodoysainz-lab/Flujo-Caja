@@ -96,7 +96,7 @@ export async function sendEmail({ to, subject, react, userId }: SendEmailParams)
 
   const headers: Record<string, string> = {};
   if (userId) {
-    const unsubUrl = `${SITE_URL}/api/email/unsubscribe?userId=${userId}&type=general`;
+    const unsubUrl = `${SITE_URL}/api/email/unsubscribe?userId=${userId}&token=${signUnsubscribe(userId)}&type=general`;
     headers['List-Unsubscribe'] = `<${unsubUrl}>`;
     headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
   }
@@ -132,7 +132,7 @@ export async function sendBatchEmails(
 
     const emails = batch.map((recipient) => {
       const { subject, react } = renderEmail(recipient);
-      const unsubUrl = `${SITE_URL}/api/email/unsubscribe?userId=${recipient.user_id}&type=general`;
+      const unsubUrl = `${SITE_URL}/api/email/unsubscribe?userId=${recipient.user_id}&token=${signUnsubscribe(recipient.user_id)}&type=general`;
 
       return {
         from: EMAIL_FROM,
@@ -150,9 +150,9 @@ export async function sendBatchEmails(
       const resend = getResendClient();
       await resend.batch.send(emails);
       sent += batch.length;
-    } catch (err: any) {
+    } catch (err: unknown) {
       failed += batch.length;
-      errors.push(err.message || 'Batch send failed');
+      errors.push(err instanceof Error ? err.message : 'Batch send failed');
     }
 
     // Rate limit between batches
@@ -322,6 +322,7 @@ const footerText: React.CSSProperties = {
 
 Archivo: `src/app/api/email/unsubscribe/route.ts`
 
+<!-- forge-audit-ignore: client-user-id -- el userId llega firmado: isValidLink() verifica el HMAC con timingSafeEqual antes de usarlo -->
 ```typescript
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
@@ -331,13 +332,29 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// El userId del query string NO autoriza nada por sí solo: cualquiera que
+// adivine un UUID daría de baja a otro. El enlace va firmado (OWASP-A01-002).
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+export function signUnsubscribe(userId: string): string {
+  return createHmac('sha256', process.env.EMAIL_UNSUBSCRIBE_SECRET!)
+    .update(userId)
+    .digest('hex');
+}
+
+function isValidLink(userId: string | null, token: string | null): userId is string {
+  if (!userId || !token) return false;
+  const expected = Buffer.from(signUnsubscribe(userId));
+  const given = Buffer.from(token);
+  return expected.length === given.length && timingSafeEqual(expected, given);
+}
 
 // GET: User clicks unsubscribe link in email
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('userId');
+  const token = request.nextUrl.searchParams.get('token');
 
-  if (!userId || !UUID_REGEX.test(userId)) {
+  if (!isValidLink(userId, token)) {
     return NextResponse.redirect(new URL('/', request.url));
   }
 
@@ -352,9 +369,10 @@ export async function GET(request: NextRequest) {
 // POST: RFC 8058 one-click unsubscribe (email client initiated)
 export async function POST(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('userId');
+  const token = request.nextUrl.searchParams.get('token');
 
-  if (!userId || !UUID_REGEX.test(userId)) {
-    return NextResponse.json({ error: 'Invalid userId' }, { status: 400 });
+  if (!isValidLink(userId, token)) {
+    return NextResponse.json({ error: 'Enlace inválido' }, { status: 400 });
   }
 
   await supabaseAdmin
@@ -412,6 +430,7 @@ Configura en .env.local:
   RESEND_FROM_NAME=Mi App
   RESEND_FROM_EMAIL=noreply@midominio.com
   NEXT_PUBLIC_SITE_URL=https://midominio.com
+  EMAIL_UNSUBSCRIBE_SECRET=<openssl rand -hex 32>   # firma los enlaces de baja
 
 Pasos siguientes:
   1. Crea cuenta en https://resend.com

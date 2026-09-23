@@ -23,18 +23,18 @@ Esta skill **solo audita el proyecto Forge actual** (portable, versionable). No 
 
 Para cada check: qué leer, qué flagear, ahorro estimado, y remedio concreto.
 
-### Check 1 — Tamaño de `CLAUDE.md`
+### Check 1 — Tamaño del contexto (`CLAUDE.md` + `AGENTS.md`)
 
-**Qué leer:** `CLAUDE.md` en la raíz del proyecto.
+**Qué leer:** `CLAUDE.md` en la raíz del proyecto **más todo lo que importe con `@archivo`** (en Forge 5.5+, `@AGENTS.md` trae el Factory OS). Mide la suma: es lo que entra a cada turno.
 **Cómo medir:** contar líneas y caracteres. Estimar tokens con `chars / 4`.
 **Criterios:**
 - 🟢 < 200 líneas o < 3,000 tokens aprox
 - 🟡 200-400 líneas o 3,000-5,000 tokens
 - 🔴 > 400 líneas o > 5,000 tokens
 
-**Por qué importa:** `CLAUDE.md` se reprocesa en cada turno. Cada 1K tokens extra = ~1K tokens reprocesados por mensaje.
+**Por qué importa:** `CLAUDE.md` y sus imports se reprocesan en cada turno. Cada 1K tokens extra = ~1K tokens reprocesados por mensaje.
 **Ahorro estimado:** recortar 3K tokens en un chat de 20 turnos = 60K tokens ahorrados.
-**Fix:** mover contenido extendido a `forge-reference` skill (patrón ya usado en Forge). Dejar solo reglas críticas universales en `CLAUDE.md`.
+**Fix:** mover contenido extendido a `forge-reference` skill (patrón ya usado en Forge). Dejar solo reglas críticas universales en el contexto (`AGENTS.md` / `CLAUDE.md`).
 
 ### Check 2 — Hooks `PostToolUse` con `matcher: "*"`
 
@@ -62,7 +62,7 @@ Para cada check: qué leer, qué flagear, ahorro estimado, y remedio concreto.
 
 ### Check 4 — Longitud de sesiones en logs
 
-**Qué leer:** `.claude/logs/session-costs.log` (si existe, formato `[timestamp] tool=NAME`).
+**Qué leer:** `.claude/logs/tool-usage-stats.log` (si existe, formato `[timestamp] tool=NAME`).
 **Cómo medir:** agrupar por día (`YYYY-MM-DD`), contar entries por día. Identificar el día con más entries.
 **Criterios:**
 - 🟢 max < 100 entries/día
@@ -108,16 +108,16 @@ Para cada check: qué leer, qué flagear, ahorro estimado, y remedio concreto.
 **Por qué importa:** cada vez que un comando carga un skill, el archivo entero entra al contexto. Un SKILL.md de 1000 líneas = 12-15K tokens solo para empezar la tarea.
 **Fix:** dividir en sub-skills (un skill por fase) o mover referencias a un archivo secundario que se carga solo si hace falta (patrón `forge-reference`).
 
-### Check 8 — Aprendizajes de Auto-Blindaje acumulados en `CLAUDE.md`
+### Check 8 — Aprendizajes de Auto-Blindaje acumulados en el contexto
 
-**Qué leer:** `CLAUDE.md`, buscar secciones "Aprendizajes", "Auto-Blindaje", "Errores conocidos".
+**Qué leer:** `CLAUDE.md` y `AGENTS.md`, buscar secciones "Aprendizajes", "Auto-Blindaje", "Errores conocidos".
 **Cómo medir:** contar entradas en esas secciones.
 **Criterios:**
 - 🟢 ≤ 5 entradas
 - 🟡 6-15 entradas
 - 🔴 > 15 entradas
 
-**Por qué importa:** Auto-Blindaje es oro, pero si vive en `CLAUDE.md` se reprocesa cada turno. Con >15 entradas, estamos pagando el costo de lecciones que aplican a situaciones raras.
+**Por qué importa:** Auto-Blindaje es oro, pero si vive en `CLAUDE.md`/`AGENTS.md` se reprocesa cada turno. Con >15 entradas, estamos pagando el costo de lecciones que aplican a situaciones raras.
 **Fix:** mover a `.claude/memory/LESSONS.md`. El skill `memory-manager` las recupera on-demand cuando el contexto lo pide.
 
 ## Cálculo del Score
@@ -149,14 +149,14 @@ Producir exactamente este template (usar los números reales del proyecto):
 
 | # | Check | Estado | Detalle | Ahorro estimado |
 |---|-------|--------|---------|-----------------|
-| 1 | CLAUDE.md size | 🔴/🟡/🟢 | [líneas] líneas / ~[X]K tokens | ~[X]% por turno |
+| 1 | CLAUDE.md + imports size | 🔴/🟡/🟢 | [líneas] líneas / ~[X]K tokens | ~[X]% por turno |
 | 2 | Hooks wildcard | 🔴/🟡/🟢 | [N] hooks con matcher `*` | ~[X]% en sesiones largas |
 | 3 | Memoria | 🔴/🟡/🟢 | [X] KB en N archivos | ~[X]% al iniciar sesión |
 | 4 | Sesiones largas | 🔴/🟡/🟢 | max [N] entries/día | ~[X]% por sesión |
 | 5 | Diversidad tools | 🔴/🟡/🟢 | [Tool] domina [X]% | ~[X]% en exploración |
 | 6 | Uso de subagents | 🔴/🟡/🟢 | [X]% de invocaciones | ~[X]% en tareas verbosas |
 | 7 | Prompts estáticos | 🔴/🟡/🟢 | [N] archivos > 500 líneas | ~[X]% al cargar skills |
-| 8 | Auto-Blindaje en CLAUDE.md | 🔴/🟡/🟢 | [N] entradas acumuladas | ~[X]% por turno |
+| 8 | Auto-Blindaje en contexto | 🔴/🟡/🟢 | [N] entradas acumuladas | ~[X]% por turno |
 
 ---
 
@@ -206,13 +206,13 @@ Combinación recomendada:
 1. **Ser directo.** Nada de filler. Cada hallazgo con archivo:línea y acción concreta.
 2. **Medir antes de juzgar.** Ejecutar los comandos reales (`wc -l`, `du -sh`, `grep -c`) antes de asignar estado 🔴/🟡/🟢. Si un archivo no existe, marcar 🟢 (nada que optimizar).
 3. **Priorizar fixes por ahorro real.** El Top 5 se ordena por % de ahorro estimado × frecuencia (un 10% en cada turno bate un 80% en un edge case).
-4. **No inventar métricas.** Si no hay `.claude/logs/session-costs.log`, decirlo: "log no existe — activar `cost-tracker.sh` para habilitar este check en el próximo audit".
+4. **No inventar métricas.** Si no hay `.claude/logs/tool-usage-stats.log`, decirlo: "log no existe — activar `tool-usage-tracker.sh` para habilitar este check en el próximo audit".
 5. **Referenciar archivos con paths absolutos** cuando el usuario los tenga que editar.
 6. **No modificar nada** — esta skill solo audita. Los fixes los aplica el usuario (o una skill futura de remediación).
 
 ## Herramientas a usar
 
-- `Read` para leer `CLAUDE.md`, `.claude/settings.json`, prompts y skills específicos
+- `Read` para leer `CLAUDE.md`, `AGENTS.md`, `.claude/settings.json`, prompts y skills específicos
 - `Glob` para `.claude/memory/**/*.md`, `.claude/prompts/*.md`, `.claude/skills/*/SKILL.md`
 - `Grep` para buscar patrones en el log y en `CLAUDE.md`
 - `Bash` solo para `wc -l`, `du -sh`, `grep -c` cuando sea más eficiente que las tools dedicadas

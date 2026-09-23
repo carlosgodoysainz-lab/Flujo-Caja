@@ -89,6 +89,9 @@ Luego ejecuta la seccion correspondiente (2 o 3).
 - **subscription.active = acceso.** NO des acceso en checkout.updated.
 - **Idempotencia obligatoria.** El mismo webhook puede llegar multiples veces.
 - **SIEMPRE .trim() en secrets.** Espacios invisibles rompen la verificacion de firma.
+- **Las 5 amenazas de pagos viven en la threat-db.** Categoria `payments` en
+  `.claude/skills/la-herreria/references/threat-db.yaml`. `/temple` corre las 4
+  automatizables solas; la de idempotencia es lectura dirigida.
 
 ### Instalar
 
@@ -217,8 +220,17 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ received: true });
 }
 
+// Forma mínima del payload que usamos. Tipar solo lo que lees evita `any` sin
+// casarte con la versión del SDK.
+type SubscriptionPayload = {
+  id: string;
+  current_period_end?: string;
+  metadata?: { user_id?: string };
+};
+type CheckoutPayload = { id: string; metadata?: { user_id?: string } };
+
 // AQUI es donde das acceso. NO en checkout.updated.
-async function handleSubscriptionActive(subscription: any) {
+async function handleSubscriptionActive(subscription: SubscriptionPayload) {
   const userId = subscription.metadata?.user_id;
   if (!userId) return;
 
@@ -253,7 +265,7 @@ async function handleSubscriptionActive(subscription: any) {
     .eq('id', userId);
 }
 
-async function handleSubscriptionCanceled(subscription: any) {
+async function handleSubscriptionCanceled(subscription: SubscriptionPayload) {
   const userId = subscription.metadata?.user_id;
   if (!userId) return;
 
@@ -277,7 +289,7 @@ async function handleSubscriptionCanceled(subscription: any) {
   }
 }
 
-async function handleCheckoutSucceeded(checkout: any) {
+async function handleCheckoutSucceeded(checkout: CheckoutPayload) {
   const userId = checkout.metadata?.user_id;
   if (!userId) return;
 

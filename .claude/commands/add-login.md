@@ -116,7 +116,7 @@ export interface Database {
 }
 ```
 
-### 4. `src/actions/auth.ts`
+### 4. `src/features/auth/services/auth-actions.ts`
 
 ```typescript
 'use server'

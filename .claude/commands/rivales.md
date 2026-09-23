@@ -48,7 +48,10 @@ Si el MCP de Perplexity está disponible:
 Esto tomará ~2-3 minutos. ¿Procedo?
 ```
 
-Si no hay Perplexity, trabajar con la información del usuario y conocimiento general.
+Si no hay Perplexity ni WebSearch, **no inventes competidores**. Declara arriba del
+documento que se generó sin research externo, marca el landscape como `[NO VERIFICADO]`,
+y trabaja solo con los competidores que el usuario nombró. Ver
+`.claude/skills/el-crisol/assets/contrato-de-salida.md` (Regla 3).
 
 ### Paso 3: Landscape Competitivo
 
@@ -157,6 +160,10 @@ Crear `COMPETITIVE-ANALYSIS-[nombre].md`:
 ## Recomendación Estratégica
 [Qué hacer con esta información — positioning, features a priorizar, pricing adjustments]
 ```
+
+> **Contrato de Salida.** Antes de escribir el documento, aplica
+> `.claude/skills/el-crisol/assets/contrato-de-salida.md`: sin dato no hay número,
+> toda recomendación cita su documento fuente, y sin research no hay landscape.
 
 ## Output
 

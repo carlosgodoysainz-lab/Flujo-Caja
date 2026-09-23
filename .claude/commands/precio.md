@@ -160,6 +160,10 @@ Crear `PRICING-STRATEGY-[nombre].md`:
 3. A/B test después de 100 signups
 ```
 
+> **Contrato de Salida.** Antes de escribir el documento, aplica
+> `.claude/skills/el-crisol/assets/contrato-de-salida.md`: sin dato no hay número,
+> toda recomendación cita su documento fuente, y sin research no hay landscape.
+
 ## Output
 
 ```

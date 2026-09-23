@@ -295,6 +295,9 @@ apply_migration(
     FOR ALL USING (public.has_role('admin'))
   "
 )
+
+-- RLS obligatoria: una tabla sin política es una tabla pública.
+ALTER TABLE user_roles ENABLE ROW LEVEL SECURITY;
 ```
 
 ---

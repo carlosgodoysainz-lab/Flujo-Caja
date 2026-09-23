@@ -95,6 +95,10 @@ as $$
   order by embeddings.embedding <=> query_embedding
   limit match_count;
 $$;
+
+-- RLS obligatoria: una tabla sin política es una tabla pública.
+ALTER TABLE resources ENABLE ROW LEVEL SECURITY;
+ALTER TABLE embeddings ENABLE ROW LEVEL SECURITY;
 ```
 
 ---

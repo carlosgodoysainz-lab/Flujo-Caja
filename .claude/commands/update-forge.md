@@ -69,7 +69,8 @@ edito: conserva el suyo y deja la version nueva como `<archivo>.forge-new`.
   PRPs, ai_templates, design-systems), `example.mcp.json`, y la zona Forge del
   archivo de contexto.
 - 🔒 Nunca toca: `src/`, `package.json`, configs, `.mcp.json`, `.env*`, ni tu
-  zona preservada de contexto (aprendizajes y Auto-Blindaje).
+  zona preservada de contexto (aprendizajes y Auto-Blindaje) — un update que pisa
+  tu código o tus claves deja de ser una actualización y pasa a ser un incidente.
 - 💾 Backup automatico en `.forge/backups/` antes de escribir.
 
 ## Notas

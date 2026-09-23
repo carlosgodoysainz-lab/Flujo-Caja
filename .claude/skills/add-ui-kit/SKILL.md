@@ -1247,14 +1247,16 @@ Esperar confirmación. Si el usuario confirma:
 17. Crear src/features/ui-kit/index.ts con los exports
 18. REDESIGN: Actualizar globals.css y tailwind.config con tokens estandarizados
 19. Crear COMPONENT_RULES.md en la raíz del proyecto
-20. Actualizar CLAUDE.md del proyecto con la regla de consistencia visual
+20. Actualizar AGENTS.md del proyecto con la regla de consistencia visual
 21. Correr Anti-Slop Gate (Sección 6) — resolver failures antes de continuar
 22. Mostrar mensaje final
 ```
 
-### Actualizar CLAUDE.md del proyecto
+### Actualizar AGENTS.md del proyecto
 
-Si existe `CLAUDE.md` en la raíz del proyecto, agregar esta sección:
+Agrega esta sección en la zona `FORGE:PRESERVE` de `AGENTS.md` (debajo de la
+marca, para que la lean todos los agentes y sobreviva a `forge update`). En un
+proyecto anterior a Forge 5.5 sin `AGENTS.md`, agrégala en `CLAUDE.md`:
 
 ```markdown
 ## UI Kit — Regla de Consistencia Visual

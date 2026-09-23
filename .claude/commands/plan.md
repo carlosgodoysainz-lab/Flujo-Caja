@@ -68,7 +68,7 @@ Al recibir `/plan`:
 Tienes el plan tecnico completo. Siguiente paso:
 
   /forge-init — Personalizar el proyecto (Recomendado)
-                Adapta CLAUDE.md, genera README, y filtra skills a tu tipo de proyecto.
+                Adapta AGENTS.md, genera README, y filtra skills a tu tipo de proyecto.
                 Reduce ruido y consumo de tokens.
 
   /crisol     — Validacion estrategica (7 dimensiones + dashboard ejecutivo)

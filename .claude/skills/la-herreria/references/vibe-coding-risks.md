@@ -117,6 +117,7 @@ npm audit --audit-level=high
 **Types of prompt exposure:**
 
 **Type A — API keys in code:**
+<!-- forge-audit-ignore: secret -- mal ejemplo deliberado: la línea de arriba lo marca como RED FLAG -->
 ```typescript
 // RED FLAG: Hardcoded API key (will be in git history FOREVER)
 const client = new Anthropic({ apiKey: 'sk-ant-api03-...' })

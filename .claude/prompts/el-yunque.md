@@ -226,9 +226,9 @@ GENERAR subtareas de Fase 2
 │                                                             │
 │  📐 Quality Gates (antes de reportar al usuario):           │
 │  • `/critique` → Evaluar diseño UI contra AI slop           │
-│    (usa skills/impeccable/SKILL.md)                         │
+│    (usa el skill `impeccable`)                              │
 │  • `/web-audit` → Auditar Performance, A11y, SEO            │
-│    (usa skills/web-quality/SKILL.md)                        │
+│    (usa el skill `web-quality`)                             │
 │  • Arreglar issues Critical/High del reporte                │
 │                                                             │
 │  • Reportar al usuario qué se construyó                     │
@@ -681,7 +681,7 @@ Error ocurre → Se arregla → Se documenta → NUNCA ocurre de nuevo
 |---------------|------------------|
 | Específico de esta feature | Pieza actual (sección Aprendizajes) |
 | Aplica a múltiples features | `.claude/prompts/` relevante |
-| Aplica a TODO el proyecto | `CLAUDE.md` (sección No Hacer) |
+| Aplica a TODO el proyecto | Zona `FORGE:PRESERVE` de `AGENTS.md` (la leen todos tus agentes) |
 
 ### Formato de Aprendizaje
 
@@ -803,6 +803,38 @@ Ejemplos:
 **Si todo está claro en el Blueprint/Pieza:** Continuar silenciosamente.
 
 Este paso previene construir features basadas en suposiciones que luego requieren re-trabajo.
+
+---
+
+## 🔴 Lista Roja — Rutas que Obligan a Parar
+
+Hermana determinista del Decision Check: mismo efecto (pausar y preguntar), disparador
+distinto. El Decision Check depende de que el agente **perciba** ambigüedad; aquí el
+disparador es `git diff --name-only`, que no opina.
+
+Importa porque son justo los archivos donde el agente **no** percibe ambigüedad: editar
+el middleware de auth se siente como una tarea clara, no como una decisión.
+
+En **PASO 2** (Mapear Contexto), junto al Decision Check:
+
+```bash
+git diff --name-only origin/main...HEAD | grep -E \
+  '^(src/features/auth/|src/middleware\.ts$|src/app/api/.*/route\.ts$|src/app/api/webhooks/|supabase/migrations/.*\.sql$)'
+
+git diff --name-only origin/main...HEAD \
+  | xargs grep -lE 'service_role|SUPABASE_SERVICE' 2>/dev/null
+```
+
+**Si el matcher devuelve algo:**
+- PARAR antes de generar subtareas
+- Listar los archivos con la amenaza que los marca (tabla de `.claude/skills/forge-reference/SKILL.md`)
+- Preguntar: *"¿qué debe seguir siendo cierto después del cambio?"*
+- Esperar respuesta antes de continuar
+
+**Si no devuelve nada:** Continuar silenciosamente.
+
+No es un modo ni un nivel de riesgo: un archivo está en la lista o no está. Las 6 reglas
+y su mapeo a la threat-db viven en `.claude/skills/forge-reference/SKILL.md`.
 
 ---
 

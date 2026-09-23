@@ -24,6 +24,10 @@ echo "=== ARCHIVOS FORGE ==="
 for f in CLAUDE.md package.json next.config.ts src/app/layout.tsx; do
   [ -f "$f" ] && echo "OK:$f" || echo "FAIL:$f"
 done
+# Forge 5.5+: CLAUDE.md importa el Factory OS desde AGENTS.md (@AGENTS.md)
+if grep -q '^@AGENTS\.md' CLAUDE.md 2>/dev/null; then
+  grep -q '^# Forge V' AGENTS.md 2>/dev/null && echo "OK:AGENTS.md" || echo "FAIL:AGENTS.md (CLAUDE.md lo importa pero no tiene el Factory OS)"
+fi
 [ -d ".claude" ] && echo "OK:.claude/" || echo "FAIL:.claude/"
 [ -d ".claude/commands" ] && echo "OK:.claude/commands/" || echo "FAIL:.claude/commands/"
 [ -d ".claude/skills/la-herreria" ] && echo "OK:la-herreria" || echo "FAIL:la-herreria"
@@ -109,7 +113,7 @@ echo "=== TELEMETRIA ==="
 
 ```bash
 echo "=== HOOKS ==="
-for hook in pre-commit-validation security-scan auto-format test-runner cost-tracker log-tool-usage stop-hook; do
+for hook in prompt-preflight pre-commit-validation security-scan auto-format test-runner tool-usage-tracker log-tool-usage stop-hook; do
   [ -f ".claude/hooks/${hook}.sh" ] && echo "OK:${hook}" || echo "WARN:${hook}"
 done
 # Check if hooks are configured
@@ -135,7 +139,7 @@ Con los resultados de los pasos anteriores, genera este reporte:
 ├─────────────────────────────────────────────────────┤
 │                                                     │
 │  ARCHIVOS FORGE                                     │
-│  [✅/❌] CLAUDE.md (Factory OS)                     │
+│  [✅/❌] AGENTS.md (Factory OS) + CLAUDE.md         │
 │  [✅/❌] .claude/ (Asset Library)                   │
 │  [✅/❌] .claude/skills/la-herreria/ (Planificacion)│
 │  [✅/❌] package.json                               │
@@ -178,7 +182,7 @@ Con los resultados de los pasos anteriores, genera este reporte:
 │  [✅/⚠️] security-scan (secrets + debug)           │
 │  [✅/⚠️] auto-format (Prettier)                    │
 │  [✅/⚠️] test-runner (vitest)                      │
-│  [✅/⚠️] cost-tracker (usage log)                  │
+│  [✅/⚠️] tool-usage-tracker (usage log)                  │
 │  [✅/⚠️] settings.json configurado                 │
 │                                                     │
 ├─────────────────────────────────────────────────────┤

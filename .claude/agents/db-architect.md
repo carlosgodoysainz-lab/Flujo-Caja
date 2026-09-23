@@ -83,6 +83,10 @@ CREATE TABLE public.comments (
   CONSTRAINT valid_commentable CHECK (commentable_type IN ('task', 'project', 'document'))
 );
 CREATE INDEX idx_comments_polymorphic ON public.comments(commentable_type, commentable_id);
+
+-- RLS obligatoria: una tabla sin política es una tabla pública.
+ALTER TABLE public.project_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.comments ENABLE ROW LEVEL SECURITY;
 ```
 
 ---
@@ -258,6 +262,11 @@ CREATE POLICY "Users see own org projects"
       WHERE user_id = auth.uid()
     )
   );
+
+-- RLS obligatoria: una tabla sin política es una tabla pública.
+ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.org_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
 ```
 
 ---

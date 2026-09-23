@@ -168,6 +168,7 @@ const faqSchema = {
 
 ### Implementación del JSON-LD
 
+<!-- forge-audit-ignore: raw-html -- JSON-LD con JSON.stringify sobre un objeto construido en el servidor: no hay input de usuario -->
 ```typescript
 // src/app/layout.tsx
 export default function RootLayout({ children }) {

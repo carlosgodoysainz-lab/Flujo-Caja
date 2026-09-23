@@ -1,180 +1,117 @@
 ---
-description: "DESTRUCTIVO: Elimina toda la configuracion de Forge y deja solo el software funcional. Usar antes de distribuir el proyecto."
+description: "Quita Forge de este proyecto con `forge eject` (determinista, con respaldo, conserva lo tuyo) o genera una copia limpia para entregar con `forge export`."
 ---
 
 # Eject Forge
 
-## ADVERTENCIA
+Saca Forge de un proyecto **sin tocar el codigo del usuario**. Desde V5.4 esto lo
+hace el CLI de Node de forma **determinista**: se basa en `.forge/manifest.json`
+y borra solo lo que Forge instalo y sigue intacto. Tu trabajo es invocar el CLI,
+explicar el plan y pedir confirmacion. **Tu no borras ni editas archivos a mano.**
 
-Antes de ejecutar CUALQUIER accion, muestra este mensaje al usuario:
+## Proceso
 
-```
-⚠️  ADVERTENCIA: OPERACION DESTRUCTIVA
-
-Este comando eliminara PERMANENTEMENTE:
-- .claude/ (comandos, agentes, PRPs, templates, skills — incluyendo La Herrería)
-- example.mcp.json (configuracion de MCPs)
-- CLAUDE.md (system prompt)
-- Referencias a "Forge" en el codigo
-
-El proyecto quedara como una aplicacion Next.js generica,
-lista para distribuir SIN las herramientas de desarrollo.
-
-Esta accion es IRREVERSIBLE.
-No podras usar /update-forge despues de esto.
-
-Para confirmar, escribe exactamente: EJECT
-```
-
-**ESPERA la respuesta del usuario.** Si no escribe exactamente `EJECT`, cancela la operacion.
-
----
-
-## Proceso (solo si el usuario confirma)
-
-### Paso 1: Limpiar referencias en codigo
-
-Modifica estos archivos para quitar referencias a Forge:
-
-**`src/app/page.tsx`** - Cambiar el titulo:
-```tsx
-// ANTES
-<h1>Forge App</h1>
-
-// DESPUES
-<h1>Mi Aplicacion</h1>
-```
-
-**`src/app/layout.tsx`** - Limpiar metadata:
-```tsx
-// ANTES
-export const metadata: Metadata = {
-  title: 'Forge App',
-  description: 'Built with Forge',
-}
-
-// DESPUES
-export const metadata: Metadata = {
-  title: 'Mi Aplicacion',
-  description: 'Aplicacion web moderna',
-}
-```
-
-**`package.json`** - Cambiar el nombre:
-```json
-// ANTES
-"name": "forge-app"
-
-// DESPUES
-"name": "mi-aplicacion"
-```
-
-### Paso 2: Generar README.md basico
-
-Reemplaza el README.md actual con uno generico:
-
-```markdown
-# Mi Aplicacion
-
-Aplicacion web construida con Next.js 16 + Supabase.
-
-## Tech Stack
-
-- Next.js 16 (App Router)
-- React 19 + TypeScript
-- Tailwind CSS
-- Supabase (Auth + Database)
-
-## Quick Start
-
-1. Instalar dependencias:
-\`\`\`bash
-npm install
-\`\`\`
-
-2. Configurar variables de entorno:
-\`\`\`bash
-cp .env.local.example .env.local
-# Editar con tus credenciales de Supabase
-\`\`\`
-
-3. Iniciar desarrollo:
-\`\`\`bash
-npm run dev
-\`\`\`
-
-## Estructura
-
-\`\`\`
-src/
-├── app/          # Next.js App Router
-├── features/     # Codigo organizado por funcionalidad
-├── shared/       # Codigo compartido
-└── lib/          # Configuraciones (Supabase, etc.)
-\`\`\`
-
-## Comandos
-
-- `npm run dev` - Servidor de desarrollo
-- `npm run build` - Build para produccion
-- `npm run start` - Servidor de produccion
-- `npm run lint` - Linting
-
-## Deploy
-
-Listo para deploy en Vercel:
-
-\`\`\`bash
-npm install -g vercel
-vercel
-\`\`\`
-```
-
-### Paso 3: Eliminar archivos de configuracion
+### 1. Verifica que el CLI este disponible
 
 ```bash
-# Eliminar archivos de Forge
-rm -f example.mcp.json
-rm -f CLAUDE.md
-rm -rf src/features/.template/
-rm -f src/features/README.md
-rm -f src/shared/README.md
+forge --version
 ```
 
-### Paso 4: Eliminar .claude/ (auto-destruccion)
-
-Este es el ULTIMO paso porque este comando esta dentro de `.claude/`:
+Si dice `forge: command not found`, pidele al usuario que lo enlace una sola vez
+(ajusta `~/.forge` a donde clono Forge):
 
 ```bash
-rm -rf .claude/
+cd ~/.forge/tools/forge-cli && git pull && npm install && npm run build && npm link
 ```
 
-### Paso 5: Confirmar al usuario
+Si tiene un `alias forge` viejo que tapa el binario, `command forge doctor --fix`
+lo elimina (con backup).
 
+### 2. Pregunta UNA cosa
+
+Usa AskUserQuestion:
+
+> ¿Quieres **quitar Forge de este repo**, o **generar una copia limpia en otra
+> carpeta** (recomendado para entregar a clientes o miembros; este repo no se toca)?
+
+Si elige copia limpia, pregunta tambien la carpeta destino (fuera del repo, p. ej.
+`../mi-app-entrega`) y si tiene una carpeta **overlay** con los archivos propios del
+entregable (su propio `CLAUDE.md`, comandos de instalacion, README para miembros).
+
+### 3. Vista previa (dry-run)
+
+Quitar de este repo:
+
+```bash
+forge eject --dry-run --json
 ```
-Eject completado.
 
-Eliminado:
-- .claude/ (herramientas de desarrollo — incluyendo La Herrería skills)
-- example.mcp.json (configuracion MCPs)
-- CLAUDE.md (system prompt)
-- Templates y READMEs internos
+Copia limpia:
 
-Actualizado:
-- src/app/page.tsx (titulo limpio)
-- src/app/layout.tsx (metadata limpia)
-- package.json (nombre generico)
-- README.md (documentacion basica)
-
-Tu proyecto esta listo para distribuir.
-No queda rastro de Forge.
+```bash
+forge export ../mi-app-entrega --tracked-only --dry-run --json
+# con overlay:
+forge export ../mi-app-entrega --tracked-only --overlay entrega/ --dry-run --json
 ```
 
----
+Resume la salida al usuario en lenguaje claro:
 
-## Notas Importantes
+- `removed`: cuantos archivos de Forge se van (intactos, segun el manifiesto).
+- `keptModified`: archivos de Forge que **el usuario edito** — se conservan
+  (`--include-modified` los borra).
+- `keptAdopted`: archivos que el usuario ya tenia antes de instalar Forge — **nunca**
+  se borran.
+- `notForge`: archivos propios dentro de `.claude/` (sus comandos, skills,
+  settings) — se conservan.
+- `context`: que pasa con el archivo de contexto (CLAUDE.md / AGENTS.md / GEMINI.md /
+  .cursorrules segun la plataforma): se quita la zona Forge y queda solo la zona del
+  usuario (debajo de `FORGE:PRESERVE:START`), sin la marca. Sin marca → se deja igual.
+- `forgeDirRemoved`, `blocks` (bloque de Forge en `.gitignore`), `settings` (hooks de
+  Forge en `.claude/settings.json`).
 
-1. **Este comando se auto-destruye** - Despues de ejecutarlo, no existira mas
-2. **No hay vuelta atras** - Para recuperar Forge, tendrias que volver a ejecutar el alias `forge`
-3. **El codigo funcional NO se toca** - Solo se eliminan herramientas de desarrollo
-4. **Los documentos de planificacion** (PDR, Tech Spec, Blueprint, etc.) en el root NO se eliminan — son tuyos
+### 4. Advierte y pide confirmacion explicita
+
+Para **eject in situ**: el working tree debe estar limpio (si no, que commitee o haga
+stash; `--force` solo si esta consciente). Se crea un respaldo en
+`.forge-eject-backup/<fecha>/` (o `--backup <dir>` fuera del repo). No sigas sin un
+"si" explicito del usuario.
+
+### 5. Ejecuta
+
+```bash
+forge eject --yes --check-leaks
+# o
+forge export ../mi-app-entrega --tracked-only --overlay entrega/ --check-leaks
+```
+
+`--yes` es correcto aqui porque el humano ya confirmo en el paso 4.
+
+### 6. Reporta
+
+- Archivos conservados (`keptModified`, `keptAdopted`, `notForge`) y por que.
+- Ruta del respaldo y como restaurar: `cp -R .forge-eject-backup/<fecha>/. .`
+  Recuerda borrar esa carpeta antes de entregar.
+- **Fugas** (`--check-leaks`, exit 2): lista `archivo:linea` donde aun aparece
+  "Forge". **No las corrijas por tu cuenta**: proponlas como un cambio aparte y
+  espera aprobacion.
+
+## Que NO haces
+
+- 🔒 **Nunca** edites `src/`, `README.md`, `package.json` ni textos de la app para
+  "quitar la marca" — eso es el código del usuario, y un eject que lo toca deja de ser
+  reversible. Si quiere cambiar textos (p. ej. "Forge App"), propónlo como cambio aparte.
+- 🔒 Nunca borres `.claude/` completo ni el archivo de contexto
+  completo — ahí viven los comandos propios del usuario y su zona
+  `FORGE:PRESERVE`; el CLI ya distingue lo de Forge de lo suyo, borrar en bloque no.
+- 🔒 Nunca uses `--include-modified` sin que el usuario lo pida explicitamente — esa bandera borra justo los archivos de Forge que él editó, que son los que más trabajo le costaron.
+
+## Notas
+
+- **Multi-plataforma:** `forge eject` quita todos los targets del manifiesto; acota
+  con `--target codex` (los artefactos compartidos como `HOOKS.md`, `.husky/` y
+  `AGENTS.md` se quedan si otro target los usa).
+- **Sin manifiesto** (proyectos del alias V4): el CLI se rehusa. Corre `forge update`
+  primero para escribir el manifiesto.
+- **Greenfield:** `--scaffold` tambien quita los docs del scaffold intactos
+  (`src/features/.template/`, READMEs de arquitectura, el README y las imagenes de Forge).
+- **CI del entregable:** `forge check --leaks` falla (exit 2) si reaparece un rastro.

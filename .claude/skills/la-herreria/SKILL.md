@@ -365,7 +365,7 @@ Recomendación: Si el proyecto justifica >40h de desarrollo o necesitas
 presentar a stakeholders, pasa por El Crisol primero.
 ```
 
-La Forja (`skills/la-forja/SKILL.md`) se activa desde `/build` cuando el usuario
+La Forja (`.claude/skills/la-forja/SKILL.md`) se activa desde `/build` cuando el usuario
 elige **Modo Forja**: lanza N agentes autónomos en Git Worktrees paralelos, cada
 uno con su propia personalidad (Literal, Creativo, Disruptivo, etc.) y entorno
 aislado de Supabase.

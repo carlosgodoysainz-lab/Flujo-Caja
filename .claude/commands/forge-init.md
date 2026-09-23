@@ -1,5 +1,5 @@
 ---
-description: "Personaliza CLAUDE.md, README.md y skills activos segun el tipo de proyecto. Ejecutar despues de /plan cuando el Blueprint ya existe."
+description: "Personaliza el Factory OS (AGENTS.md), README.md y skills activos segun el tipo de proyecto. Ejecutar despues de /plan cuando el Blueprint ya existe."
 ---
 
 # /forge-init — Personalizar Proyecto
@@ -62,9 +62,14 @@ Esperar confirmacion antes de continuar.
 
 ---
 
-### Paso 2: Customizar CLAUDE.md (Parcial)
+### Paso 2: Customizar el Factory OS (Parcial)
 
-**IMPORTANTE: NO reescribir CLAUDE.md completo. Solo hacer ediciones quirurgicas.**
+El Factory OS vive en **`AGENTS.md`** desde Forge 5.5 (lo leen Codex y
+OpenCode, y `CLAUDE.md` lo importa con `@AGENTS.md`). En un proyecto anterior
+sin `AGENTS.md`, el Factory OS sigue en `CLAUDE.md`. Edita **el archivo que
+contiene el H1 `# Forge V…`**; nunca el `CLAUDE.md` delgado que solo importa.
+
+**IMPORTANTE: NO reescribir el archivo completo. Solo hacer ediciones quirurgicas.**
 
 #### 2a. Agregar seccion "Proyecto Activo" despues del titulo
 
@@ -222,7 +227,7 @@ Mostrar resumen de todo lo realizado:
 ```
 Proyecto personalizado: [PROJECT_NAME]
 
-  CLAUDE.md  — Seccion "Proyecto Activo" agregada + Decision Router filtrado a [BUILD_MODE]
+  AGENTS.md  — Seccion "Proyecto Activo" agregada + Decision Router filtrado a [BUILD_MODE]
   README.md  — Generado con stack, setup y features del proyecto
   Skills     — [N] activos de [total] (los relevantes para [BUILD_MODE])
                [N] movidos a _inactive/: [lista]
@@ -242,5 +247,5 @@ para ver y activar skills en cualquier momento.
 
 - Este comando es **idempotente**: si se ejecuta dos veces, detecta la seccion "Proyecto Activo" existente y la actualiza en vez de duplicarla.
 - Los skills en `_inactive/` NO se borran, solo se mueven. Son completamente reversibles.
-- El CLAUDE.md mantiene TODAS las reglas, principios Karpathy, seguridad, Auto-Blindaje, Golden Path, y arquitectura.
+- El Factory OS (AGENTS.md) mantiene TODAS las reglas, principios Karpathy, seguridad, Auto-Blindaje, Golden Path, y arquitectura.
 - Solo se modifica el Decision Router (para reducir ruido) y se agrega identidad del proyecto.

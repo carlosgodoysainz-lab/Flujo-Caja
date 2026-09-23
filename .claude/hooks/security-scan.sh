@@ -46,6 +46,9 @@ fi
 SECRETS_FOUND=""
 WARNINGS=""
 
+# Comilla doble y comilla simple, para las clases de caracteres de abajo.
+QUOTES="\"'"
+
 # Scan each staged file
 while IFS= read -r file; do
   # Skip binary files, lock files, and non-source files
@@ -69,12 +72,24 @@ while IFS= read -r file; do
   fi
 
   # Generic API keys/tokens (sk-*, pk_live_*, sk_live_*, etc.)
-  if echo "$CONTENT" | grep -qE '(sk-[a-zA-Z0-9]{20,}|pk_live_[a-zA-Z0-9]+|sk_live_[a-zA-Z0-9]+|sk_test_[a-zA-Z0-9]+)'; then
+  #
+  # La rama con prefijo va PRIMERO y es obligatoria: `sk-[a-zA-Z0-9]{20,}` exige
+  # 20 alfanumericos SEGUIDOS tras `sk-`, asi que se le escapan los dos formatos
+  # que existen hoy — `sk-proj-…` (OpenAI) y `sk-ant-api03-…` (Anthropic), ambos
+  # con guiones antes del cuerpo. Se enumeran los prefijos conocidos en vez de
+  # abrir la clase a `[-_]{20,}`, que marcaria texto normal con guiones.
+  if echo "$CONTENT" | grep -qE '(sk-(proj|ant|or|svcacct|admin)-[a-zA-Z0-9_-]{16,}|sk-[a-zA-Z0-9]{20,}|pk_live_[a-zA-Z0-9]+|sk_live_[a-zA-Z0-9]+|sk_test_[a-zA-Z0-9]+)'; then
     SECRETS_FOUND="${SECRETS_FOUND}  ⛔ API key/token pattern in $file\n"
   fi
 
   # Hardcoded passwords/secrets in assignments
-  if echo "$CONTENT" | grep -qEi '(password|secret|api_key|apikey|access_token|private_key)[[:space:]]*[=:][[:space:]]*["\x27][^"\x27]{8,}'; then
+  #
+  # La clase de comillas se arma en una variable. NO se escribe `["\x27]`: dentro
+  # de una expresion entre corchetes, POSIX dice que la barra invertida es
+  # literal, asi que BSD grep y GNU grep leen esa clase como {", \, x, 2, 7} —
+  # sin la comilla simple. Efecto: todo secreto en comillas simples se escapaba.
+  # (ugrep si la interpreta como hex, por eso el bug no se ve en toda maquina.)
+  if echo "$CONTENT" | grep -qEi "(password|secret|api_key|apikey|access_token|private_key)[[:space:]]*[=:][[:space:]]*[$QUOTES][^$QUOTES]{8,}"; then
     # Exclude common false positives (env var references, placeholder patterns)
     if ! echo "$CONTENT" | grep -qE '(process\.env|YOUR_|CHANGE_ME|example|placeholder|<.*>)'; then
       SECRETS_FOUND="${SECRETS_FOUND}  ⛔ Possible hardcoded secret in $file\n"

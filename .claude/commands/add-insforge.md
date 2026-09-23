@@ -172,7 +172,7 @@ export interface Profile {
 }
 ```
 
-### `src/actions/auth.ts`
+### `src/features/auth/services/auth-actions.ts`
 
 ```typescript
 'use server'
@@ -281,10 +281,11 @@ export async function updateProfile(formData: FormData) {
 
 import { useEffect, useState } from 'react'
 import { createBrowserClient } from '@/lib/insforge/client'
+import type { User as InsforgeUser } from '@insforge/sdk'
 import type { Profile } from '@/types/database'
 
 export function useAuth() {
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<InsforgeUser | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
 

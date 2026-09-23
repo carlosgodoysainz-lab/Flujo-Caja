@@ -1,5 +1,12 @@
 {
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": ".claude/hooks/prompt-preflight.sh" }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash(git commit*)",
@@ -20,7 +27,7 @@
       {
         "matcher": "*",
         "hooks": [
-          { "type": "command", "command": ".claude/hooks/cost-tracker.sh" },
+          { "type": "command", "command": ".claude/hooks/tool-usage-tracker.sh" },
           { "type": "command", "command": ".claude/hooks/log-tool-usage.sh" }
         ]
       }

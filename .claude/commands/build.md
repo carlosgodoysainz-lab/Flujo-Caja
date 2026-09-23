@@ -12,7 +12,7 @@ Toma el Blueprint aprobado y lo convierte en código production-ready.
 4. Presenta el plan de ejecución por fases (máximo 10 líneas)
 5. **PREGUNTA: ¿Build Manual o Modo Forja?**
    - **Build Manual** → ESPERA "go" y ejecuta El Yunque
-   - **Modo Forja** → Carga `skills/la-forja/SKILL.md` y configura los sandboxes
+   - **Modo Forja** → Carga `.claude/skills/la-forja/SKILL.md` y configura los sandboxes
 6. Ejecuta según la opción elegida
 
 ## Fork: Build Manual vs Modo Forja
@@ -28,7 +28,7 @@ Después de mostrar el plan de fases, presentar siempre esta elección:
 
 **Si elige Build Manual:** proceder con el flujo estándar (esperar "go" → El Yunque).
 
-**Si elige Modo Forja:** leer `skills/la-forja/SKILL.md` y seguir sus instrucciones
+**Si elige Modo Forja:** leer `.claude/skills/la-forja/SKILL.md` y seguir sus instrucciones
 para configurar los sandboxes, personalidades, y generar los archivos `forja/`.
 
 ## Handoff Protocol
@@ -72,12 +72,12 @@ Plan de ejecución:
 
 ## Reglas Críticas
 
-- ❌ **NO escribas ninguna línea de código sin recibir elección del usuario** (Manual o Forja)
-- ❌ **NO asumas aprobación** — espera explícitamente
+- ❌ **NO escribas ninguna línea de código sin recibir elección del usuario** (Manual o Forja) — los dos modos divergen desde el primer commit; empezar antes obliga a tirar el trabajo.
+- ❌ **NO asumas aprobación** — espera explícitamente; el silencio no es un "go", casi siempre es que todavía está leyendo las fases.
 - ✅ El usuario puede modificar fases antes de elegir modo
 - ✅ El resumen de fases debe ser conciso (10 líneas máximo)
 - ✅ Build Manual: ejecutar según `.claude/prompts/el-yunque.md`
-- ✅ Modo Forja: leer `skills/la-forja/SKILL.md` y seguir su flujo
+- ✅ Modo Forja: leer `.claude/skills/la-forja/SKILL.md` y seguir su flujo
 
 ## Cuándo Usar
 
@@ -113,7 +113,7 @@ PREGUNTAR: ¿Build Manual o Modo Forja?
   │                  → Playwright valida visualmente
   │                  → Deploy a Vercel
   │
-  └─ Modo Forja  → Leer skills/la-forja/SKILL.md
+  └─ Modo Forja  → Leer .claude/skills/la-forja/SKILL.md
                     → Configurar N agentes + personalidades
                     → Generar forja/ (CLAUDE.md, prompts, setup.sh)
                     → Presentar comandos de lanzamiento

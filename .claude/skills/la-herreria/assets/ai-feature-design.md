@@ -187,7 +187,7 @@ async function getContext(query: string): Promise<string> {
     match_count: 5,
   })
 
-  return data?.map((d: any) => d.content).join('\n\n') ?? ''
+  return data?.map((d: { content: string }) => d.content).join('\n\n') ?? ''
 }
 
 // 2. Inyectar contexto en el system prompt

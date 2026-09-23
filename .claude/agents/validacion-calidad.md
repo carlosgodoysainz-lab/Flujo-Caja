@@ -192,7 +192,7 @@ describe('[Feature] Actions', () => {
   test('debería manejar errores de base de datos', async () => {
     vi.spyOn(supabase, 'from').mockReturnValue({
       insert: () => Promise.resolve({ error: { message: 'DB error' } })
-    } as any)
+    } as unknown as ReturnType<typeof supabase.from>)
 
     const result = await createItem({ title: 'Test' })
     expect(result.error).toBeDefined()

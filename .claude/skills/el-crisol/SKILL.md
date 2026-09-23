@@ -7,9 +7,8 @@ description: >
   Se activa DESPUES del Blueprint (entre /plan y /build). Detecta strategy docs existentes
   y reutiliza los que ya estan. Cada paso delega al comando slash correspondiente.
   Usa este skill cuando el usuario diga "crisol", "validacion estrategica",
-  "quiero analizar si vale la pena construir", "necesito un pitch deck",
-  "presentar a inversores", "dashboard estrategico", o post-Blueprint cuando
-  el proyecto justifica inversion significativa.
+  "quiero analizar si vale la pena construir", "dashboard estrategico", o
+  post-Blueprint cuando el proyecto justifica inversion significativa.
 ---
 
 # El Crisol — Validacion Estrategica
@@ -117,6 +116,11 @@ Arrancamos? Puedes:
 ---
 
 ## Fase 1 — Ejecucion Secuencial
+
+> **El Contrato de Salida aplica a los 7 pasos.** Antes de escribir cada documento,
+> aplica `.claude/skills/el-crisol/assets/contrato-de-salida.md`. Un documento
+> reutilizado de una corrida anterior **no** queda exento: si trae cifras sin fuente,
+> márcalas antes de usarlo como insumo del Build Confidence Score.
 
 Para cada paso pendiente, en orden de dependencia:
 

@@ -1,6 +1,6 @@
 ---
 name: gestor-documentacion
-description: "Especialista en documentación de proyectos Forge. Mantiene sincronizados README, CLAUDE.md del proyecto y docs técnicos. IMPORTANTE: NO tocar los archivos de infraestructura Forge (.claude/). Solo documentar el código del proyecto (src/, docs/, README.md). Indicarle qué archivos fueron modificados."
+description: "Especialista en documentación de proyectos Forge. Mantiene sincronizados README, AGENTS.md del proyecto y docs técnicos. IMPORTANTE: NO tocar los archivos de infraestructura Forge (.claude/). Solo documentar el código del proyecto (src/, docs/, README.md). Indicarle qué archivos fueron modificados."
 tools: Read, Write, Edit, MultiEdit, Grep, Glob
 ---
 
@@ -23,7 +23,7 @@ En un proyecto Forge hay dos tipos de archivos. Es VITAL que sepas cuál es cuá
 ```
 /                          ← Root del proyecto
 ├── README.md              ← ✅ DOCUMENTA — visión general y setup
-├── CLAUDE.md              ← ✅ DOCUMENTA — contexto del proyecto (no de Forge)
+├── AGENTS.md              ← ✅ DOCUMENTA — contexto del proyecto, bajo FORGE:PRESERVE
 ├── src/                   ← ✅ DOCUMENTA — código de la aplicación
 │   ├── app/
 │   ├── features/
@@ -56,7 +56,7 @@ En un proyecto Forge hay dos tipos de archivos. Es VITAL que sepas cuál es cuá
 1. Recibir info sobre qué se modificó en la phase
 2. Leer los archivos modificados para entender los cambios
 3. Identificar qué documentación del PROYECTO necesita actualización
-4. Actualizar en este orden: CLAUDE.md → README.md → docs/
+4. Actualizar en este orden: AGENTS.md → README.md → docs/
 5. Verificar que los links y comandos documentados son correctos
 6. Actualizar sección Auto-Blindaje dla Pieza activa (si hubo errores/aprendizajes)
 ```
@@ -65,9 +65,9 @@ En un proyecto Forge hay dos tipos de archivos. Es VITAL que sepas cuál es cuá
 
 ## Documentos del Proyecto a Mantener
 
-### `CLAUDE.md` (del proyecto, en el root)
+### `AGENTS.md` (del proyecto, en el root)
 
-El `CLAUDE.md` del proyecto es el **cerebro del agente para ese proyecto específico**. Debe contener:
+El `AGENTS.md` del proyecto es el **cerebro del agente para ese proyecto específico** (Codex y OpenCode lo leen directo; Claude Code lo importa desde `CLAUDE.md` con `@AGENTS.md`). Escribe SIEMPRE debajo de la línea `FORGE:PRESERVE:START` — lo de arriba es la zona Forge y `forge update` la regenera. Lo que aplique solo a Claude Code va en la zona `FORGE:PRESERVE` de `CLAUDE.md`. En proyectos anteriores a Forge 5.5 (sin `AGENTS.md`), usa `CLAUDE.md`. Debe contener:
 
 ```markdown
 # [Nombre del Proyecto]
@@ -135,12 +135,12 @@ Crear cuando sea necesario:
 
 | Evento | Qué actualizar |
 |--------|---------------|
-| Nueva feature completada | `CLAUDE.md` (arquitectura), `README.md` (features), `docs/FEATURES.md` |
-| Nueva tabla en BD | `CLAUDE.md` (stack/schema), `docs/SCHEMA.md` |
+| Nueva feature completada | `AGENTS.md` (arquitectura), `README.md` (features), `docs/FEATURES.md` |
+| Nueva tabla en BD | `AGENTS.md` (stack/schema), `docs/SCHEMA.md` |
 | Nueva API route | `docs/API.md` |
-| Nueva variable de entorno | `CLAUDE.md` (env vars), `README.md` (setup) |
-| Error resuelto en build | `CLAUDE.md` (sección "No Hacer"), la Pieza activa (Auto-Blindaje) |
-| Decisión arquitectural | `CLAUDE.md` (decisiones de arquitectura) |
+| Nueva variable de entorno | `AGENTS.md` (env vars), `README.md` (setup) |
+| Error resuelto en build | `AGENTS.md` (sección "No Hacer"), la Pieza activa (Auto-Blindaje) |
+| Decisión arquitectural | `AGENTS.md` (decisiones de arquitectura) |
 
 ---
 
@@ -157,7 +157,7 @@ Cuando se resuelve un error durante la build, agregar a `.claude/PRPs/PIEZA-[nom
 - **Aplicar en**: [Dónde más aplica este conocimiento]
 ```
 
-Y si el error aplica a TODO el proyecto (no solo a esta feature), también agregarlo en `CLAUDE.md` del proyecto bajo "No Hacer".
+Y si el error aplica a TODO el proyecto (no solo a esta feature), también agregarlo en `AGENTS.md` del proyecto bajo "No Hacer".
 
 ---
 
@@ -168,13 +168,13 @@ Y si el error aplica a TODO el proyecto (no solo a esta feature), también agreg
 - **Concisa**: Un párrafo máximo para describir cada feature. No ensayos.
 - **Accionable**: Los comandos deben funcionar exactamente como están escritos
 - **Mantenible**: Usar referencias cruzadas (`ver docs/SCHEMA.md`) en lugar de duplicar
-- **Para el agente**: El `CLAUDE.md` lo lee Claude Code — ser directo y técnico
+- **Para el agente**: El `AGENTS.md` lo leen todos tus agentes (Claude Code lo importa desde `CLAUDE.md`) — ser directo y técnico
 - **Para el humano**: El `README.md` lo lee el equipo — ser claro y amigable
 
 ### Lo que NO hacer
 
 - ❌ Documentar implementación interna (si el código está bien escrito, se explica solo)
-- ❌ Duplicar contenido entre `CLAUDE.md` y `README.md` — usar referencias
+- ❌ Duplicar contenido entre `AGENTS.md` y `README.md` — usar referencias
 - ❌ Agregar diagramas innecesarios para features simples
 - ❌ Documentar con "TODO: agregar docs aquí" — si no tienes qué decir, no documentes
 - ❌ Tocar `.claude/` a menos que sea la Pieza activa (sección Auto-Blindaje)
@@ -185,7 +185,7 @@ Y si el error aplica a TODO el proyecto (no solo a esta feature), también agreg
 
 Antes de marcar la documentación como completa:
 
-- [ ] `CLAUDE.md` del proyecto refleja el estado actual de la build
+- [ ] `AGENTS.md` del proyecto refleja el estado actual de la build
 - [ ] `README.md` tiene instrucciones de setup que funcionan
 - [ ] Todas las variables de entorno del proyecto están documentadas
 - [ ] Si hubo errores en la build → documentados en Auto-Blindaje

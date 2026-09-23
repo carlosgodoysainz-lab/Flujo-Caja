@@ -169,10 +169,23 @@ Score = (Técnica × 0.30) + (Negocio × 0.40) + (Marketing × 0.30)
 ### Si GO → Siguiente paso
 Proceder con **Step 1 (BMC)** del pipeline [ruta recomendada].
 
-### Si CAUTION → Qué validar primero
-1. [acción de validación 1]
-2. [acción de validación 2]
-3. [acción de validación 3]
+### Si CAUTION → Los 3 experimentos que corres ANTES del Step 1
+
+> Un CAUTION sin esta tabla llena **no** habilita el Step 1. Llénala con el usuario,
+> no por él: los umbrales son su compromiso, no tu sugerencia.
+
+| # | Hipótesis (falsable) | Cómo se prueba | Criterio de éxito (escrito ANTES) | Costo tope | Plazo | Qué decido si falla |
+|---|---|---|---|---|---|---|
+| 1 | [Creo que **[persona específica]** tiene **[problema]** lo bastante fuerte como para **[acción observable]**] | [20 DMs a [dónde están] / 5 llamadas de 20 min / post en [comunidad]] | [≥ 3 de 20 piden demo sin que se las ofrezcas] | Cero — solo tu tiempo | [≤ 1 semana] | [kill / pivot a [otro segmento]] |
+| 2 | [Creo que pagarían **[rango]** por resolverlo] | [Landing con precio visible + Formspree / carta de intención / preventa] | [≥ 2 dan tarjeta o firman LOI; "me interesa" NO cuenta] | Menos de lo que te cuesta un mes de tu stack | [≤ 2 semanas] | [bajar precio y repetir / pivot de modelo / kill] |
+| 3 | [Creo que la pieza técnica más riesgosa (**[cuál]**) es factible en el Golden Path] | [Spike de 1 día: [el endpoint / el import / la integración] end-to-end, sin UI] | [Funciona con datos reales, no mock, en < 1 día] | Menos de un día de tu tarifa | [≤ 3 días] | [cambiar de enfoque técnico / bajar el alcance del MVP / kill] |
+
+**Resultado del gate:**
+
+- Los 3 experimentos pasan su criterio → sube a **GO**. Procede con el Step 1 (BMC).
+- 1 o 2 pasan → sigue en **CAUTION**. Reformula los que fallaron y vuelve a correr,
+  o ejecuta la decisión escrita en "Qué decido si falla".
+- Ninguno pasa → baja a **NO-GO**. Usa la sección de Alternativas.
 
 ### Si NO-GO → Alternativas sugeridas
 1. [pivot idea 1]
@@ -188,3 +201,5 @@ Proceder con **Step 1 (BMC)** del pipeline [ruta recomendada].
 3. **No adivines datos de mercado.** Si no tienes info, marca como "Requiere validación" y sugiere cómo obtenerla.
 4. **El score más bajo de las 3 dimensiones es el techo.** Un 5 en técnica y 1 en negocio = NO-GO.
 5. **Sesgo hacia la acción.** En caso de duda entre CAUTION y GO, elige CAUTION con plan de validación, no NO-GO.
+6. **Un experimento sin criterio de éxito escrito antes de correrlo no es un experimento, es una esperanza.** El umbral se fija ANTES. Si se fija después, cualquier resultado se lee como confirmación.
+7. **Un CAUTION sin los 3 experimentos definidos no habilita el Step 1.** La Regla 5 te empuja a CAUTION en la duda; esta es la contraparte: el CAUTION cuesta llenar la tabla. Si el usuario no quiere llenarla, el veredicto honesto es NO-GO.

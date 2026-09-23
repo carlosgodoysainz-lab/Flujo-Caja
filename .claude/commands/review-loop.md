@@ -3,8 +3,13 @@
 Implementa una tarea, lanza una revisión independiente con Codex (OpenAI) multi-agente,
 y luego aborda el feedback — todo automáticamente vía Stop hook.
 
-**Requiere:** `codex` CLI instalado + `OPENAI_API_KEY` configurada.
-Ver README sección "Review Loop" para setup.
+**Codex es opcional.** Con `codex` + `OPENAI_API_KEY` la revisión corre en otro proveedor
+(sesgos distintos). Sin eso, el Stop hook devuelve el brief del **panel nativo** — los mismos
+4 revisores con agentes de Forge — y el loop sigue igual. Ver README sección "Review Loop".
+
+En el panel nativo aplica el contrato `VEREDICTO` definido en
+`.claude/commands/adversarial-review.md`: cada revisor cierra con `VEREDICTO: PASA` o
+`VEREDICTO: FALLA`, y una respuesta sin esa línea cuenta como FALLA — nunca como aprobación.
 
 ---
 
@@ -15,9 +20,13 @@ Al recibir `/review-loop <tarea>`, ejecutar este setup primero:
 ```bash
 set -e
 
-# 1. Verificar dependencias
+# 1. Verificar dependencias (jq hace falta en las dos rutas; codex es opcional)
 command -v jq >/dev/null 2>&1 || { echo "Error: jq requerido. brew install jq"; exit 1; }
-command -v codex >/dev/null 2>&1 || { echo "Error: Codex CLI no instalado. Ejecuta: npm install -g @openai/codex"; exit 1; }
+if command -v codex >/dev/null 2>&1 && [ -n "$OPENAI_API_KEY" ]; then
+  echo "Modo de revisión: codex"
+else
+  echo "Modo de revisión: nativo (sin codex) — el Stop hook lanzará el panel de agentes de Forge"
+fi
 
 # 2. Prevenir loops duplicados
 if [ -f .claude/review-loop.local.md ]; then

@@ -169,6 +169,9 @@ apply_migration(
     )
   "
 )
+
+-- RLS obligatoria: una tabla sin política es una tabla pública.
+ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
 ```
 
 ### Indices
@@ -353,6 +356,9 @@ CREATE TABLE daily_metrics (
   churned INTEGER,
   snapshot_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- RLS obligatoria: una tabla sin política es una tabla pública.
+ALTER TABLE daily_metrics ENABLE ROW LEVEL SECURITY;
 ```
 
 Script de snapshot:

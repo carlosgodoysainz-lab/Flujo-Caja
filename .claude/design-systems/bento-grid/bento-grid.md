@@ -2,12 +2,6 @@
 
 > *"El arte japonés del orden: cada elemento en su lugar perfecto."*
 
-## Referencia Visual
-
-![Bento Grid Example](./images/bento-grid.png)
-
----
-
 ## Qué es Bento Grid
 
 **Bento Grid** es un sistema de layout inspirado en las cajas bento japonesas. Cada elemento ocupa su propio compartimento en una cuadrícula organizada y visualmente armónica.

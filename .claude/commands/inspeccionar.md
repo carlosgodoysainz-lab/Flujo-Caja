@@ -11,6 +11,7 @@ Analiza el diff de la branch actual contra main buscando issues estructurales qu
 1. `git branch --show-current` para obtener la branch actual.
 2. Si estás en `main`, output: **"Nada que inspeccionar — estás en main o no hay cambios contra main."** y parar.
 3. `git fetch origin main --quiet && git diff origin/main --stat` para verificar si hay diff. Si no hay, mismo mensaje y parar.
+4. **Lista Roja:** `git diff --name-only origin/main` contra las 6 reglas de `.claude/skills/forge-reference/SKILL.md`. Si hay hit, el reporte **abre** con esa tabla, antes de cualquier otro hallazgo.
 
 ### Paso 2: Obtener el diff
 

@@ -76,7 +76,7 @@ Siempre al **final** de la respuesta, después del contenido principal.
 | Después del BMC (Skill #1) | `💡 Tip: El BMC que acabamos de crear alimenta todo lo que sigue. Si algo no se siente bien, este es el mejor momento para ajustarlo.` |
 | Después de User Stories (Skill #5) | `💡 Tip: Cada User Story se convertirá en tareas concretas durante /build. Si una story es demasiado grande, divídela ahora.` |
 | Después de UX Design (Skill #6) | `💡 Tip: En el siguiente paso (UI Wireframes) puedes elegir un design system predefinido: Liquid Glass, Neobrutalism, Neumorphism, Bento Grid, o Gradient Mesh.` |
-| Después de UI (Skill #8) | `💡 Tip: Viene la Auditoría de Seguridad. Revisa ~200 amenazas incluyendo riesgos específicos de vibe coding y MCP.` |
+| Después de UI (Skill #8) | `💡 Tip: Viene la Auditoría de Seguridad. Revisa 82 amenazas incluyendo riesgos específicos de vibe coding y MCP.` |
 | Blueprint terminado | `💡 Tip: Blueprint listo. Cuando quieras construir, usa /build. Te preguntaré si prefieres Build Manual (fase a fase) o Modo Forja (paralelo con agentes).` |
 
 ### 🏗️ Construcción (/build)
@@ -143,7 +143,7 @@ Siempre al **final** de la respuesta, después del contenido principal.
 | Usuario escribe código sin Blueprint | `💡 Tip: Forge funciona mejor con un Blueprint aprobado. ¿Quieres que hagamos /plan rápido primero? Hay modos express.` |
 | Pide feature de IA | `💡 Tip: Para features con IA, Forge tiene templates LEGO en .claude/ai_templates/. Se configuran automáticamente durante /build.` |
 | Quiere agregar login | `💡 Tip: /add-login implementa auth con Supabase (Email/Password) con todo el flujo — signup, login, protección de rutas.` |
-| Quiere actualizar Forge | `💡 Tip: /update-forge actualiza a la última versión. /eject-forge remueve Forge y deja solo tu código.` |
+| Quiere actualizar Forge | `💡 Tip: /update-forge actualiza a la última versión. /eject-forge quita Forge sin tocar tu código (o genera una copia limpia para entregar).` |
 | Pregunta "¿qué puedo hacer?" | `💡 Tip: Los comandos principales son /plan (planificar), /build (construir), /critique (evaluar diseño), /web-audit (auditar calidad), y /despachar (shippear).` |
 
 ---
@@ -158,7 +158,7 @@ Siempre al **final** de la respuesta, después del contenido principal.
 
 | Situación | Tip |
 |-----------|-----|
-| BMC define modelo con datos de usuario | `🔒 Seguridad: Este modelo maneja datos de usuario. Skill #9 (Security Audit) revisará ~200 amenazas antes del Blueprint — incluyendo GDPR y data privacy.` |
+| BMC define modelo con datos de usuario | `🔒 Seguridad: Este modelo maneja datos de usuario. Skill #9 (Security Audit) revisará 82 amenazas antes del Blueprint — incluyendo GDPR y data privacy.` |
 | Tech Spec define API routes | `🔒 Seguridad: Cada API route necesita validación con Zod + auth check. Nunca confíes en datos del cliente — valida en el server.` |
 | Blueprint aprobado, pre-build | `🔒 Seguridad: Antes de codear, verifica que el hook security-scan.sh esté activo. Detecta secrets, CORS wildcard, y debug statements automáticamente.` |
 

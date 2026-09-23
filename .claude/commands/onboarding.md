@@ -104,7 +104,7 @@ Con las 3 respuestas, genera la ruta personalizada usando esta lógica:
 ║                                                              ║
 ║  Paso 4: Personalizar proyecto                               ║
 ║  ➜ /forge-init                                               ║
-║  Adapta CLAUDE.md, README y skills activos a tu proyecto     ║
+║  Adapta AGENTS.md, README y skills activos a tu proyecto     ║
 ║  ⏱ ~2 min                                                    ║
 ║                                                              ║
 ║  Paso 5: Construir                                           ║
@@ -135,7 +135,7 @@ Con las 3 respuestas, genera la ruta personalizada usando esta lógica:
 ║                                                              ║
 ║  Paso 2: Personalizar proyecto                               ║
 ║  ➜ /forge-init                                               ║
-║  Adapta CLAUDE.md, README y skills activos a tu proyecto     ║
+║  Adapta AGENTS.md, README y skills activos a tu proyecto     ║
 ║  ⏱ ~2 min                                                    ║
 ║                                                              ║
 ║  Paso 3: Construir                                           ║

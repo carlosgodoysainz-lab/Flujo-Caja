@@ -128,6 +128,10 @@ Crear `STRATEGY-CANVAS-[nombre].md`:
 
 ## 5. Key Metrics
 
+> Si existe un `VIABILITY-*.md` con la tabla de experimentos, sus **criterios de éxito
+> escritos ANTES** ya son métricas comprometidas: reúsalos aquí y en `/metas` como KRs
+> iniciales, en vez de inventar targets nuevos.
+
 | Métrica | Target 3 meses | Target 12 meses |
 |---------|----------------|-----------------|
 | [métrica] | [valor] | [valor] |
@@ -157,6 +161,10 @@ Crear `STRATEGY-CANVAS-[nombre].md`:
 
 Usar `/plan` para convertir esta estrategia en un Blueprint ejecutable.
 ```
+
+> **Contrato de Salida.** Antes de escribir el documento, aplica
+> `.claude/skills/el-crisol/assets/contrato-de-salida.md`: sin dato no hay número,
+> toda recomendación cita su documento fuente, y sin research no hay landscape.
 
 ## Output
 

@@ -224,22 +224,52 @@ case "$PHASE" in
     CODEX_EXIT=0
     START_TIME=$(date +%s)
 
-    # Verificar codex disponible
-    if ! command -v codex &> /dev/null; then
-      log "ERROR: codex no encontrado en PATH"
-      rm -f "$STATE_FILE"
-      jq -n --arg r "ERROR: Codex CLI no instalado. Ejecuta: npm install -g @openai/codex" \
-        '{decision:"block", reason:$r}'
-      exit 0
+    # Ruta de revisión: Codex si hay binario Y credencial Y multi_agent; si no,
+    # panel nativo. Antes esto era un `exit 1` con el state file borrado, así que
+    # /review-loop simplemente no existía para quien no usa Codex.
+    MODO_REVISION=nativo
+    if command -v codex &> /dev/null && [ -n "$OPENAI_API_KEY" ]; then
+      CODEX_CONFIG="${HOME}/.codex/config.toml"
+      if [ -f "$CODEX_CONFIG" ] && grep -qE '^\s*multi_agent\s*=\s*true' "$CODEX_CONFIG"; then
+        MODO_REVISION=codex
+      else
+        log "multi_agent no habilitado en config.toml → panel nativo"
+      fi
+    else
+      log "codex/OPENAI_API_KEY ausentes → panel nativo"
     fi
 
-    # Verificar multi_agent habilitado
-    CODEX_CONFIG="${HOME}/.codex/config.toml"
-    if [ ! -f "$CODEX_CONFIG" ] || ! grep -qE '^\s*multi_agent\s*=\s*true' "$CODEX_CONFIG"; then
-      log "ERROR: multi_agent no habilitado en config.toml"
-      rm -f "$STATE_FILE"
-      jq -n --arg r "ERROR: Habilita multi_agent en ~/.codex/config.toml:\n[features]\nmulti_agent = true" \
-        '{decision:"block", reason:$r}'
+    if [ "$MODO_REVISION" = "nativo" ]; then
+      # El hook es bash: no puede lanzar subagentes. Le devuelve el brief a la
+      # sesión principal por el MISMO canal que usa la fase 2 (decision:block +
+      # reason), y avanza la fase igual que la ruta Codex. El state file NO se
+      # borra: el loop sigue vivo.
+      log "Panel nativo — devolviendo brief a la sesión principal"
+      if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' 's/^phase: task$/phase: addressing/' "$STATE_FILE"
+      else
+        sed -i 's/^phase: task$/phase: addressing/' "$STATE_FILE"
+      fi
+
+      NATIVE_REASON="Revisión independiente en **modo nativo** (sin Codex). Lanza estos revisores en paralelo con Task y escribe el reporte consolidado en ${REVIEW_FILE}:
+
+1. backend-specialist — Revisión de Diff: seguridad y lógica de los cambios (Server Actions, API Routes, validación).
+2. codebase-analyst — Revisión Holística: arquitectura, duplicación, patrones que ya existían en el repo.
+3. frontend-specialist — Revisión Next.js/React: SSR/RSC, fronteras server/client, Zod, RLS.
+4. design-critic — Revisión UI/UX: estados faltantes, accesibilidad, AI slop. Solo si el proyecto tiene UI.
+
+Reglas:
+- Cada revisor TERMINA con la línea literal 'VEREDICTO: PASA' o 'VEREDICTO: FALLA', y nada después.
+- Una respuesta sin esa línea cuenta como FALLA, nunca como aprobación: un revisor truncado no probó nada. Relánzalo una vez; si sigue sin cerrar, anota la cobertura como parcial en el reporte.
+- Si tu plataforma no puede lanzar subagentes, córrelos en secuencia en el mismo hilo.
+- Consolida en ${REVIEW_FILE} con las secciones de severidad (CRÍTICOS / ALTOS / MEDIOS / BAJOS) y anota 'Modo: nativo' en el encabezado.
+
+Después, aborda el feedback con tu propio juicio: implementa lo que compartas, y anota brevemente lo que descartes y por qué.
+
+El modo nativo es un piso, no un pentest: corre con el mismo proveedor que tu sesión, así que arrastra los mismos puntos ciegos."
+      SYS_MSG="Review Loop [${REVIEW_ID}] — Fase 1b/2: panel nativo (sin Codex)"
+      jq -n --arg r "$NATIVE_REASON" --arg s "$SYS_MSG" \
+        '{decision:"block", reason:$r, systemMessage:$s}'
       exit 0
     fi
 

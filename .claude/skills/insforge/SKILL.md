@@ -326,6 +326,9 @@ CREATE TABLE realtime_channels (
   channel_name TEXT NOT NULL UNIQUE,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- RLS obligatoria: una tabla sin política es una tabla pública.
+ALTER TABLE realtime_channels ENABLE ROW LEVEL SECURITY;
 ```
 
 ### 2. Trigger para publicar eventos

@@ -42,22 +42,29 @@ Cruza la threat-db y corre los checks automatizables sobre `src/` completo.
    threat cuyo `golden_path_check` sea un `grep`/`grep -r`/`grep -rE`, correrlo
    como ripgrep sobre `src/`. Checks clave (verbatim de la threat-db):
 
+   > Las celdas de tabla escapan el pipe como `\|` porque en markdown separa columnas.
+   > Al ejecutar el comando va **sin** la barra invertida: `'service_role|SUPABASE_SERVICE'`.
+
    | id | severity | ripgrep |
    |----|----------|---------|
    | GP-008 service_role en client | critical | `rg -n 'service_role\|SUPABASE_SERVICE' src/` → flag si NO está en archivo server-only |
    | GP-006 API key IA en bundle | critical | `rg -n 'OPENROUTER\|OPENAI\|ANTHROPIC' src/` → flag fuera de server |
    | OWASP-A01-002 userId del cliente confiado | critical | `rg -n 'body\.userId\|req\.query\.userId\|params\.userId' src/` |
-   | OWASP-A03-001 SQL injection por interpolación | critical | `rg -nE 'execute_sql.*\$\{\|rpc.*\+' src/` |
-   | OWASP-A03-003 command injection | critical | `rg -nE '(exec\|spawn\|execSync)\(' src/app src/features` |
+   | OWASP-A03-001 SQL injection por interpolación | critical | `rg -n 'execute_sql.*\$\{\|rpc.*\+' src/` |
+   | OWASP-A03-003 command injection | critical | `rg -n '(exec\|spawn\|execSync)\(' src/app src/features` |
    | OWASP-A02-001 secrets en localStorage | high | `rg -n 'localStorage' src/ \| rg -i 'token\|auth\|session\|key'` |
    | OWASP-A02-002 secrets en console | high | `rg -ni 'console\.log' src/ \| rg -i 'token\|password\|secret\|key'` |
    | OWASP-A03-002 XSS innerHTML | high | `rg -n 'dangerouslySetInnerHTML' src/` |
    | OWASP-A07-001 getSession en data code | high | `rg -n 'getSession' src/` → solo debe aparecer en middleware |
-   | OWASP-A10-001 SSRF | high | `rg -nE 'fetch\(.*req\.\|fetch\(.*body\.' src/app` |
+   | OWASP-A10-001 SSRF | high | `rg -n 'fetch\(.*req\.\|fetch\(.*body\.' src/app` |
    | GP-011 Supabase URL hardcoded | high | `rg -n 'supabase\.co' src/` → solo `process.env` |
-   | BLOG-001 CORS wildcard | high | `rg -nE "Access-Control-Allow-Origin.*['\"]\*['\"]" src/ next.config.ts` |
+   | BLOG-001 CORS wildcard | high | `rg -n "Access-Control-Allow-Origin.*['\"]\*['\"]" src/ next.config.ts` |
    | BLOG-002 open redirect | high | `rg -n 'redirect\|returnUrl\|callbackUrl' src/` → verificar validación |
-   | PRIV-006 PII en URL | medium | `rg -nE 'router\.push.*(token\|email)' src/` |
+   | PRIV-006 PII en URL | medium | `rg -n 'router\.push.*(token\|email)' src/` |
+   | PAY-001 body parseado antes de verificar firma | critical | `rg -n -g '**/webhooks/**' 'await request\.json\(\)' src/` |
+   | PAY-002 monto o priceId del cliente | critical | `rg -n -e '(amount\|unit_amount\|price\|priceId\|productId\|currency)\s*:\s*(body\|params\|searchParams\|input\|formData)\.' src/` |
+   | PAY-003 dinero en floats | high | `rg -n -e '(parseFloat\(\|Number\()[^)]*(price\|amount\|total\|subtotal)' src/` |
+   | PAY-004 acceso en checkout.* | high | `rg -n -A 15 -g '**/webhooks/**' "case 'checkout" src/` → flag **solo** si escribe `has_access` sin un `subscriptions.retrieve()` server-side antes |
 
 2. **Reusar `security-scan.sh`** (no reimplementar): los mismos patrones de secrets
    sobre TODO `src/`: `AKIA[0-9A-Z]{16}`, `(sk-[a-zA-Z0-9]{20,}\|pk_live_\|sk_live_\|sk_test_)`,
@@ -109,7 +116,7 @@ Detección full-project. Cada patrón es un ripgrep ejecutable:
 | Índices faltantes | `get_advisors(type:"performance")` (Supabase) | FK sin índice / seq scan | high |
 | Sin cache headers / CDN | `rg -n 'Cache-Control\|s-maxage\|stale-while-revalidate' src/ next.config.ts` == 0 en API/headers | sin edge/CDN caching | medium |
 | `<img>` crudo | `rg -n '<img ' src/` | imagen sin optimizar (falta `next/image`) | low |
-| Imports pesados sin lazy | `rg -nE "from ['\"](recharts\|three\|monaco\|@?chart)" src/` sin `dynamic(` | bundle bloat | medium |
+| Imports pesados sin lazy | `rg -n "from ['\"](recharts\|three\|monaco\|@?chart)" src/` sin `dynamic(` | bundle bloat | medium |
 | Web Vitals / bundle | delegar a **web-quality** (bloque Performance) y plegar su veredicto aquí | LCP/INP/CLS, bundle budget | — |
 
 > **Regla anti-doble-conteo:** el bloque **Performance** de web-quality se cuenta
@@ -160,17 +167,20 @@ deploy-blocker.
 
 ## Capa profunda `--deep` (opt-in, NO hard-depend de codex)
 
-Detección:
+Detección — esta expresión elige **la ruta**, no si la capa corre:
 ```bash
 command -v codex >/dev/null 2>&1 && [ -n "$OPENAI_API_KEY" ]
 ```
-- **Si disponible:** correr `/adversarial-review` (4 agentes atacantes), leer su
+- **Si disponible (ruta codex):** correr `/adversarial-review` (4 agentes atacantes), leer su
   **Resilience Score (0-100)** del reporte `reviews/adversarial-*.md`, y **plegarlo
   en la dimensión Seguridad**: `Seguridad_final = 0.6·Seguridad_estático + 0.4·Resilience`.
   Anotar en la cobertura.
-- **Si NO disponible:** continuar static-only. **Nunca fallar ni bloquear** por
-  ausencia de codex. Mensaje: *"Capa profunda omitida — instala codex + OPENAI_API_KEY
-  para activarla (opcional)."*
+- **Si NO disponible (ruta nativa):** correr igual `/adversarial-review`, que usa el panel
+  nativo de agentes, y plegar su Resilience Score **con el mismo peso**. En la cobertura se
+  anota que la capa fue **nativa** — es un piso, no un pentest: mismo proveedor que la sesión.
+  **Nunca fallar ni bloquear** por ausencia de codex.
+- El contrato `VEREDICTO` del panel nativo vive en `.claude/commands/adversarial-review.md`: un
+  revisor sin su línea final cuenta como FALLA y la cobertura se marca parcial.
 
 ## Destino del output
 
@@ -187,7 +197,7 @@ Schema del JSON:
   "dimensions": { "seguridad": 72, "datos": 80, "cache": 65, "web": 88 },
   "findings": { "critical": 1, "high": 4, "medium": 9, "low": 6 },
   "coverage": { "owasp": "7/10", "threatdb_run": "14/27", "rls_tables": "5/6" },
-  "deep_layer": { "ran": false, "resilience_score": null }
+  "deep_layer": { "ran": false, "mode": null, "resilience_score": null }
 }
 ```
 
@@ -251,13 +261,21 @@ Producir exactamente este template (con los números reales del proyecto):
 - threat-db: X/N checks automatizables corridos
 - RLS: X/Y tablas con políticas (vía `get_advisors` / estático)
 - web-quality: [ejecutado vía Lighthouse / análisis estático]
-- Capa profunda (adversarial): [no corrida / Resilience XX/100]
+- Capa profunda (adversarial): [no corrida / nativa: Resilience XX/100 / codex: Resilience XX/100]
 ```
 
 ## Instrucciones al auditor
 
-1. **Medir antes de juzgar.** Correr cada ripgrep / MCP real antes de asignar
-   🔴/🟡/🟢 y el sub-score. No inventar hallazgos.
+1. **Medir antes de juzgar, y pegar lo que mediste.** Correr cada ripgrep / MCP real antes
+   de asignar 🔴/🟡/🟢 y el sub-score, y **citar al menos una salida literal** (ripgrep o
+   `get_advisors`) por dimensión del Audit Score.
+   - ❌ Contar un check en la Cobertura sin pegar su salida — porque un check que no
+     produjo texto es indistinguible de uno que no corriste, y la Cobertura es el único
+     dato que dice cuánto vale el score.
+   - ❌ Escribir un hallazgo sin `archivo:línea` — porque un hallazgo sin ubicación no es
+     accionable y no se puede refutar.
+   - Un check sin salida pegada **no cuenta para la cobertura**: va en el denominador,
+     nunca en el numerador.
 2. **Reusar, no reimplementar.** threat-db, security-scan.sh, web-quality y las
    categorías de `/inspeccionar` son la fuente — no copiar su lógica al skill.
 3. **No penalizar lo no observable.** Sin MCP de Supabase → marcar "no verificado",
@@ -268,6 +286,12 @@ Producir exactamente este template (con los números reales del proyecto):
    Nunca commitear, pushear ni editar código sin aprobación explícita.
 6. **Paths absolutos** en todo hallazgo accionable.
 7. **`quick`** = solo críticos de cada dimensión, sin score detallado ni subagents.
+8. **La Cobertura se calcula, no se estima.** `threat-db: X/N` sale de contar los
+   `golden_path_check` que realmente corriste contra el total de automatizables del YAML.
+   - ❌ Redondear o estimar X o N — porque un denominador inventado convierte el Audit
+     Score en una opinión con dos decimales.
+   - Si una dimensión no pudo medirse (sin MCP de Supabase, sin Playwright), va como
+     **"no verificado"** y su peso se declara arriba del reporte — nunca como 100.
 
 ## Herramientas a usar
 

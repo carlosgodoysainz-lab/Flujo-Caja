@@ -34,7 +34,7 @@ Para generar tu reporte de ROI necesito algunos datos:
 
 📈 Crecimiento
 9. ¿Cómo planeas adquirir usuarios? (orgánico, paid, referrals)
-10. ¿Cuál es tu churn rate esperado? (si no sabes, usaré 5% mensual)
+10. ¿Cuál es tu churn rate esperado? (si no sabes, lo marco ⚠️ Requiere validación y corro el modelo con un rango 3%–7% para que veas la sensibilidad)
 ```
 
 ### Paso 2: Calcular Métricas
@@ -140,6 +140,10 @@ Puedo investigar:
 3. Tamaño del mercado (TAM/SAM) con fuentes
 4. Tendencias de crecimiento del sector
 ```
+
+> **Contrato de Salida.** Antes de escribir el documento, aplica
+> `.claude/skills/el-crisol/assets/contrato-de-salida.md`: sin dato no hay número,
+> toda recomendación cita su documento fuente, y sin research no hay landscape.
 
 ## Output
 

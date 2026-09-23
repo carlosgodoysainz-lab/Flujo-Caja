@@ -34,17 +34,18 @@ Conectado via `/_next/mcp`. Ve errores build/runtime en tiempo real.
 
 ---
 
-## Hooks (7, fail-open)
+## Hooks (8, fail-open)
 
 Principio fail-open: Si un hook falla, aprueba la accion. Nunca atrapa al usuario.
 
 | Hook | Tipo | Que Hace |
 |------|------|----------|
+| `prompt-preflight.sh` | UserPromptSubmit | Mira el prompt antes de enviarlo: bloquea credenciales de formato inequivoco, avisa de secretos asignados |
 | `pre-commit-validation.sh` | PreToolUse | TypeScript typecheck antes de commit |
 | `security-scan.sh` | PreToolUse | Detecta secretos, CORS `*`, debug stmts |
 | `auto-format.sh` | PostToolUse | Prettier automatico |
 | `test-runner.sh` | PostToolUse | Tests relacionados al archivo editado |
-| `cost-tracker.sh` | PostToolUse | Trackea uso de herramientas por sesion |
+| `tool-usage-tracker.sh` | PostToolUse | Trackea uso de herramientas por sesion |
 | `log-tool-usage.sh` | PostToolUse | Audit log de ejecuciones |
 | `stop-hook.sh` | Stop | Review Loop al terminar sesion |
 
@@ -128,7 +129,7 @@ Activar: `cp .claude/example.settings.json .claude/settings.json`
 
 ### Lifecycle
 - `/update-forge` — Actualizar Forge
-- `/eject-forge` — Remover Forge, dejar solo codigo
+- `/eject-forge` — Quitar Forge (`forge eject`, conserva lo tuyo) o exportar copia limpia (`forge export`)
 
 ### Dev
 - `npm run dev` — Servidor (auto-detecta puerto 3000-3006)
@@ -166,6 +167,63 @@ test('should calculate total with tax', () => {
 ```
 
 ---
+
+## Lista Roja (rutas que obligan a parar)
+
+Seis rutas que, cuando aparecen en el diff, obligan a **parar y preguntar** antes de
+seguir. No es un modo ni un nivel: una ruta esta en la lista o no esta.
+
+El disparador es mecanico — `git diff --name-only` — no el juicio del agente. Es la
+hermana determinista del Decision Check de El Yunque: mismo efecto (pausar), disparador
+distinto (una ruta, no una intuicion).
+
+| Regla | Amenazas que la respaldan | Severidad |
+|---|---|---|
+| `src/features/auth/**` | `OWASP-A07-001` (getSession en vez de getUser), `GP-012` | high |
+| `src/middleware.ts` | `GP-012` (rutas protegidas sin middleware), `BLOG-001` (CORS) | high |
+| `src/app/api/**/route.ts` | `OWASP-A01-002` (confia en el userId del cliente), `GP-002`, `OWASP-A10-001`, `BLOG-007` | critical |
+| `src/app/api/webhooks/**` | `BLOG-004` (firma sin verificar), `PAY-001`..`PAY-005` | critical |
+| `supabase/migrations/*.sql` | `OWASP-A01-001` (tablas de usuario sin RLS) | critical |
+| cualquier archivo con `service_role` | `GP-008` (service role key en codigo cliente) | critical |
+
+Las cinco primeras son de **ruta**. La sexta es de **contenido**, porque `service_role`
+puede aparecer en cualquier archivo.
+
+### El matcher
+
+```bash
+# Reglas de ruta
+git diff --name-only origin/main...HEAD | grep -E \
+  '^(src/features/auth/|src/middleware\.ts$|src/app/api/.*/route\.ts$|src/app/api/webhooks/|supabase/migrations/.*\.sql$)'
+
+# Regla de contenido
+git diff --name-only origin/main...HEAD \
+  | xargs grep -lE 'service_role|SUPABASE_SERVICE' 2>/dev/null
+```
+
+Usa `grep`, no `ripgrep`: esto corre en el proyecto del cliente, donde `rg` puede no
+estar instalado. Un check que aborta se lee igual que un proyecto limpio (D-037).
+
+### Que hace el agente cuando hay hit
+
+```markdown
+🔴 **Lista Roja** — este cambio toca [N] archivo(s) que la threat-db marca:
+
+| Archivo | Amenaza | Severidad |
+|---|---|---|
+| src/middleware.ts | GP-012 — Missing middleware for protected routes | high |
+
+Antes de seguir, dime en una linea que debe seguir siendo cierto despues del cambio.
+```
+
+Y espera la respuesta. **Sin hit, no dice nada** — igual que el Decision Check.
+
+### Por que la lista no crece
+
+Seis reglas caben en la cabeza. Una lista de veinte dispara en cada commit, y una pausa
+que dispara siempre es una pausa que el usuario aprende a saltar. **Una ruta entra solo
+si una amenaza `critical` o `high` de la threat-db la nombra explicitamente**, y hay un
+test que verifica que cada id citado aqui exista en el YAML.
 
 ## Skills Externos (Extensiones Opcionales)
 

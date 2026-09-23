@@ -29,8 +29,12 @@ trap 'log "ERROR: script abortó en línea $LINENO"; exit 1' ERR
 # ============================================================
 # Validaciones
 # ============================================================
+# Este script ES la ruta Codex: /adversarial-review solo lo invoca cuando ya
+# eligió MODO_REVISION=codex. El guard se queda por si alguien lo corre a mano,
+# y apunta a la alternativa en vez de dejarlo en un callejón.
 if ! command -v codex &> /dev/null; then
-  echo "ERROR: Codex CLI no instalado. Ejecuta: npm install -g @openai/codex" >&2
+  echo "ERROR: Codex CLI no instalado. Este script es la ruta Codex de /adversarial-review." >&2
+  echo "       Sin codex, corre /adversarial-review y usará el panel nativo de agentes." >&2
   exit 1
 fi
 

@@ -40,6 +40,7 @@ Reportar hallazgos antes de proceder.
 
 1. ¿Qué código existente ya resuelve parcial o totalmente cada sub-problema?
 2. ¿El plan está reconstruyendo algo que ya existe? Si sí, ¿por qué reconstruir es mejor que refactorizar?
+3. Si dos alternativas empatan, contrástalas contra los Principios del Factory OS y nombra el que decide. Anótalo: va en la fila `Principio decisivo` del Completion Summary.
 
 #### 1C. Dream State Mapping
 
@@ -167,7 +168,7 @@ Cualquier fila con MANEJADO=N, TEST=N, USUARIO VE=Silencioso → **GAP CRÍTICO*
 
 ```
 ┌════════════════════════════════════════════════════════┐
-│          FRAGUA REVIEW — RESUMEN                      │
+│          FRAGUA REVIEW — RESUMEN                       │
 ├════════════════════════════════════════════════════════┤
 │ Modo seleccionado    │ EXPANSIÓN / MANTENER / REDUCCIÓN│
 │ Contexto del sistema │ [hallazgos clave]               │
@@ -179,6 +180,7 @@ Cualquier fila con MANEJADO=N, TEST=N, USUARIO VE=Silencioso → **GAP CRÍTICO*
 │ NO en scope          │ ___ items diferidos             │
 │ Failure modes        │ ___ total, ___ GAPS CRÍTICOS    │
 │ Diagramas producidos │ ___ (listar tipos)              │
+│ Principio decisivo   │ [cuál rompió el empate]         │
 │ Decisiones sin resolver │ ___                          │
 └════════════════════════════════════════════════════════┘
 ```
@@ -191,11 +193,11 @@ Cada AskUserQuestion DEBE: (1) presentar 2-3 opciones concretas con letras, (2) 
 
 ## No Hacer
 
-- ❌ Hacer cambios de código. NO empezar implementación.
-- ❌ Batching múltiples issues en una pregunta.
-- ❌ Drift silencioso entre modos. Una vez elegido, comprometerse.
-- ❌ Reducir scope si el usuario eligió EXPANSIÓN.
-- ❌ Añadir scope si el usuario eligió REDUCCIÓN.
+- ❌ Hacer cambios de código. NO empezar implementación — este comando decide qué construir; escribir código aquí compromete la decisión antes de tomarla.
+- ❌ Batching múltiples issues en una pregunta — el usuario contesta "sí" a un bloque y queda sin saber a qué dijo que sí.
+- ❌ Drift silencioso entre modos. Una vez elegido, comprometerse — cambiar de modo a media revisión mezcla dos criterios y el veredicto deja de ser comparable.
+- ❌ Reducir scope si el usuario eligió EXPANSIÓN — recortar lo que pidió ampliar es sustituir su decisión por la tuya, en silencio.
+- ❌ Añadir scope si el usuario eligió REDUCCIÓN — cada extra que agregas es trabajo que pidió NO hacer, y se descubre cuando ya está construido.
 
 ## Siguiente Paso Sugerido
 
