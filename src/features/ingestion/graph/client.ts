@@ -23,13 +23,26 @@ function esperar(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * 500/502/503/504 en Graph/Microsoft Search: casi siempre transitorios
+ * (visto en vivo 24-sep-2026 en `/search/query`: "InternalServerError...
+ * The call failed, please try again" — el propio mensaje de Microsoft pide
+ * reintentar). 429 (throttling) también se reintenta, respetando
+ * `Retry-After` si Microsoft lo manda. Antes solo se reintentaba 409 — un
+ * solo hipo del lado de Microsoft tiraba abajo toda la sync del mes sin
+ * darle una segunda oportunidad.
+ */
+const CODIGOS_REINTENTABLES = new Set([429, 500, 502, 503, 504]);
+const REINTENTOS_TRANSITORIOS = [1000, 3000, 8000]; // ms — backoff creciente
+
 async function graphFetch(
   accessToken: string,
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
   const REINTENTOS_409 = [400, 1200]; // ms — backoff corto, ver nota abajo
-  let intento = 0;
+  let intento409 = 0;
+  let intentoTransitorio = 0;
 
   while (true) {
     const res = await fetch(`${GRAPH_BASE}${path}`, {
@@ -50,9 +63,26 @@ async function graphFetch(
     // indexar — típicamente transitorio (SharePoint todavía procesando el
     // eTag de un archivo recién tocado). Reintentar con una request nueva
     // (nuevo eTag) antes de rendirse, en vez de fallar al primer golpe.
-    if (res.status === 409 && intento < REINTENTOS_409.length) {
-      await esperar(REINTENTOS_409[intento]);
-      intento++;
+    if (res.status === 409 && intento409 < REINTENTOS_409.length) {
+      await esperar(REINTENTOS_409[intento409]);
+      intento409++;
+      continue;
+    }
+
+    if (
+      CODIGOS_REINTENTABLES.has(res.status) &&
+      intentoTransitorio < REINTENTOS_TRANSITORIOS.length
+    ) {
+      const retryAfterHeader = res.headers.get("Retry-After");
+      const retryAfterMs = retryAfterHeader
+        ? Number(retryAfterHeader) * 1000
+        : null;
+      await esperar(
+        retryAfterMs && !Number.isNaN(retryAfterMs)
+          ? retryAfterMs
+          : REINTENTOS_TRANSITORIOS[intentoTransitorio],
+      );
+      intentoTransitorio++;
       continue;
     }
 
