@@ -15,6 +15,12 @@ export default function MainLayout({
 }) {
   return (
     <div className="flex min-h-[100dvh] flex-col bg-white">
+      <a
+        href="#contenido-principal"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-[var(--navy)] focus:shadow-lg"
+      >
+        Saltar al contenido principal
+      </a>
       <nav
         className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 px-6 py-3"
         style={{ backgroundColor: "var(--navy)" }}
@@ -43,7 +49,9 @@ export default function MainLayout({
           </div>
         </div>
       </nav>
-      <main className="flex-1">{children}</main>
+      <main id="contenido-principal" className="flex-1">
+        {children}
+      </main>
       <footer className="sticky bottom-0 border-t border-slate-200 bg-white/80 px-6 py-2 text-center backdrop-blur">
         <span className="rounded-full bg-[var(--navy)] px-3 py-1 text-xs font-medium text-white">
           Uso interno — Grupo Maestra
