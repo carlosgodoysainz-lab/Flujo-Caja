@@ -84,6 +84,7 @@ export function SenceEditableCell({
       <input
         autoFocus
         type="text"
+        aria-label="Monto Aporte SENCE"
         value={valor}
         onChange={(e) => setValor(e.target.value)}
         onKeyDown={(e) => {
@@ -95,6 +96,7 @@ export function SenceEditableCell({
       <button
         type="submit"
         disabled={isPending}
+        aria-label="Guardar valor SENCE"
         className="text-xs text-[var(--navy-brand)]"
       >
         ✓

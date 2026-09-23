@@ -62,6 +62,7 @@ export function UploadHeadcountManualForm() {
           type="file"
           name="archivo"
           accept=".xlsx"
+          aria-label="Archivo Excel de proyección headcount"
           required={!esPreview}
           className="text-sm"
         />

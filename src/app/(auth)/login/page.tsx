@@ -25,7 +25,7 @@ export default function LoginPage() {
             Conectar con Microsoft
           </button>
         </form>
-        <p className="text-xs text-white/40">
+        <p className="text-xs text-white/60">
           Solo cuentas @maestra.cl. Tu login también autoriza el acceso a los
           archivos de SharePoint que ya puedes ver.
         </p>
