@@ -24,12 +24,20 @@ export interface DotacionTotalPunto {
  *   mensual de Buk).
  * - Meses futuros (sin dato real todavía): se parte del último total REAL
  *   conocido (de cualquiera de las 2 fuentes anteriores) y se acumula,
- *   mes a mes, la `variacion_neta` (altas−bajas) de `headcount_by_obra`
- *   sumada a través de TODAS las obras — origen 'manual', 'buk_real' o
- *   'modelo_estimado' (curva de obras similares, ver
- *   `headcount/forecast-model/run.ts`, que YA modela el ciclo completo de
- *   una obra: sube en el arranque, se estabiliza en régimen, baja al
- *   cierre).
+ *   mes a mes, la `variacion_neta` (altas−bajas) de `plan_dotacion` — el
+ *   Plan de Dotación que el usuario mantiene en SharePoint (ver
+ *   `plan-dotacion/services/sync-plan-dotacion.ts`), sumada a través de
+ *   TODAS las filas (obras + Oficina Central, `obra_id IS NULL`).
+ *
+ *   Fase 2 (24-sep-2026): reemplaza al modelo estadístico de "obras
+ *   similares" (`headcount/forecast-model/`) — el usuario comparó la app
+ *   contra su Excel tradicional y confirmó que su propio plan, obra por
+ *   obra, es la única fuente confiable; el modelo estadístico llevaba 7
+ *   versiones de parches sobre el mismo síntoma (la proyección volvía a
+ *   la escala de otras obras en vez de reflejar el plan real). Una obra
+ *   o mes sin ninguna fila en `plan_dotacion` simplemente no aporta
+ *   variación ese mes (dotación se mantiene plana) — nunca se inventa
+ *   una curva.
  */
 export async function getDotacionTotalPorPeriodo(
   periodoDesde: Date,
@@ -119,16 +127,25 @@ export async function getDotacionTotalPorPeriodo(
   }
 
   if (ultimoPeriodoReal && ultimoTotalReal != null) {
-    // Paginado con `.range()` (24-sep-2026) en vez de `.limit(1000)` fijo —
-    // mismo criterio defensivo que el resto del archivo: hoy son ~30 obras
-    // × meses futuros (bajo riesgo real de superar 1000), pero un
-    // `.limit()` fijo trunca en silencio si algún día se supera, sin
-    // avisar (el mismo patrón de bug ya corregido 3 veces acá arriba).
+    // Fuente de la variación futura: `plan_dotacion` — el plan del
+    // usuario en SharePoint, ÚNICA fuente de la dotación futura desde la
+    // Fase 2 (24-sep-2026). Reemplaza a `headcount_by_obra` (el modelo
+    // estadístico de "obras similares", retirado por decisión explícita
+    // del usuario tras comparar contra su Excel tradicional: el modelo
+    // llevaba 7 versiones de parches sobre el mismo síntoma — ver
+    // Auto-Blindaje). Se suman TODAS las filas (obras + Oficina Central,
+    // `obra_id IS NULL`) — mismo encadenamiento de antes, ahora sobre
+    // datos reales del usuario en vez de una curva estimada.
+    // Paginado con `.range()` — mismo criterio defensivo que el resto del
+    // archivo: hoy son ~30 obras × meses futuros (bajo riesgo real de
+    // superar 1000), pero un `.limit()` fijo trunca en silencio si algún
+    // día se supera, sin avisar (el mismo patrón de bug ya corregido 3
+    // veces acá arriba).
     const variaciones: { periodo: string; variacion_neta: number }[] = [];
     const TAMANO_PAGINA_VARIACIONES = 1000;
     for (let desde = 0; ; desde += TAMANO_PAGINA_VARIACIONES) {
       const { data: pagina } = await supabase
-        .from("headcount_by_obra")
+        .from("plan_dotacion")
         .select("periodo, variacion_neta")
         .gt("periodo", ultimoPeriodoReal)
         .range(desde, desde + TAMANO_PAGINA_VARIACIONES - 1);

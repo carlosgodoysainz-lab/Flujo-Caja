@@ -1,6 +1,7 @@
 import { createServiceClient } from "@/lib/supabase/service";
 import { RunForecastButton } from "@/features/headcount/forecast-model/components/run-forecast-button";
 import { UploadHeadcountManualForm } from "@/features/headcount/components/upload-headcount-manual-form";
+import { DescargarPlantillaButton } from "@/features/plan-dotacion/components/descargar-plantilla-button";
 import { Badge } from "@/shared/ui/badge";
 import {
   Table,
@@ -10,6 +11,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/ui/table";
+import {
+  detectarObrasCerradasSinPlan,
+  detectarObrasSinPlan,
+  type PlanDotacionVariacion,
+} from "@/features/plan-dotacion/services/resolver-dotacion";
+import { getSaldoInicialPorObra } from "@/features/headcount/services/plan-obra-dotacion";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +46,7 @@ export default async function DotacionPage() {
   const supabase = createServiceClient();
   const { data: obras } = await supabase
     .from("obras")
-    .select("id, nombre, tipo, comuna, unidades, activa")
+    .select("id, nombre, tipo, comuna, unidades, activa, fin_obra")
     .order("nombre");
 
   // Para cada obra, ¿tiene AL MENOS un registro de headcount con origen manual/buk_real?
@@ -58,6 +65,44 @@ export default async function DotacionPage() {
     }
   }
 
+  // --- Estado del Plan de Dotación (Fase 2, 24-sep-2026) ---
+  const { data: ultimaLectura } = await supabase
+    .from("plan_dotacion_lecturas")
+    .select(
+      "fuente_archivo, leido_at, filas_plan, filas_eventos, errores, advertencias",
+    )
+    .order("leido_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { data: planRows } = await supabase
+    .from("plan_dotacion")
+    .select("obra_id, periodo, variacion_neta");
+  const variaciones: PlanDotacionVariacion[] = (planRows ?? []).map((r) => ({
+    obraId: r.obra_id,
+    periodo: r.periodo,
+    variacionNeta: r.variacion_neta,
+  }));
+
+  const hoyStr = new Date().toISOString().slice(0, 10);
+  const obrasParaAlerta = (obras ?? []).map((o) => ({
+    id: o.id as string,
+    nombre: o.nombre as string,
+    finObra: o.fin_obra as string | null,
+  }));
+  const dotacionRealPorObra = await getSaldoInicialPorObra();
+  const alertasCierre = detectarObrasCerradasSinPlan({
+    obras: obrasParaAlerta,
+    variaciones,
+    dotacionRealPorObra,
+    hoyStr,
+  });
+  const obrasSinPlan = detectarObrasSinPlan({
+    obras: obrasParaAlerta,
+    variaciones,
+    hoyStr,
+  });
+
   return (
     <div className="mx-auto max-w-5xl p-8">
       <h1 className="text-2xl font-semibold text-slate-900">
@@ -68,6 +113,72 @@ export default async function DotacionPage() {
         (Fase 6) — compara contra obras similares (mismo tipo, unidades ±30%)
         con histórico real.
       </p>
+
+      <section className="mt-6 space-y-3 rounded-md border border-slate-200 p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-medium text-slate-900">
+              Plan de Dotación
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Fuente única de la dotación futura — se lee desde SharePoint
+              (carpeta &quot;Flujo de Caja/Plan Dotación&quot;) en cada
+              &quot;Actualizar reporte&quot;.
+            </p>
+          </div>
+          <DescargarPlantillaButton />
+        </div>
+
+        {ultimaLectura ? (
+          <p className="text-xs text-slate-600">
+            Último archivo leído:{" "}
+            <strong>{ultimaLectura.fuente_archivo}</strong> —{" "}
+            {new Date(ultimaLectura.leido_at).toLocaleString("es-CL")} —{" "}
+            {ultimaLectura.filas_plan} fila(s) de plan,{" "}
+            {ultimaLectura.filas_eventos} evento(s).
+          </p>
+        ) : (
+          <p className="text-xs text-[var(--warn)]">
+            Todavía no se ha leído ningún archivo — descarga la plantilla,
+            complétala y súbela a SharePoint. El próximo &quot;Actualizar
+            reporte&quot; la va a leer.
+          </p>
+        )}
+
+        {ultimaLectura?.errores != null &&
+          Array.isArray(ultimaLectura.errores) &&
+          ultimaLectura.errores.length > 0 && (
+            <ul className="list-disc pl-5 text-xs text-[var(--err)]">
+              {(ultimaLectura.errores as string[]).map((e, i) => (
+                <li key={i}>{e}</li>
+              ))}
+            </ul>
+          )}
+
+        {alertasCierre.length > 0 && (
+          <div className="rounded border border-[var(--err)] bg-red-50 p-2 text-xs text-[var(--err)]">
+            <p className="font-medium">
+              {alertasCierre.length} obra(s) ya pasaron su fecha de término y
+              siguen con dotación sin plan de cierre:
+            </p>
+            <ul className="mt-1 list-disc pl-5">
+              {alertasCierre.map((a) => (
+                <li key={a.obraId}>
+                  {a.obraNombre} — terminó el {a.finObra.slice(0, 10)}, sigue
+                  con {a.dotacionActual} persona(s)
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {obrasSinPlan.length > 0 && (
+          <p className="text-xs text-slate-500">
+            {obrasSinPlan.length} obra(s) vigentes sin plan cargado (dotación se
+            mantiene plana): {obrasSinPlan.map((o) => o.nombre).join(", ")}
+          </p>
+        )}
+      </section>
 
       <div className="mt-6">
         <UploadHeadcountManualForm />

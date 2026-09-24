@@ -19,6 +19,7 @@ import {
 import { runForecastModel } from "@/features/headcount/forecast-model/run";
 import { METODO_FORECAST_ACTUAL } from "@/features/headcount/forecast-model/curve";
 import { runBukSnapshot } from "@/features/headcount/buk-sync/sync";
+import { syncPlanDotacion } from "@/features/plan-dotacion/services/sync-plan-dotacion";
 import { calcularBeneficiosDelMes, eventosPromedio6Meses } from "./beneficios";
 
 /**
@@ -737,6 +738,24 @@ export async function refreshCashFlowReport(
     });
   }
 
+  // Plan de Dotación del usuario (SharePoint) — fuente ÚNICA de la
+  // dotación FUTURA desde la Fase 2 (24-sep-2026, ver dotacion-total.ts).
+  // Reemplaza total y completo (borra + inserta) `plan_dotacion`/
+  // `plan_eventos` con lo que trae el archivo cada vez.
+  const planDotacionResult = await syncPlanDotacion();
+  if (planDotacionResult.estado === "error") {
+    errores.push({
+      fuente: "Plan de Dotación",
+      mensaje: planDotacionResult.errores.join("; "),
+    });
+  } else if (planDotacionResult.estado === "parcial") {
+    errores.push({
+      fuente: `Plan de Dotación (${planDotacionResult.archivoUsado ?? "archivo"})`,
+      mensaje: planDotacionResult.errores.join("; "),
+    });
+  }
+  if (planDotacionResult.archivoUsado) documentosIngeridos += 1;
+
   const { obrasEstimadas } = await estimarDotacionFaltante(supabase);
 
   const meses: Date[] = [];
@@ -851,6 +870,33 @@ export async function refreshCashFlowReport(
   // aguinaldo queda fuera del rango, su % aprendido simplemente no lo
   // descuenta (degradación segura, no un error).
   const aguinaldoAnticipoPorPeriodo = new Map<string, number>();
+
+  // Eventos del Plan de Dotación (Fase 2, 24-sep-2026) — extraordinarios
+  // (bono de término de obra, montos puntuales) que el usuario carga en la
+  // hoja "Eventos" de su Plan de Dotación en SharePoint (ver plan_eventos,
+  // sync-plan-dotacion.ts). Tabla chica, se carga entera de una vez.
+  interface PlanEventoRow {
+    concepto: "remuneracion" | "anticipo";
+    modo: "monto_total" | "por_persona";
+    monto: number;
+    poblacion: "rg" | "rp" | null;
+  }
+  const eventosPorPeriodo = new Map<string, PlanEventoRow[]>();
+  {
+    const { data: eventosRows } = await supabase
+      .from("plan_eventos")
+      .select("periodo, concepto, modo, monto, poblacion");
+    for (const fila of eventosRows ?? []) {
+      const periodo = fila.periodo as string;
+      if (!eventosPorPeriodo.has(periodo)) eventosPorPeriodo.set(periodo, []);
+      eventosPorPeriodo.get(periodo)!.push({
+        concepto: fila.concepto,
+        modo: fila.modo,
+        monto: Number(fila.monto),
+        poblacion: fila.poblacion,
+      });
+    }
+  }
 
   let mesesRecalculados = 0;
   for (const mes of meses) {
@@ -1004,6 +1050,41 @@ export async function refreshCashFlowReport(
       cotizacion: calculado.cotizacion,
       sence: calculado.sence,
     };
+
+    // Eventos del Plan de Dotación (bono de término de obra, montos
+    // puntuales — ver plan_eventos) — SOLO se suman a Remuneración/Anticipo
+    // cuando ese concepto NO es real: un mes real ya trae el extraordinario
+    // pagado adentro, sumarlo aparte lo duplicaría (mismo criterio que el
+    // aguinaldo, ver engine.ts). "por_persona" usa la dotación TOTAL de la
+    // compañía (o su split RG/RP) — simplificación conocida: hoy no hay
+    // dotación proyectada POR OBRA disponible en este loop para el caso de
+    // un evento atado a una obra específica.
+    for (const concepto of ["remuneracion", "anticipo"] as const) {
+      if (calculadoPorConcepto[concepto].esReal) continue;
+      const eventosDelMes = eventosPorPeriodo.get(periodoStr) ?? [];
+      let montoEventos = 0;
+      for (const evento of eventosDelMes) {
+        if (evento.concepto !== concepto) continue;
+        if (evento.modo === "monto_total") {
+          montoEventos += evento.monto;
+          continue;
+        }
+        const dotacionPersona =
+          evento.poblacion === "rg"
+            ? dotacionRgMes
+            : evento.poblacion === "rp"
+              ? dotacionRpMes
+              : (dotacionActual ?? 0);
+        montoEventos += evento.monto * dotacionPersona;
+      }
+      if (montoEventos !== 0) {
+        calculadoPorConcepto[concepto] = {
+          monto: calculadoPorConcepto[concepto].monto + montoEventos,
+          esReal: false,
+          metodoCalculo: `${calculadoPorConcepto[concepto].metodoCalculo}_mas_eventos`,
+        };
+      }
+    }
 
     // Ningún método preservado (`manual_override` o
     // `ingesta_excel_historico` — ver METODOS_PRESERVADOS) se pisa en el
