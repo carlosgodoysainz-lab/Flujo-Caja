@@ -175,12 +175,32 @@ export async function getPlanObraConDotacion(
     .select("obra_id, periodo, variacion_neta")
     .eq("unidad", "obra");
   const variacionPorObraYPeriodo = new Map<string, number>();
+  const rangoPlanPorObra = new Map<string, { desde: string; hasta: string }>();
   for (const v of planRows ?? []) {
     if (!v.obra_id) continue;
-    variacionPorObraYPeriodo.set(
-      `${v.obra_id}::${periodoDeFecha(v.periodo)}`,
-      v.variacion_neta,
-    );
+    const periodo = periodoDeFecha(v.periodo);
+    variacionPorObraYPeriodo.set(`${v.obra_id}::${periodo}`, v.variacion_neta);
+    const rango = rangoPlanPorObra.get(v.obra_id);
+    rangoPlanPorObra.set(v.obra_id, {
+      desde: !rango || periodo < rango.desde ? periodo : rango.desde,
+      hasta: !rango || periodo > rango.hasta ? periodo : rango.hasta,
+    });
+  }
+
+  // BUG REAL corregido 24-sep-2026 (visto en vivo: la hoja "Plan de Obra
+  // (Horizontal)" dejaba en blanco las 8 obras nuevas — Vista Llacolén A,
+  // Vistamar, DS19... — y Σ obras quedaba 1.097 bajo el total en ago-27):
+  // una obra CON plan pero sin ningún real en Buk todavía no tenía ancla,
+  // mientras `getDotacionTotalPorPeriodo` sí sumaba su plan. Mismo
+  // criterio que el total: parte de 0 en el período real más reciente y
+  // acumula su plan. Sin plan y sin real sigue sin ancla (no se inventa).
+  for (const obraId of rangoPlanPorObra.keys()) {
+    if (!ultimoRealPorObra.has(obraId)) {
+      ultimoRealPorObra.set(obraId, {
+        periodo: periodoGlobalMasReciente,
+        total: 0,
+      });
+    }
   }
 
   const desde = periodoDeFecha(periodoDesde.toISOString().slice(0, 10));
@@ -189,8 +209,22 @@ export async function getPlanObraConDotacion(
   const filas: PlanObraDotacionFila[] = [];
   for (const obra of obras) {
     if (!obra.inicio_obra) continue;
-    const inicioPeriodo = periodoDeFecha(obra.inicio_obra);
     const duracion = obra.dur_obra_meses ?? 24; // fallback defensivo si no hay duración cargada
+    // El recorrido cubre la duración Gespro de la obra Y todo mes con plan
+    // cargado — el Plan de Dotación del usuario puede empezar antes del
+    // inicio Gespro (ej. DS19: plan desde dic-26, Gespro jun-27) o seguir
+    // con bajas después del fin Gespro (ej. Jorge Edwards). El total de la
+    // compañía (`getDotacionTotalPorPeriodo`) suma TODO el plan sin recortar
+    // por Gespro; si esta hoja recortara, Σ obras no cuadraría con el total.
+    const rangoPlan = rangoPlanPorObra.get(obra.id);
+    const inicioGespro = periodoDeFecha(obra.inicio_obra);
+    const finGespro = sumarMesesAPeriodo(inicioGespro, duracion - 1);
+    const inicioPeriodo =
+      rangoPlan && rangoPlan.desde < inicioGespro
+        ? rangoPlan.desde
+        : inicioGespro;
+    const finPeriodo =
+      rangoPlan && rangoPlan.hasta > finGespro ? rangoPlan.hasta : finGespro;
     const ultimoReal = ultimoRealPorObra.get(obra.id) ?? null;
     let acumuladoProyectado = ultimoReal?.total ?? null;
 
@@ -199,11 +233,10 @@ export async function getPlanObraConDotacion(
     // `periodoDesde` empiece más adelante; solo se descarta la FILA fuera
     // de rango, nunca el paso de acumulación.
     for (
-      let mes = 0, guard = 0;
-      mes < duracion && guard < 240;
-      mes++, guard++
+      let periodo = inicioPeriodo, guard = 0;
+      periodo <= finPeriodo && guard < 240;
+      periodo = sumarMesesAPeriodo(periodo, 1), guard++
     ) {
-      const periodo = sumarMesesAPeriodo(inicioPeriodo, mes);
       const key = `${obra.id}::${periodo}`;
       const dotacionReal = dotacionRealPorObraYPeriodo.get(key) ?? null;
       const variacionNeta = variacionPorObraYPeriodo.get(key) ?? null;
