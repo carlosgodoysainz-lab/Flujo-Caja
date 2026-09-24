@@ -148,6 +148,7 @@ export async function getDotacionTotalPorPeriodo(
         .from("plan_dotacion")
         .select("periodo, variacion_neta")
         .gt("periodo", ultimoPeriodoReal)
+        .order("periodo")
         .range(desde, desde + TAMANO_PAGINA_VARIACIONES - 1);
       if (!pagina || pagina.length === 0) break;
       variaciones.push(...pagina);

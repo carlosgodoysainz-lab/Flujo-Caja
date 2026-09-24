@@ -60,7 +60,11 @@ export async function getPlanObraConDotacion(
   // silencio al tope server-side (~1000 filas) — `buk_dotacion_snapshots`
   // tiene ~23.000, el mismo patrón de bug ya encontrado y corregido 3
   // veces en otros archivos (ver `dotacion-total.ts`, `refresh.ts`). Fix:
-  // paginar con `.range()` hasta agotar la tabla.
+  // paginar con `.range()` hasta agotar la tabla. BUG REAL corregido
+  // 24-sep-2026: sin `.order()` antes de `.range()`, Postgres no garantiza
+  // el mismo orden entre llamadas — cada página puede saltarse o repetir
+  // filas (confirmado: una obra con 148 filas reales traía solo 25 así).
+  // El orden en sí no importa para el cálculo, solo que sea ESTABLE.
   const snapshots: {
     obra_id: string | null;
     snapshot_date: string;
@@ -72,6 +76,8 @@ export async function getPlanObraConDotacion(
       .from("buk_dotacion_snapshots")
       .select("obra_id, snapshot_date, activos")
       .not("obra_id", "is", null)
+      .order("snapshot_date")
+      .order("obra_id")
       .range(desde, desde + TAMANO_PAGINA_SNAPSHOTS - 1);
     if (!pagina || pagina.length === 0) break;
     snapshots.push(...pagina);
@@ -190,7 +196,8 @@ export async function getSaldoInicialPorObra(): Promise<Map<string, number>> {
   const supabase = createServiceClient();
   // BUG REAL corregido 24-sep-2026: mismo patrón de truncamiento silencioso
   // que `getPlanObraConDotacion` — ver ese comentario. Paginado con
-  // `.range()`.
+  // `.range()`. Y con `.order()` estable antes — ver el comentario
+  // detallado en `getPlanObraConDotacion` arriba (mismo bug, misma tabla).
   const snapshots: {
     obra_id: string | null;
     snapshot_date: string;
@@ -202,6 +209,8 @@ export async function getSaldoInicialPorObra(): Promise<Map<string, number>> {
       .from("buk_dotacion_snapshots")
       .select("obra_id, snapshot_date, activos")
       .not("obra_id", "is", null)
+      .order("snapshot_date")
+      .order("obra_id")
       .range(desde, desde + TAMANO_PAGINA_SNAPSHOTS - 1);
     if (!pagina || pagina.length === 0) break;
     snapshots.push(...pagina);

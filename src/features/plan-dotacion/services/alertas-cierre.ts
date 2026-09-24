@@ -20,13 +20,16 @@ export async function getAlertasObrasCerradasSinPlan(): Promise<
     .select("id, nombre, fin_obra");
 
   // Paginado con `.range()` — mismo patrón que `getSaldoInicialPorObra`
-  // (PostgREST trunca en silencio a ~1000 filas).
+  // (PostgREST trunca en silencio a ~1000 filas). `.order()` estable antes
+  // del `.range()`: BUG REAL confirmado en la misma tabla de snapshots
+  // (24-sep-2026) — sin orden, Postgres puede saltarse filas entre páginas.
   const variaciones: PlanDotacionVariacion[] = [];
   const TAMANO_PAGINA = 1000;
   for (let desde = 0; ; desde += TAMANO_PAGINA) {
     const { data: pagina } = await supabase
       .from("plan_dotacion")
       .select("obra_id, periodo, variacion_neta")
+      .order("periodo")
       .range(desde, desde + TAMANO_PAGINA - 1);
     if (!pagina || pagina.length === 0) break;
     for (const r of pagina)

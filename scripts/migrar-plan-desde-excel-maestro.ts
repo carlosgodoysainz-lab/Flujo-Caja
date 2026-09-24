@@ -84,6 +84,8 @@ async function main() {
       .from("buk_dotacion_snapshots")
       .select("obra_id, snapshot_date, activos")
       .not("obra_id", "is", null)
+      .order("snapshot_date")
+      .order("obra_id")
       .range(desde, desde + 999);
     if (!pagina || pagina.length === 0) break;
     snapshots.push(...(pagina as typeof snapshots));
