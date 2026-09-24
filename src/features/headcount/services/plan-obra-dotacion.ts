@@ -85,18 +85,43 @@ export async function getPlanObraConDotacion(
   }
 
   const dotacionRealPorObraYPeriodo = new Map<string, number>();
+  let periodoGlobalMasReciente = "";
   for (const s of snapshots) {
     if (!s.obra_id) continue;
-    const key = `${s.obra_id}::${periodoDeFecha(s.snapshot_date)}`;
+    const periodo = periodoDeFecha(s.snapshot_date);
+    const key = `${s.obra_id}::${periodo}`;
     dotacionRealPorObraYPeriodo.set(
       key,
       (dotacionRealPorObraYPeriodo.get(key) ?? 0) + s.activos,
     );
+    if (periodo > periodoGlobalMasReciente) periodoGlobalMasReciente = periodo;
   }
 
   // Último período REAL por obra — punto de anclaje para proyectar hacia
   // adelante con el plan (mismo criterio que `getDotacionTotalPorPeriodo`,
   // ahora a nivel de obra individual).
+  //
+  // BUG REAL corregido 24-sep-2026: anclar SIEMPRE en el máximo histórico
+  // de la obra (sin importar qué tan viejo) hacía que una obra que dejó de
+  // aparecer en Buk (obra cerrada, o área renombrada/eliminada) siguiera
+  // proyectando hacia adelante desde su última dotación conocida, aunque
+  // fuera de hace años (ej. "General Mackenna 1": último real de
+  // 2023-03-01, obra que en Gespro recién parte en 2028).
+  //
+  // Tolerancia de 3 meses (24-sep-2026, auditoría de este mismo fix):
+  // la primera versión anclaba a 0 apenas la obra quedaba 1 mes detrás del
+  // período global más reciente — eso confunde "la obra cerró" con "Buk
+  // no tuvo novedades para esta obra puntual ese mes" (el snapshot mensual
+  // reescribe TODAS las obras activas de una vez, pero una obra sin
+  // movimiento ese mes puede simplemente no generar fila). Con 3+ meses
+  // consecutivos sin ningún dato real, ya no es un hueco puntual — recién
+  // ahí se asume vigente = 0. Una obra que JAMÁS tuvo dato real sigue sin
+  // anclaje (no se inventa un 0), igual que antes.
+  const TOLERANCIA_MESES_SIN_DATO_REAL = 3;
+  const umbralAnclaje = sumarMesesAPeriodo(
+    periodoGlobalMasReciente,
+    -TOLERANCIA_MESES_SIN_DATO_REAL,
+  );
   const ultimoRealPorObra = new Map<
     string,
     { periodo: string; total: number }
@@ -106,6 +131,14 @@ export async function getPlanObraConDotacion(
     const actual = ultimoRealPorObra.get(obraId);
     if (!actual || periodo > actual.periodo) {
       ultimoRealPorObra.set(obraId, { periodo, total });
+    }
+  }
+  for (const [obraId, historico] of ultimoRealPorObra) {
+    if (historico.periodo < umbralAnclaje) {
+      ultimoRealPorObra.set(obraId, {
+        periodo: periodoGlobalMasReciente,
+        total: 0,
+      });
     }
   }
 
