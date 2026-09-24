@@ -28,7 +28,7 @@ export default async function DotacionPage() {
   const supabase = createServiceClient();
   const { data: obras } = await supabase
     .from("obras")
-    .select("id, nombre, tipo, comuna, unidades, fin_obra")
+    .select("id, nombre, tipo, comuna, unidades, inicio_obra, fin_obra")
     .order("nombre");
 
   const { data: ultimaLectura } = await supabase
@@ -148,8 +148,9 @@ export default async function DotacionPage() {
             <TableHead>Tipo</TableHead>
             <TableHead>Comuna</TableHead>
             <TableHead>Unidades</TableHead>
+            <TableHead>Fecha Inicio Obra</TableHead>
             <TableHead>Dotación real (Buk)</TableHead>
-            <TableHead>Plan cargado</TableHead>
+            <TableHead>Forecast de Dotación</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -162,14 +163,21 @@ export default async function DotacionPage() {
                 <TableCell>{obra.tipo}</TableCell>
                 <TableCell>{obra.comuna}</TableCell>
                 <TableCell>{obra.unidades}</TableCell>
+                <TableCell>
+                  {obra.inicio_obra
+                    ? String(obra.inicio_obra).slice(0, 10)
+                    : "—"}
+                </TableCell>
                 <TableCell>{dotacionRealPorObra.get(obra.id) ?? "—"}</TableCell>
                 <TableCell>
                   {cerradaSinPlan ? (
-                    <Badge variant="destructive">Vencida sin plan</Badge>
+                    <Badge variant="destructive">
+                      Vencida sin Forecast de Dotación
+                    </Badge>
                   ) : tienePlan ? (
-                    <Badge variant="default">Con plan</Badge>
+                    <Badge variant="default">Con Forecast de Dotación</Badge>
                   ) : (
-                    <Badge variant="outline">Sin plan</Badge>
+                    <Badge variant="outline">Sin Forecast de Dotación</Badge>
                   )}
                 </TableCell>
               </TableRow>
@@ -180,8 +188,9 @@ export default async function DotacionPage() {
 
       {obrasSinPlan.length > 0 && (
         <p className="mt-3 text-xs text-slate-500">
-          {obrasSinPlan.length} obra(s) vigentes sin plan cargado — su dotación
-          se mantiene plana (última real) hasta que completes su plan.
+          {obrasSinPlan.length} obra(s) vigentes sin Forecast de Dotación
+          cargado — su dotación se mantiene plana (última real) hasta que
+          completes su plan.
         </p>
       )}
     </div>
