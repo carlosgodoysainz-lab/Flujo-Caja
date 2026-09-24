@@ -84,15 +84,41 @@ export async function getPlanObraConDotacion(
     if (pagina.length < TAMANO_PAGINA_SNAPSHOTS) break;
   }
 
-  const dotacionRealPorObraYPeriodo = new Map<string, number>();
-  let periodoGlobalMasReciente = "";
+  // BUG REAL corregido 24-sep-2026 (visto en vivo: agosto-2026 salía con
+  // dotación imposible — 1.167, 1.229, 1.315 en obras de unas 200-300
+  // unidades): sumaba TODOS los snapshots de una obra dentro del mismo
+  // mes calendario, y agosto tenía más de 1 snapshot (el cron mensual +
+  // un pull en vivo de "Actualizar reporte" más tarde ese mismo mes) —
+  // sumar 2 fotos de la misma gente duplica a quien sigue activo en
+  // ambas. Mismo bug ya corregido 17-ago-2026 en `dotacion-total.ts`
+  // (`getDotacionTotalPorPeriodo`), nunca replicado acá: primero se suma
+  // `activos` por FECHA EXACTA, después cada mes se queda con la fecha
+  // más reciente que caiga en ese mes — nunca con la suma de varias.
+  const sumaPorObraYFechaExacta = new Map<string, number>();
   for (const s of snapshots) {
     if (!s.obra_id) continue;
-    const periodo = periodoDeFecha(s.snapshot_date);
-    const key = `${s.obra_id}::${periodo}`;
-    dotacionRealPorObraYPeriodo.set(
+    const key = `${s.obra_id}::${s.snapshot_date}`;
+    sumaPorObraYFechaExacta.set(
       key,
-      (dotacionRealPorObraYPeriodo.get(key) ?? 0) + s.activos,
+      (sumaPorObraYFechaExacta.get(key) ?? 0) + s.activos,
+    );
+  }
+  const maxFechaPorObraYPeriodo = new Map<string, string>();
+  for (const key of sumaPorObraYFechaExacta.keys()) {
+    const [obraId, fecha] = key.split("::");
+    const periodoKey = `${obraId}::${periodoDeFecha(fecha)}`;
+    const actual = maxFechaPorObraYPeriodo.get(periodoKey);
+    if (!actual || fecha > actual)
+      maxFechaPorObraYPeriodo.set(periodoKey, fecha);
+  }
+  const dotacionRealPorObraYPeriodo = new Map<string, number>();
+  let periodoGlobalMasReciente = "";
+  for (const [periodoKey, fecha] of maxFechaPorObraYPeriodo) {
+    const [obraId] = periodoKey.split("::");
+    const periodo = periodoDeFecha(fecha);
+    dotacionRealPorObraYPeriodo.set(
+      `${obraId}::${periodo}`,
+      sumaPorObraYFechaExacta.get(`${obraId}::${fecha}`) ?? 0,
     );
     if (periodo > periodoGlobalMasReciente) periodoGlobalMasReciente = periodo;
   }
