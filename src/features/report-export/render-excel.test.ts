@@ -331,9 +331,27 @@ describe("renderReportExcel", () => {
 
     const filaJulio = planObra!.getRow(3).values as unknown[];
     expect(filaJulio).toContain("Sin plan");
+
+    // Hoja horizontal (24-sep-2026): una fila por obra, una columna por
+    // mes — mismo formato que el "Headcount Plan de Obra" del Excel
+    // tradicional del usuario.
+    const horizontal = wb.getWorksheet("Plan de Obra (Horizontal)");
+    expect(horizontal).toBeDefined();
+    const headerHorizontal = horizontal!.getRow(1).values as unknown[];
+    expect(headerHorizontal).toContain("2026-06");
+    expect(headerHorizontal).toContain("2026-07");
+
+    const filaObraAlfa = horizontal!.getRow(2);
+    expect(filaObraAlfa.getCell(1).value).toBe("Obra Alfa");
+    // Columna 9 = primer período (2026-06), columna 10 = segundo (2026-07).
+    expect(filaObraAlfa.getCell(9).value).toBe(50);
+    expect(filaObraAlfa.getCell(10).value).toBe("");
+    expect(
+      (filaObraAlfa.getCell(10).fill as ExcelJS.FillPattern).fgColor,
+    ).toEqual({ argb: "FFD9D9D9" });
   });
 
-  it("sin planObraDotacion, NO genera la hoja 'Plan de Obra'", async () => {
+  it("sin planObraDotacion, NO genera las hojas 'Plan de Obra' ni 'Plan de Obra (Horizontal)'", async () => {
     const buffer = await renderReportExcel({
       serie: [],
       kpis: KPIS,
@@ -345,6 +363,7 @@ describe("renderReportExcel", () => {
 
     const wb = await leerWorkbook(buffer);
     expect(wb.getWorksheet("Plan de Obra")).toBeUndefined();
+    expect(wb.getWorksheet("Plan de Obra (Horizontal)")).toBeUndefined();
   });
 
   it("ya no genera la hoja 'Proyección Headcount' ni la hoja técnica '_fcn_baseline' (retiradas en la Fase 3, 24-sep-2026 — reemplazadas por el Plan de Dotación en SharePoint)", async () => {

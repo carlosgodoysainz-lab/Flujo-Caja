@@ -718,6 +718,92 @@ export async function renderReportExcel(params: {
       color: { argb: "FF94A3B8" },
     };
     void notaPlanObra;
+
+    // --- Hoja "Plan de Obra (Horizontal)" — mismo dato de arriba, en el
+    // formato horizontal del Excel tradicional del usuario ("Headcount
+    // Plan de Obra": una fila por obra, una columna por mes) — pedido
+    // explícito del usuario 24-sep-2026 tras comparar ambos archivos: "me
+    // servía mucho ver el plan de obra proyectado con headcount
+    // horizontal". Celda = Dotación Proyectada (acumulada, absoluta);
+    // gris = mes sin variación cargada (dotación se mantiene plana).
+    const periodosOrdenados = [
+      ...new Set(planObraDotacion.map((f) => f.periodo)),
+    ].sort();
+    const filasPorObra = new Map<string, PlanObraDotacionFila[]>();
+    for (const fila of planObraDotacion) {
+      if (!filasPorObra.has(fila.obraId)) filasPorObra.set(fila.obraId, []);
+      filasPorObra.get(fila.obraId)!.push(fila);
+    }
+
+    const planObraHorizontal = workbook.addWorksheet("Plan de Obra (Horizontal)");
+    const headerHorizontal = planObraHorizontal.addRow([
+      "Obra",
+      "Comuna",
+      "Tipo",
+      "Cliente",
+      "Unidades",
+      "Inicio Obra",
+      "Fin Obra",
+      "Duración (meses)",
+      ...periodosOrdenados.map((p) => p.slice(0, 7)),
+    ]);
+    headerHorizontal.eachCell((cell) => {
+      cell.font = {
+        name: FUENTE_MARCA,
+        bold: true,
+        color: { argb: "FFFFFFFF" },
+      };
+      cell.fill = FILL_HEADER;
+    });
+
+    // Orden de filas: mismo criterio que la hoja "Plan de Obra" (inicio de
+    // obra) — se conserva el orden en que aparecen en `planObraDotacion`.
+    const obraIdsEnOrden = [
+      ...new Set(planObraDotacion.map((f) => f.obraId)),
+    ];
+    for (const obraId of obraIdsEnOrden) {
+      const filasObra = filasPorObra.get(obraId)!;
+      const filaPorPeriodo = new Map(filasObra.map((f) => [f.periodo, f]));
+      const primera = filasObra[0];
+
+      const row = planObraHorizontal.addRow([
+        primera.obraNombre,
+        primera.comuna ?? "",
+        primera.tipo ?? "",
+        primera.cliente ?? "",
+        primera.unidades ?? "",
+        primera.inicioObra ?? "",
+        primera.finObra ?? "",
+        primera.durObraMeses ?? "",
+        ...periodosOrdenados.map((p) => filaPorPeriodo.get(p)?.dotacionProyectada ?? ""),
+      ]);
+      row.font = { name: FUENTE_MARCA };
+
+      periodosOrdenados.forEach((periodo, i) => {
+        const dato = filaPorPeriodo.get(periodo);
+        if (dato?.origenVariacion === "sin_plan") {
+          row.getCell(9 + i).fill = FILL_SIN_DATO;
+        }
+      });
+    }
+
+    planObraHorizontal.getColumn(1).width = 28;
+    planObraHorizontal.getColumn(2).width = 16;
+    planObraHorizontal.getColumn(3).width = 10;
+    planObraHorizontal.getColumn(4).width = 12;
+    for (let i = 9; i <= 8 + periodosOrdenados.length; i++) {
+      planObraHorizontal.getColumn(i).width = 9;
+    }
+
+    planObraHorizontal.addRow([]);
+    planObraHorizontal.addRow([
+      "Cada celda es la Dotación Proyectada (acumulada) de esa obra ese mes — el real más reciente de Buk más la variación acumulada del Plan de Dotación. Gris = ese mes no tiene ninguna variación cargada, la dotación se mantiene plana (última real), no se inventa una curva.",
+    ]).font = {
+      name: FUENTE_MARCA,
+      italic: true,
+      size: 9,
+      color: { argb: "FF94A3B8" },
+    };
   }
 
   // La hoja "Proyección Headcount" (carga manual re-subida) y su hoja
