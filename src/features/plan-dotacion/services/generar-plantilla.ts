@@ -46,6 +46,7 @@ function etiquetaPeriodoCorta(periodo: string): string {
 export interface ObraParaPlantilla {
   id: string;
   nombre: string;
+  inicioObra: string | null;
   finObra: string | null;
 }
 
@@ -95,7 +96,7 @@ export async function generarPlantillaPlanDotacion(params: {
   const lineas = [
     'Completa la hoja "Plan": una fila por obra, una columna por mes. El valor es la VARIACIÓN NETA de ese mes (altas − bajas), NO la dotación total.',
     "Deja la celda VACÍA si no tienes plan para esa obra/mes — el sistema mantiene la dotación plana (última real), no inventa un 0.",
-    'La columna "Dotación real (Buk, hoy)" es solo informativa — no la edites, no participa en ningún cálculo.',
+    'Las columnas "Fecha Inicio Obra" y "Dotación real (Buk, hoy)" son solo informativas — no las edites, no participan en ningún cálculo.',
     'La fila "Oficina Central" es para la dotación fuera de obra (bodega, taller central, administración).',
     'Completa la hoja "Eventos" para extraordinarios: bono de término de obra, montos puntuales que no siguen la fórmula normal. "Modo" = "monto_total" (un monto fijo ese mes) o "por_persona" (el monto se multiplica por la dotación proyectada de la obra/población).',
     '"Moneda" = "CLP" (pesos, por defecto si la dejas vacía) o "UF": un monto en UF se convierte a pesos con la UF del mes de pago (real, o proyectada desde la última UF real). Úsala para pagos que se reajustan en UF, como el bono rol general de enero y julio.',
@@ -114,6 +115,7 @@ export async function generarPlantillaPlanDotacion(params: {
   const headerRow = [
     "Obra ID",
     "Obra",
+    "Fecha Inicio Obra",
     "Dotación real (Buk, hoy)",
     ...periodos.map(etiquetaPeriodoCorta),
   ];
@@ -124,24 +126,41 @@ export async function generarPlantillaPlanDotacion(params: {
   });
   planSheet.getColumn(1).hidden = true;
 
-  // Orden top-down por Dotación real (Buk, hoy) — pedido explícito del
-  // usuario 24-sep-2026: las obras con más gente arriba, las sin dato
-  // (obra muy nueva, sin snapshot Buk todavía) al final.
+  /** true si la obra ya tiene alguna variación cargada en el plan, en cualquier mes. */
+  function tienePlanCargado(obraId: string): boolean {
+    return periodos.some((p) => planExistentePorClave.has(`${obraId}::${p}`));
+  }
+
+  // Orden top-down — pedido explícito del usuario 24-sep-2026:
+  // 1° las obras con dotación real HOY (Buk), de mayor a menor;
+  // 2° entre las que no tienen dotación real hoy, primero las que SÍ
+  //    tendrán dotación en el futuro (ya tienen alguna variación cargada
+  //    en el plan), ordenadas por fecha de inicio más próxima;
+  // 3° el resto (sin dato real ni plan), también por fecha de inicio.
   const obrasVigentes = obras
     .filter((o) => !o.finObra || o.finObra >= generadoEn.toISOString().slice(0, 10))
     .sort((a, b) => {
       const da = dotacionRealPorObra.get(a.id);
       const db = dotacionRealPorObra.get(b.id);
-      if (da == null && db == null) return 0;
-      if (da == null) return 1;
-      if (db == null) return -1;
-      return db - da;
+      if (da != null || db != null) {
+        if (da == null) return 1;
+        if (db == null) return -1;
+        return db - da;
+      }
+      const pa = tienePlanCargado(a.id);
+      const pb = tienePlanCargado(b.id);
+      if (pa !== pb) return pa ? -1 : 1;
+      if (a.inicioObra == null && b.inicioObra == null) return 0;
+      if (a.inicioObra == null) return 1;
+      if (b.inicioObra == null) return -1;
+      return a.inicioObra < b.inicioObra ? -1 : a.inicioObra > b.inicioObra ? 1 : 0;
     });
 
   for (const obra of obrasVigentes) {
     const fila: (string | number)[] = [
       obra.id,
       obra.nombre,
+      obra.inicioObra ?? "",
       dotacionRealPorObra.get(obra.id) ?? "",
     ];
     for (const periodo of periodos) {
@@ -150,13 +169,14 @@ export async function generarPlantillaPlanDotacion(params: {
     }
     const row = planSheet.addRow(fila);
     row.getCell(3).fill = FILL_INFO;
+    row.getCell(4).fill = FILL_INFO;
     row.font = { name: FUENTE };
   }
 
   // Fila Oficina Central — obraId vacío (columna oculta), identificada
   // por nombre exacto (ver `parse-plan-dotacion.ts`, FILA_OFICINA_CENTRAL).
   {
-    const fila: (string | number)[] = ["", "Oficina Central", ""];
+    const fila: (string | number)[] = ["", "Oficina Central", "", ""];
     for (const periodo of periodos) {
       const valor = planExistentePorClave.get(`::${periodo}`);
       fila.push(valor ?? "");
@@ -166,8 +186,9 @@ export async function generarPlantillaPlanDotacion(params: {
   }
 
   planSheet.getColumn(2).width = 28;
-  planSheet.getColumn(3).width = 20;
-  for (let i = 4; i <= headerRow.length; i++) {
+  planSheet.getColumn(3).width = 16;
+  planSheet.getColumn(4).width = 20;
+  for (let i = 5; i <= headerRow.length; i++) {
     planSheet.getColumn(i).width = 10;
   }
 

@@ -72,7 +72,7 @@ async function main() {
   );
   const { data: obras, error } = await supabase
     .from("obras")
-    .select("id, nombre, fin_obra")
+    .select("id, nombre, inicio_obra, fin_obra")
     .order("nombre");
   if (error || !obras) throw new Error(`No se pudo leer obras: ${error?.message}`);
 
@@ -211,6 +211,7 @@ async function main() {
   const obrasPlantilla = obras.map((o) => ({
     id: o.id as string,
     nombre: o.nombre as string,
+    inicioObra: o.inicio_obra as string | null,
     finObra: o.fin_obra as string | null,
   }));
   const vencidasConPlan = obrasPlantilla.filter(

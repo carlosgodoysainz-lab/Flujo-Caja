@@ -26,7 +26,7 @@ export async function descargarPlantillaPlanDotacion(): Promise<DescargarPlantil
   try {
     const { data: obras } = await supabase
       .from("obras")
-      .select("id, nombre, fin_obra")
+      .select("id, nombre, inicio_obra, fin_obra")
       .order("nombre");
 
     const { data: planRows } = await supabase
@@ -73,6 +73,7 @@ export async function descargarPlantillaPlanDotacion(): Promise<DescargarPlantil
       obras: (obras ?? []).map((o) => ({
         id: o.id as string,
         nombre: o.nombre as string,
+        inicioObra: o.inicio_obra as string | null,
         finObra: o.fin_obra as string | null,
       })),
       planExistentePorClave,
