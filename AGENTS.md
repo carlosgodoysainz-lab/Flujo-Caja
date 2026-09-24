@@ -28,46 +28,52 @@ los skills en `{{path:skills}}/` y los agentes en `{{path:agents}}/`. Son
 literales — usalas tal cual.
 
 ### "Quiero construir algo nuevo"
+
 → `/plan` (activa La Herreria: `{{path:skills}}/la-herreria/SKILL.md`)
 
 ### "Necesito agregar una feature"
 
-| Necesita | Comando |
-|----------|---------|
-| Auth | `/add-login` |
-| Pagos | `/add-payments` (decision Polar vs Stripe) |
-| Emails | `/add-emails` (Resend + React Email) |
-| PWA/Mobile | `/add-mobile` (push, iOS compatible) |
-| UI Kit / Component Showcase | `/add-ui-kit` (FRESH o REDESIGN) |
-| Patrones BD (Supabase) | Leer skill `supabase` |
-| Patrones BD (InsForge) | Leer skill `insforge` |
-| InsForge setup | `/add-insforge` |
-| Landing copy-first | `/landing` |
-| Landing cinematica | `/website-3d` |
-| Feature IA | Leer `{{path:config_dir}}/ai_templates/_index.md` |
-| Imagenes | Leer skill `image-generation` |
-| Visuales marketing | `/video-visuals` |
+| Necesita                    | Comando                                           |
+| --------------------------- | ------------------------------------------------- |
+| Auth                        | `/add-login`                                      |
+| Pagos                       | `/add-payments` (decision Polar vs Stripe)        |
+| Emails                      | `/add-emails` (Resend + React Email)              |
+| PWA/Mobile                  | `/add-mobile` (push, iOS compatible)              |
+| UI Kit / Component Showcase | `/add-ui-kit` (FRESH o REDESIGN)                  |
+| Patrones BD (Supabase)      | Leer skill `supabase`                             |
+| Patrones BD (InsForge)      | Leer skill `insforge`                             |
+| InsForge setup              | `/add-insforge`                                   |
+| Landing copy-first          | `/landing`                                        |
+| Landing cinematica          | `/website-3d`                                     |
+| Feature IA                  | Leer `{{path:config_dir}}/ai_templates/_index.md` |
+| Imagenes                    | Leer skill `image-generation`                     |
+| Visuales marketing          | `/video-visuals`                                  |
 
 ### "Quiero mejorar lo que tengo"
 
-| Necesita | Comando |
-|----------|---------|
-| Review de diseno | `/critique` |
-| Polish visual | `/polish` |
-| Alinear design system | `/normalize` |
-| Performance/A11y/SEO | `/web-audit` |
-| Rediseno completo | `/redesign` |
+| Necesita                     | Comando                                                                 |
+| ---------------------------- | ----------------------------------------------------------------------- |
+| Review de diseno             | `/critique`                                                             |
+| Polish visual                | `/polish`                                                               |
+| Alinear design system        | `/normalize`                                                            |
+| Performance/A11y/SEO         | `/web-audit`                                                            |
+| Rediseno completo            | `/redesign`                                                             |
 | **Auditar TODO el proyecto** | **`/temple`** (Seguridad + Datos/RLS + Cache + Web → 1 reporte + score) |
-| **Buscar vulnerabilidades** | **`/adversarial-review`** (4 agentes atacantes + Codex) |
+| **Buscar vulnerabilidades**  | **`/adversarial-review`** (4 agentes atacantes + Codex)                 |
 
 ### "Estrategia/negocio"
+
 → `/crisol` (pipeline completo: 7 estrategias + dashboard ejecutivo + veredicto go/no-go)
 → Individual: `/brujula`, `/precio`, `/estrella`, `/rivales`, `/roi`, `/metas`, `/lanzamiento`
 
 ### "Personalizar proyecto" → `/forge-init` (despues de /plan)
+
 ### "Activar skill inactivo" → `/forge-activate`
+
 ### "Despachar" → `/despachar`
+
 ### "Retomar trabajo" → `/avivar` (lee `{{path:config_dir}}/memory/`)
+
 ### "Optimizar un skill" → `/autoresearch`
 
 ---
@@ -94,15 +100,15 @@ IDEA → /plan → Blueprint (10 skills) → aprobacion → /crisol (opcional) �
 
 ## Golden Path
 
-| Capa | Tecnologia |
-|------|------------|
-| Framework | Next.js 16 + React 19 + TypeScript |
-| Estilos | Tailwind CSS 3.4 + shadcn/ui |
-| Backend | Supabase o InsForge (Auth + PostgreSQL + RLS) |
-| AI Engine | Vercel AI SDK v5 + OpenRouter |
-| Validacion | Zod |
-| Estado | Zustand |
-| Testing | Playwright MCP |
+| Capa       | Tecnologia                                    |
+| ---------- | --------------------------------------------- |
+| Framework  | Next.js 16 + React 19 + TypeScript            |
+| Estilos    | Tailwind CSS 3.4 + shadcn/ui                  |
+| Backend    | Supabase o InsForge (Auth + PostgreSQL + RLS) |
+| AI Engine  | Vercel AI SDK v5 + OpenRouter                 |
+| Validacion | Zod                                           |
+| Estado     | Zustand                                       |
+| Testing    | Playwright MCP                                |
 
 ## Arquitectura
 
@@ -189,7 +195,7 @@ Para detalles de MCPs, hooks, agentes, comandos completos, testing patterns, y s
 
 ---
 
-*Planifica primero. Construye con confianza.*
+_Planifica primero. Construye con confianza._
 
 ---
 
@@ -202,9 +208,18 @@ Para detalles de MCPs, hooks, agentes, comandos completos, testing patterns, y s
      (Claude Code, Codex, OpenCode) la lean. Sobrevive a forge update. -->
 
 ### 2025-01-09: Usar npm run dev, no next dev
+
 - **Error**: Puerto hardcodeado causa conflictos
 - **Fix**: Siempre usar `npm run dev` (auto-detecta puerto)
 
 ### 2026-03-09: La Forja — Proteccion de disco obligatoria
+
 - **Error**: 5 agentes sandbox llenaron 765GB del disco
 - **Fix**: Symlink node_modules, typecheck en vez de build por fase, validar espacio libre, monitor de 2GB/sandbox
+
+### 2026-09-24: La dotacion futura viene del Plan de Dotacion del usuario, nunca de un modelo
+
+- **Error**: el modelo estadistico de "obras similares" (`headcount/forecast-model/`, curva por obra similar) llevo 7 versiones de parches entre ago y sep-2026, todos sobre el mismo sintoma: la proyeccion volvia a la escala de OTRAS obras en vez de reflejar el plan real del usuario. Comparado contra su Excel tradicional, la app subestimaba la dotacion futura en cientos de personas (957 vs 1.300 en el mes de cierre del rango) porque nunca leia la hoja "Headcount Plan de Obra" que el usuario ya mantenia a mano.
+- **Fix**: se retiro el modelo estadistico completo (`forecast-model/`, `estimarDotacionFaltante`, la carga manual por re-subida de "Proyeccion Headcount") y se reemplazo por un "Plan de Dotacion" que el usuario mantiene el mismo, obra por obra y mes a mes, en un archivo propio de SharePoint (`Flujo de Caja/Plan Dotacion/Plan Dotacion Obras.xlsx`, hojas "Plan" y "Eventos" — ver `src/features/plan-dotacion/`). El sistema solo LEE ese archivo (`sync-plan-dotacion.ts`) y encadena la variacion sobre el ultimo real de Buk (`plan-obra-dotacion.ts`, `dotacion-total.ts`) — nunca inventa una curva.
+- **No repetir**: si la dotacion proyectada de una obra/compania se ve "rara", el diagnostico NO es "ajustar el modelo" — es "el usuario no cargo (o cargo mal) su Plan de Dotacion para esa obra/mes". No se vuelve a escribir un modelo de curva/similitud para proyectar dotacion.
+- **Sub-hallazgo (mismo dia, ver commit `4698497`)**: al anclar una obra "sin dato real reciente en Buk" a dotacion 0, dar tolerancia de varios meses (no 1) antes de asumir que la obra cerro — un snapshot mensual que reescribe TODAS las obras de una vez puede simplemente no traer fila para una obra activa sin movimiento ese mes puntual.
