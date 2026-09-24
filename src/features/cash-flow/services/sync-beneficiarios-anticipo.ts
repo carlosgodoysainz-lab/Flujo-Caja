@@ -105,13 +105,24 @@ export async function syncBeneficiariosAnticipo(
       { maxResultados: 200 },
     );
 
+    // BUG REAL corregido 24-sep-2026 (visto en vivo: Anticipo RG de
+    // sep-2026 con 1.492 personas, más que la dotación total de 916): en
+    // los meses con aguinaldo (Fiestas Patrias, Navidad) la carpeta trae
+    // además "Rol General aguinaldo/" / "Rol Privado aguinaldo/" con un
+    // archivo "<Sociedad>-Anticipo Aguinaldo-..." por sociedad — son las
+    // MISMAS personas del anticipo regular cobrando un 2do pago, así que
+    // sumarlas duplicaba el N°. El aguinaldo se excluye SOLO del conteo de
+    // personas; el $ del Anticipo viene de otra fuente y lo sigue
+    // incluyendo (se paga con el anticipo).
     const candidatosSinResolver = hits.filter((hit) => {
       const nombreLower = hit.name.toLowerCase();
       const rutaLower = rutaDe(hit).toLowerCase();
       return (
         nombreLower.endsWith(".txt") &&
         nombreLower.includes("transferencia bancaria") &&
-        rutaLower.includes(carpetaEsperada.toLowerCase())
+        rutaLower.includes(carpetaEsperada.toLowerCase()) &&
+        !nombreLower.includes("aguinaldo") &&
+        !rutaLower.includes("aguinaldo")
       );
     });
 

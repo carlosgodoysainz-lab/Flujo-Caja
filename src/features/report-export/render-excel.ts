@@ -233,8 +233,11 @@ export async function renderReportExcel(params: {
       bold: true,
     };
     for (const a of alertasCierre) {
-      resumen.addRow([a.obraNombre, a.finObra.slice(0, 10), a.dotacionActual])
-        .font = { name: FUENTE_MARCA, color: { argb: "FFC00000" } };
+      resumen.addRow([
+        a.obraNombre,
+        a.finObra.slice(0, 10),
+        a.dotacionActual,
+      ]).font = { name: FUENTE_MARCA, color: { argb: "FFC00000" } };
     }
   }
 
@@ -735,7 +738,9 @@ export async function renderReportExcel(params: {
       filasPorObra.get(fila.obraId)!.push(fila);
     }
 
-    const planObraHorizontal = workbook.addWorksheet("Plan de Obra (Horizontal)");
+    const planObraHorizontal = workbook.addWorksheet(
+      "Plan de Obra (Horizontal)",
+    );
     const headerHorizontal = planObraHorizontal.addRow([
       "Obra",
       "Comuna",
@@ -758,9 +763,7 @@ export async function renderReportExcel(params: {
 
     // Orden de filas: mismo criterio que la hoja "Plan de Obra" (inicio de
     // obra) — se conserva el orden en que aparecen en `planObraDotacion`.
-    const obraIdsEnOrden = [
-      ...new Set(planObraDotacion.map((f) => f.obraId)),
-    ];
+    const obraIdsEnOrden = [...new Set(planObraDotacion.map((f) => f.obraId))];
     for (const obraId of obraIdsEnOrden) {
       const filasObra = filasPorObra.get(obraId)!;
       const filaPorPeriodo = new Map(filasObra.map((f) => [f.periodo, f]));
@@ -775,7 +778,9 @@ export async function renderReportExcel(params: {
         primera.inicioObra ?? "",
         primera.finObra ?? "",
         primera.durObraMeses ?? "",
-        ...periodosOrdenados.map((p) => filaPorPeriodo.get(p)?.dotacionProyectada ?? ""),
+        ...periodosOrdenados.map(
+          (p) => filaPorPeriodo.get(p)?.dotacionProyectada ?? "",
+        ),
       ]);
       row.font = { name: FUENTE_MARCA };
 
@@ -785,6 +790,49 @@ export async function renderReportExcel(params: {
           row.getCell(9 + i).fill = FILL_SIN_DATO;
         }
       });
+    }
+
+    // Conciliación contra la fila "Dotación (N°)" del reporte — pedido del
+    // usuario 24-sep-2026 ("cuadra la dotación con este informe... no
+    // puede sumar más una obra que el total"): Σ obras + gente sin obra
+    // asignada (Oficina Central, áreas de apoyo, Rol Privado) = total.
+    const totalObrasPorPeriodo = periodosOrdenados.map((periodo) => {
+      let suma = 0;
+      let hayDato = false;
+      for (const filasObra of filasPorObra.values()) {
+        const valor = filasObra.find(
+          (f) => f.periodo === periodo,
+        )?.dotacionProyectada;
+        if (valor != null) {
+          suma += valor;
+          hayDato = true;
+        }
+      }
+      return hayDato ? suma : null;
+    });
+    const totalReportePorPeriodo = periodosOrdenados.map(
+      (periodo) => dotacionPorPeriodo?.get(periodo)?.total ?? null,
+    );
+    const etiquetasVacias = ["", "", "", "", "", "", ""];
+    planObraHorizontal.addRow([]);
+    const filasConciliacion: [string, (number | null)[]][] = [
+      ["Total obras", totalObrasPorPeriodo],
+      ["Dotación total (reporte)", totalReportePorPeriodo],
+      [
+        "Diferencia: sin obra asignada (Oficina Central, apoyo, RP)",
+        totalReportePorPeriodo.map((total, i) => {
+          const obras = totalObrasPorPeriodo[i];
+          return total != null && obras != null ? total - obras : null;
+        }),
+      ],
+    ];
+    for (const [etiqueta, valores] of filasConciliacion) {
+      const row = planObraHorizontal.addRow([
+        etiqueta,
+        ...etiquetasVacias,
+        ...valores.map((v) => v ?? ""),
+      ]);
+      row.font = { name: FUENTE_MARCA, bold: true };
     }
 
     planObraHorizontal.getColumn(1).width = 28;

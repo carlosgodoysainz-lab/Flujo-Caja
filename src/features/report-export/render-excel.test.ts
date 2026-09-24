@@ -272,7 +272,6 @@ describe("renderReportExcel", () => {
     expect(celdaRemunJulio.result).toBe(104_000_000);
   });
 
-
   it("con planObraDotacion, genera la hoja 'Plan de Obra' con origen 'plan'/'sin_plan' (Fase 2, reemplaza al modelo estadístico)", async () => {
     const PLAN_OBRA_DOTACION: PlanObraDotacionFila[] = [
       {
@@ -349,6 +348,71 @@ describe("renderReportExcel", () => {
     expect(
       (filaObraAlfa.getCell(10).fill as ExcelJS.FillPattern).fgColor,
     ).toEqual({ argb: "FFD9D9D9" });
+  });
+
+  it("la hoja horizontal concilia Σ obras contra la Dotación total del reporte", async () => {
+    const buffer = await renderReportExcel({
+      serie: [],
+      kpis: KPIS,
+      ufPorPeriodo: new Map(),
+      dotacionPorPeriodo: new Map([
+        ["2026-08-01", { periodo: "2026-08-01", total: 935, esReal: true }],
+      ]),
+      periodoDesde: "2026-08-01",
+      periodoHasta: "2026-08-01",
+      generadoEn: new Date(2026, 8, 24),
+      planObraDotacion: [
+        {
+          obraId: "obra-1",
+          obraNombre: "Obra Alfa",
+          comuna: null,
+          tipo: null,
+          cliente: null,
+          unidades: null,
+          inicioObra: "2026-01-01",
+          finObra: null,
+          durObraMeses: 24,
+          periodo: "2026-08-01",
+          dotacionReal: 157,
+          dotacionProyectada: 157,
+          variacionNeta: null,
+          origenVariacion: "sin_plan",
+        },
+        {
+          obraId: "obra-2",
+          obraNombre: "Obra Beta",
+          comuna: null,
+          tipo: null,
+          cliente: null,
+          unidades: null,
+          inicioObra: "2026-01-01",
+          finObra: null,
+          durObraMeses: 24,
+          periodo: "2026-08-01",
+          dotacionReal: 142,
+          dotacionProyectada: 142,
+          variacionNeta: null,
+          origenVariacion: "sin_plan",
+        },
+      ],
+    });
+
+    const wb = await leerWorkbook(buffer);
+    const horizontal = wb.getWorksheet("Plan de Obra (Horizontal)")!;
+    const valoresPorEtiqueta = new Map<string, unknown>();
+    horizontal.eachRow((row) => {
+      valoresPorEtiqueta.set(
+        String(row.getCell(1).value),
+        row.getCell(9).value,
+      );
+    });
+    expect(valoresPorEtiqueta.get("Total obras")).toBe(299);
+    expect(valoresPorEtiqueta.get("Dotación total (reporte)")).toBe(935);
+    expect(
+      valoresPorEtiqueta.get(
+        "Diferencia: sin obra asignada (Oficina Central, apoyo, RP)",
+      ),
+    ).toBe(636);
   });
 
   it("sin planObraDotacion, NO genera las hojas 'Plan de Obra' ni 'Plan de Obra (Horizontal)'", async () => {
