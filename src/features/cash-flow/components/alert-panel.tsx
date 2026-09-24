@@ -1,20 +1,37 @@
 import { createServiceClient } from "@/lib/supabase/service";
+import { detectarObrasSinPlan } from "@/features/plan-dotacion/services/resolver-dotacion";
 
+/**
+ * Obras vigentes sin ninguna fila cargada en el Plan de Dotación del
+ * usuario (Fase 2, 24-sep-2026) — reemplaza la alerta anterior de "obras
+ * con dotación estimada por el modelo" (el modelo estadístico se retiró).
+ */
 export async function AlertPanel() {
   const supabase = createServiceClient();
-  const { data } = await supabase
-    .from("headcount_by_obra")
-    .select("obra_id, obras(nombre)")
-    .eq("origen", "modelo_estimado");
+  const { data: obras } = await supabase
+    .from("obras")
+    .select("id, nombre, fin_obra");
+  const { data: planRows } = await supabase
+    .from("plan_dotacion")
+    .select("obra_id")
+    .eq("unidad", "obra");
 
-  const obrasUnicas = [
-    ...new Map(
-      (data ?? []).map((d) => [
-        d.obra_id,
-        (d.obras as unknown as { nombre: string } | null)?.nombre,
-      ]),
-    ).values(),
-  ].filter((n): n is string => !!n);
+  const hoyStr = new Date().toISOString().slice(0, 10);
+  const obrasSinPlan = detectarObrasSinPlan({
+    obras: (obras ?? []).map((o) => ({
+      id: o.id as string,
+      nombre: o.nombre as string,
+      finObra: o.fin_obra as string | null,
+    })),
+    variaciones: (planRows ?? []).map((p) => ({
+      obraId: p.obra_id as string,
+      periodo: "",
+      variacionNeta: 0,
+    })),
+    hoyStr,
+  });
+
+  const obrasUnicas = obrasSinPlan.map((o) => o.nombre);
 
   if (obrasUnicas.length === 0) return null;
 
@@ -34,8 +51,8 @@ export async function AlertPanel() {
       }}
     >
       <p className="text-sm font-medium text-[var(--warn)]">
-        ⚠ {obrasUnicas.length} obra(s) con dotación estimada por el modelo (no
-        manual/real)
+        ⚠ {obrasUnicas.length} obra(s) vigentes sin Plan de Dotación cargado —
+        su dotación se mantiene plana
       </p>
       <p className="mt-1 text-xs text-slate-500">{obrasUnicas.join(", ")}</p>
     </div>

@@ -17,27 +17,24 @@ export interface PlanObraDotacionFila {
   /** Dotación real (suma de `buk_dotacion_snapshots.activos` de esa obra ese mes) — `null` si no hay snapshot real ese mes. */
   dotacionReal: number | null;
   /**
-   * Dotación absoluta PROYECTADA para ese mes — el "saldo" acumulado
-   * (altas−bajas mes a mes desde el inicio de la curva, ver
-   * `forecast-model/curve.ts`), no solo el delta. `null` si esa fila
-   * nunca se estimó (obra sin ningún dato todavía).
+   * Dotación absoluta PROYECTADA para ese mes — el real más reciente de
+   * la obra (Buk) más la variación acumulada del Plan de Dotación desde
+   * ahí. `null` si esa obra todavía no tiene ningún real propio desde el
+   * que proyectar (obra muy nueva, sin snapshot de Buk todavía).
    */
   dotacionProyectada: number | null;
-  /** Altas − bajas de ese mes — real (manual/buk_real) o estimado (modelo de curva por obra similar). `null` si no hay ningún dato. */
+  /** Altas − bajas de ese mes según el Plan de Dotación del usuario. `null` si esa obra no tiene plan cargado para ese mes. */
   variacionNeta: number | null;
-  origenVariacion:
-    "manual" | "buk_real" | "modelo_estimado" | "sin_dato_referencia" | null;
+  /** `'plan'` si el usuario cargó una variación para ese mes; `'sin_plan'` si no. */
+  origenVariacion: "plan" | "sin_plan" | null;
 }
 
 /**
  * Plan de obra (Gespro, vía `obras`) + dotación REAL por obra (Buk) +
- * flujo de dotación ESTIMADA (altas−bajas del modelo de curva, ver
- * `forecast-model/run.ts`) — pedido explícito del usuario para el Excel
- * descargable: "una hoja con el plan de obra actualizado en función al
- * Gespro acompañado con la dotación real por obra y flujo de dotación
- * estimada... considera el crecimiento de dotación que tienen las
- * obras... el modelo en términos de la duración de obra, flujo de
- * ingreso y flujo de salidas".
+ * Plan de Dotación del usuario (altas−bajas, ver `plan_dotacion` — Fase 2,
+ * 24-sep-2026) — para el Excel descargable: "una hoja con el plan de obra
+ * actualizado en función al Gespro acompañado con la dotación real por
+ * obra y el flujo de dotación planificado".
  *
  * Una fila por (obra, período) dentro del rango pedido Y dentro de la
  * duración real de la obra (`inicio_obra` → `inicio_obra + dur_obra_meses`)
@@ -82,7 +79,7 @@ export async function getPlanObraConDotacion(
   }
 
   const dotacionRealPorObraYPeriodo = new Map<string, number>();
-  for (const s of snapshots ?? []) {
+  for (const s of snapshots) {
     if (!s.obra_id) continue;
     const key = `${s.obra_id}::${periodoDeFecha(s.snapshot_date)}`;
     dotacionRealPorObraYPeriodo.set(
@@ -91,24 +88,34 @@ export async function getPlanObraConDotacion(
     );
   }
 
-  const { data: variaciones } = await supabase
-    .from("headcount_by_obra")
-    .select("obra_id, periodo, variacion_neta, acumulado, origen");
-  const variacionPorObraYPeriodo = new Map<
+  // Último período REAL por obra — punto de anclaje para proyectar hacia
+  // adelante con el plan (mismo criterio que `getDotacionTotalPorPeriodo`,
+  // ahora a nivel de obra individual).
+  const ultimoRealPorObra = new Map<
     string,
-    {
-      variacionNeta: number;
-      acumulado: number | null;
-      origen: "manual" | "buk_real" | "modelo_estimado" | "sin_dato_referencia";
-    }
+    { periodo: string; total: number }
   >();
-  for (const v of variaciones ?? []) {
-    const key = `${v.obra_id}::${periodoDeFecha(v.periodo)}`;
-    variacionPorObraYPeriodo.set(key, {
-      variacionNeta: v.variacion_neta,
-      acumulado: v.acumulado,
-      origen: v.origen,
-    });
+  for (const [key, total] of dotacionRealPorObraYPeriodo) {
+    const [obraId, periodo] = key.split("::");
+    const actual = ultimoRealPorObra.get(obraId);
+    if (!actual || periodo > actual.periodo) {
+      ultimoRealPorObra.set(obraId, { periodo, total });
+    }
+  }
+
+  // Plan de Dotación del usuario (Fase 2, 24-sep-2026) — fuente única de
+  // la variación FUTURA, reemplaza al modelo estadístico (headcount_by_obra).
+  const { data: planRows } = await supabase
+    .from("plan_dotacion")
+    .select("obra_id, periodo, variacion_neta")
+    .eq("unidad", "obra");
+  const variacionPorObraYPeriodo = new Map<string, number>();
+  for (const v of planRows ?? []) {
+    if (!v.obra_id) continue;
+    variacionPorObraYPeriodo.set(
+      `${v.obra_id}::${periodoDeFecha(v.periodo)}`,
+      v.variacion_neta,
+    );
   }
 
   const desde = periodoDeFecha(periodoDesde.toISOString().slice(0, 10));
@@ -119,17 +126,34 @@ export async function getPlanObraConDotacion(
     if (!obra.inicio_obra) continue;
     const inicioPeriodo = periodoDeFecha(obra.inicio_obra);
     const duracion = obra.dur_obra_meses ?? 24; // fallback defensivo si no hay duración cargada
+    const ultimoReal = ultimoRealPorObra.get(obra.id) ?? null;
+    let acumuladoProyectado = ultimoReal?.total ?? null;
 
+    // Recorre TODOS los meses de la obra (no solo los del rango pedido) —
+    // el acumulado necesita continuidad desde el último real, aunque
+    // `periodoDesde` empiece más adelante; solo se descarta la FILA fuera
+    // de rango, nunca el paso de acumulación.
     for (
       let mes = 0, guard = 0;
       mes < duracion && guard < 240;
       mes++, guard++
     ) {
       const periodo = sumarMesesAPeriodo(inicioPeriodo, mes);
-      if (periodo < desde || periodo > hasta) continue;
-
       const key = `${obra.id}::${periodo}`;
-      const variacion = variacionPorObraYPeriodo.get(key);
+      const dotacionReal = dotacionRealPorObraYPeriodo.get(key) ?? null;
+      const variacionNeta = variacionPorObraYPeriodo.get(key) ?? null;
+
+      let dotacionProyectada: number | null;
+      if (dotacionReal != null) {
+        dotacionProyectada = dotacionReal;
+      } else if (ultimoReal && periodo > ultimoReal.periodo) {
+        acumuladoProyectado = (acumuladoProyectado ?? 0) + (variacionNeta ?? 0);
+        dotacionProyectada = acumuladoProyectado;
+      } else {
+        dotacionProyectada = null;
+      }
+
+      if (periodo < desde || periodo > hasta) continue;
 
       filas.push({
         obraId: obra.id,
@@ -142,10 +166,10 @@ export async function getPlanObraConDotacion(
         finObra: obra.fin_obra,
         durObraMeses: obra.dur_obra_meses,
         periodo,
-        dotacionReal: dotacionRealPorObraYPeriodo.get(key) ?? null,
-        dotacionProyectada: variacion?.acumulado ?? null,
-        variacionNeta: variacion?.variacionNeta ?? null,
-        origenVariacion: variacion?.origen ?? null,
+        dotacionReal,
+        dotacionProyectada,
+        variacionNeta,
+        origenVariacion: variacionNeta != null ? "plan" : "sin_plan",
       });
     }
   }

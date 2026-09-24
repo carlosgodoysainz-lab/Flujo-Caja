@@ -16,8 +16,6 @@ import {
   proporcionRgHistorica,
   type DotacionTotalPunto,
 } from "@/features/headcount/services/dotacion-total";
-import { runForecastModel } from "@/features/headcount/forecast-model/run";
-import { METODO_FORECAST_ACTUAL } from "@/features/headcount/forecast-model/curve";
 import { runBukSnapshot } from "@/features/headcount/buk-sync/sync";
 import { syncPlanDotacion } from "@/features/plan-dotacion/services/sync-plan-dotacion";
 import { calcularBeneficiosDelMes, eventosPromedio6Meses } from "./beneficios";
@@ -78,7 +76,8 @@ export interface RefreshReportResult {
   estado: "ok" | "parcial" | "error";
   documentosIngeridos: number;
   mesesRecalculados: number;
-  obrasEstimadas: number;
+  /** Filas del Plan de Dotación (obras + Oficina Central) leídas en este refresh — ver plan-dotacion/. */
+  filasPlanDotacion: number;
   errores: { fuente: string; mensaje: string }[];
 }
 
@@ -421,177 +420,6 @@ function promedioBeneficioReal6mPura(
 }
 
 /**
- * Orígenes que NUNCA se re-estiman automáticamente — SOLO dato cargado a
- * mano. `'buk_real'` fue removido de este set 25-ago-2026: desde que
- * `runForecastModel` intenta usar el histórico propio de Buk PRIMERO
- * (ver `intentarUsarSnapshotPropio`), las filas `buk_real` deben
- * re-derivarse en CADA refresh (los snapshots de Buk siguen llegando mes
- * a mes) — protegerlas para siempre las habría dejado stale igual que
- * pasaba con el modelo estimado antes de este mismo fix.
- */
-const ORIGENES_PROTEGIDOS = new Set(["manual"]);
-
-/**
- * Una obra está "totalmente protegida" (nunca se re-estima) solo si
- * TODAS sus filas existentes en `headcount_by_obra` son `origen='manual'`
- * — no si tiene AL MENOS una. Bug real corregido 25-ago-2026 (4ta
- * vuelta, confirmado por auditoría de código): antes, una sola fila
- * manual mezclada con meses `buk_real`/`modelo_estimado` congelaba la
- * obra COMPLETA para siempre — ningún refresh futuro la volvía a tocar,
- * sin importar cuántas versiones subiera `METODO_FORECAST_ACTUAL`. El
- * upsert de `runForecastModel` ya protege cada período manual
- * individualmente (nunca lo pisa), así que la protección a nivel de
- * OBRA COMPLETA era una capa redundante y dañina — bastaba con 1 mes
- * cargado a mano para que el resto de la obra quedara con el modelo
- * viejo para siempre.
- */
-function obraTotalmenteProtegida(
-  filasDeEstaObra: { origen: string }[],
-): boolean {
-  return (
-    filasDeEstaObra.length > 0 &&
-    filasDeEstaObra.every((f) => ORIGENES_PROTEGIDOS.has(f.origen))
-  );
-}
-
-/**
- * Corre el modelo de estimación de dotación (curva por obra similar, ver
- * forecast-model/run.ts) para toda obra que TODAVÍA no tenga ningún dato
- * de dotación (manual/real/estimado), Y TAMBIÉN para obras cuya
- * estimación más reciente usa un `metodo` OBSOLETO (distinto de
- * `METODO_FORECAST_ACTUAL`, ver curve.ts). Antes esto era un botón manual
- * por obra en /dotacion — con 33 obras nunca se corría, y el KPI "Obras
- * con dotación estimada" quedaba en 0 siempre (bug real: confirmado
- * `headcount_by_obra` con 0 filas pese a tener 524 snapshots reales de Buk
- * disponibles para comparar).
- *
- * Bug real corregido 24-ago-2026: este refresh solo consideraba "obras
- * con CERO filas" — una obra ya estimada con una versión VIEJA del
- * modelo (`similar_obras_v1`/`similar_obras_v2_fases`) quedaba congelada
- * ahí para siempre, sin importar cuántas mejoras se le hicieran después
- * al modelo (confirmado en vivo: "Vista Llacolén A"/"General Mackenna"
- * seguían con datos de hace semanas pese al fix "ciclo de vida" del
- * mismo día). Ahora también se re-corren las obras cuya última corrida
- * quedó obsoleta.
- *
- * Best-effort: una obra sin obras similares con histórico real todavía
- * (normal si es reciente) no cuenta como error del refresh — se ve
- * reflejado como "Sin dato" en /dotacion.
- */
-async function estimarDotacionFaltante(
-  supabase: ReturnType<typeof createServiceClient>,
-): Promise<{ obrasEstimadas: number; obrasSinDatoAun: number }> {
-  const { data: obras } = await supabase
-    .from("obras")
-    .select("id")
-    .not("inicio_obra", "is", null)
-    .not("dur_obra_meses", "is", null);
-
-  const { data: yaConDato } = await supabase
-    .from("headcount_by_obra")
-    .select("obra_id, origen, forecast_run_id");
-
-  const filasPorObra = new Map<string, { origen: string }[]>();
-  for (const r of yaConDato ?? []) {
-    if (!filasPorObra.has(r.obra_id)) filasPorObra.set(r.obra_id, []);
-    filasPorObra.get(r.obra_id)!.push({ origen: r.origen });
-  }
-  const idsProtegidos = new Set(
-    [...filasPorObra.entries()]
-      .filter(([, filas]) => obraTotalmenteProtegida(filas))
-      .map(([obraId]) => obraId),
-  );
-
-  const runIdsAResolver = [
-    ...new Set(
-      (yaConDato ?? [])
-        .filter((r) => r.forecast_run_id && !idsProtegidos.has(r.obra_id))
-        .map((r) => r.forecast_run_id as string),
-    ),
-  ];
-  const { data: runsUsados } =
-    runIdsAResolver.length > 0
-      ? await supabase
-          .from("headcount_forecast_runs")
-          .select("id, metodo, ejecutado_at")
-          .in("id", runIdsAResolver)
-      : { data: [] as { id: string; metodo: string; ejecutado_at: string }[] };
-  const metodoPorRunId = new Map(
-    (runsUsados ?? []).map((r) => [r.id, r.metodo]),
-  );
-  const ejecutadoAtPorRunId = new Map(
-    (runsUsados ?? []).map((r) => [r.id, r.ejecutado_at]),
-  );
-
-  // Snapshot real más reciente por obra — un run puede seguir "vigente" en
-  // MÉTODO (misma versión del modelo) pero quedar OBSOLETO EN DATO si Buk
-  // trajo un snapshot real posterior a cuando ese run se ejecutó: la
-  // proyección de los meses futuros se calculó anclada al nivel real de
-  // ESE momento y nunca se entera de lo que pasó después. Hallazgo real
-  // 21-sep-2026: "Vista Llacolén B" y "Lira Parque" proyectaban una caída
-  // grande para septiembre (-46 y -70) que el propio Buk ya había
-  // desmentido con 2 snapshots nuevos (ambas obras siguieron CRECIENDO) —
-  // pero como el método seguía siendo el actual, cada "Actualizar reporte"
-  // las saltaba igual, dejando la proyección desactualizada indefinidamente.
-  // BUG REAL corregido en la misma corrida 21-sep-2026: un `select` sin
-  // `.range()`/`.limit()` sobre esta tabla trunca en silencio al tope de
-  // PostgREST (1000 filas) — con ~23.000 filas reales, la primera versión
-  // de este fix nunca veía el snapshot más reciente de la mayoría de las
-  // obras y por eso no corregía nada (mismo patrón de bug ya documentado
-  // en `getDotacionTotalPorPeriodo`, 17-ago-2026). Fix: paginar con
-  // `.range()` hasta agotar la tabla, igual que ahí.
-  const maxSnapshotPorObra = new Map<string, string>();
-  const TAMANO_PAGINA_SNAPSHOTS = 1000;
-  for (let desde = 0; ; desde += TAMANO_PAGINA_SNAPSHOTS) {
-    const { data: pagina } = await supabase
-      .from("buk_dotacion_snapshots")
-      .select("obra_id, snapshot_date")
-      .order("snapshot_date")
-      .range(desde, desde + TAMANO_PAGINA_SNAPSHOTS - 1);
-    if (!pagina || pagina.length === 0) break;
-    for (const s of pagina) {
-      if (!s.obra_id) continue;
-      const actual = maxSnapshotPorObra.get(s.obra_id);
-      if (!actual || s.snapshot_date > actual)
-        maxSnapshotPorObra.set(s.obra_id, s.snapshot_date);
-    }
-    if (pagina.length < TAMANO_PAGINA_SNAPSHOTS) break;
-  }
-
-  const idsConEstimacionVigente = new Set(
-    (yaConDato ?? [])
-      .filter((r) => {
-        if (idsProtegidos.has(r.obra_id) || !r.forecast_run_id) return false;
-        if (metodoPorRunId.get(r.forecast_run_id) !== METODO_FORECAST_ACTUAL)
-          return false;
-        const ejecutadoAt = ejecutadoAtPorRunId.get(r.forecast_run_id);
-        const maxSnapshot = maxSnapshotPorObra.get(r.obra_id);
-        if (
-          ejecutadoAt &&
-          maxSnapshot &&
-          maxSnapshot > ejecutadoAt.slice(0, 10)
-        ) {
-          return false; // Buk trajo dato real que este run nunca vio.
-        }
-        return true;
-      })
-      .map((r) => r.obra_id),
-  );
-
-  const faltantes = (obras ?? []).filter(
-    (o) => !idsProtegidos.has(o.id) && !idsConEstimacionVigente.has(o.id),
-  );
-  let obrasEstimadas = 0;
-  let obrasSinDatoAun = 0;
-  for (const obra of faltantes) {
-    const resultado = await runForecastModel(obra.id);
-    if (resultado.estado === "ok") obrasEstimadas++;
-    else obrasSinDatoAun++;
-  }
-  return { obrasEstimadas, obrasSinDatoAun };
-}
-
-/**
  * AUTO-APRENDIZAJE (24-ago-2026, pedido explícito del usuario: "los % fijos
  * pasan a recalcularse solos con los últimos meses reales"): % real de
  * `concepto`/Remuneración, promedio de los últimos N meses REALES de ambos
@@ -680,7 +508,7 @@ export async function refreshCashFlowReport(
       estado: "error",
       documentosIngeridos: 0,
       mesesRecalculados: 0,
-      obrasEstimadas: 0,
+      filasPlanDotacion: 0,
       errores: [{ fuente: "Sesión", mensaje: "Sesión no disponible." }],
     };
   }
@@ -755,8 +583,7 @@ export async function refreshCashFlowReport(
     });
   }
   if (planDotacionResult.archivoUsado) documentosIngeridos += 1;
-
-  const { obrasEstimadas } = await estimarDotacionFaltante(supabase);
+  const filasPlanDotacion = planDotacionResult.filasPlan;
 
   const meses: Date[] = [];
   const cursor = new Date(
@@ -1402,7 +1229,7 @@ export async function refreshCashFlowReport(
       errores.length === 0 ? "ok" : mesesRecalculados > 0 ? "parcial" : "error",
     documentosIngeridos,
     mesesRecalculados,
-    obrasEstimadas,
+    filasPlanDotacion,
     errores,
   };
 }

@@ -60,7 +60,7 @@ export function RefreshReportButton({
             <strong>{result.estado.toUpperCase()}</strong> —{" "}
             {result.mesesRecalculados} meses recalculados,{" "}
             {result.documentosIngeridos} documentos ingeridos,{" "}
-            {result.obrasEstimadas} obras con dotación estimada nueva
+            {result.filasPlanDotacion} fila(s) del Plan de Dotación
           </p>
           {result.errores.length > 0 && (
             <ul className="mt-2 list-disc pl-5 text-[var(--err)]">

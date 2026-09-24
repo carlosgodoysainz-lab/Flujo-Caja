@@ -11,6 +11,7 @@ import type {
   DotacionPorConceptoPunto,
 } from "@/features/headcount/services/dotacion-total";
 import type { PlanObraDotacionFila } from "@/features/headcount/services/plan-obra-dotacion";
+import type { AlertaObraCerrada } from "@/features/plan-dotacion/services/resolver-dotacion";
 import { sumarMesesAPeriodo } from "@/features/headcount/services/periodo";
 import { FILAS_DETALLE as FILAS } from "@/features/cash-flow/lib/filas-detalle";
 import {
@@ -59,17 +60,6 @@ const FILL_SIN_DATO: ExcelJS.Fill = {
   fgColor: { argb: "FFD9D9D9" },
 };
 
-// Hoja técnica `_fcn_baseline` de "Proyección Headcount" — contrato
-// compartido con el parser de re-subida
-// (`src/features/headcount/services/parse-headcount-upload.ts`, que debe
-// usar EXACTAMENTE estos mismos valores). `VERSION_BASELINE = 1`: si el
-// formato de esta hoja cambia alguna vez, subir el número acá permite que
-// el parser detecte una versión que no reconoce y caiga a modo
-// compatibilidad en vez de leerla mal en silencio.
-const NOMBRE_HOJA_BASELINE = "_fcn_baseline";
-const MARCA_BASELINE = "FCN_BASELINE";
-const VERSION_BASELINE = 1;
-
 /**
  * Genera el respaldo en Excel que acompaña SIEMPRE al export HTML (ver
  * export-action.ts) — mismos datos, misma fuente (`cash_flow_monthly`),
@@ -97,25 +87,8 @@ export async function renderReportExcel(params: {
   dotacionPorConceptoYPeriodo?: Map<string, DotacionPorConceptoPunto>;
   /** Plan de obra (Gespro) + dotación real (Buk) + flujo estimado por obra — ver plan-obra-dotacion.ts. Hoja "Plan de Obra" solo aparece si hay filas. */
   planObraDotacion?: PlanObraDotacionFila[];
-  /**
-   * Dotación absoluta de "Oficina Central" por período (RP contractual
-   * real + RG sin obra asignada, ver `getOficinaCentralHeadcountPorPeriodo`)
-   * — usada SOLO para la fila "Oficina Central" de la hoja "Proyección
-   * Headcount" (pedido explícito del usuario 25-ago-2026: la hoja antes
-   * solo cubría dotación de obra/RG). Debe incluir 1 mes ANTES del primer
-   * período de `planObraDotacion` para poder calcular la variación neta
-   * del primer mes visible — sin ese mes extra, la fila queda en blanco
-   * en la primera columna. Si no se provee, la fila no aparece
-   * (comportamiento previo).
-   */
-  oficinaCentralPorPeriodo?: Map<string, number>;
-  /**
-   * Nivel real más reciente de Buk por `obraId` — ver
-   * `getSaldoInicialPorObra`. Columna "Saldo Inicial (Buk)" de la hoja
-   * "Proyección Headcount", referencia visual para la carga manual (no
-   * participa en ningún cálculo). Si no se provee, la columna queda vacía.
-   */
-  saldoInicialPorObra?: Map<string, number>;
+  /** Obras vencidas con dotación y sin plan de cierre — mismas alertas que /dotacion. Van en la hoja "Resumen" solo si hay alguna. */
+  alertasCierre?: AlertaObraCerrada[];
   /**
    * Aguinaldo (Fiestas Patrias + Navidad, RG+RP) YA incluido dentro del
    * Anticipo de cada período — ver `getAguinaldoAnticipoPorPeriodo` en
@@ -148,8 +121,7 @@ export async function renderReportExcel(params: {
     dotacionPorPeriodo,
     dotacionPorConceptoYPeriodo,
     planObraDotacion,
-    oficinaCentralPorPeriodo,
-    saldoInicialPorObra,
+    alertasCierre,
     aguinaldoAnticipoPorPeriodo,
     columnasAgrupadasHastaPeriodo,
     periodoDesde,
@@ -232,8 +204,8 @@ export async function renderReportExcel(params: {
     "#,##0",
   );
   agregarFilaKpi(
-    "Obras con dotación estimada por el modelo",
-    kpis.obrasConEstimacion,
+    "Obras vigentes sin Plan de Dotación cargado",
+    kpis.obrasSinPlan,
     "#,##0",
   );
   agregarFilaKpi(
@@ -251,6 +223,21 @@ export async function renderReportExcel(params: {
       "#,##0",
     );
   }
+  if (alertasCierre && alertasCierre.length > 0) {
+    resumen.addRow([]);
+    resumen.addRow([
+      `Alerta: ${alertasCierre.length} obra(s) ya pasaron su fecha de término y siguen con dotación sin plan de cierre`,
+    ]).font = { name: FUENTE_MARCA, bold: true, color: { argb: "FFC00000" } };
+    resumen.addRow(["Obra", "Fin Obra", "Dotación real (Buk)"]).font = {
+      name: FUENTE_MARCA,
+      bold: true,
+    };
+    for (const a of alertasCierre) {
+      resumen.addRow([a.obraNombre, a.finObra.slice(0, 10), a.dotacionActual])
+        .font = { name: FUENTE_MARCA, color: { argb: "FFC00000" } };
+    }
+  }
+
   resumen.getColumn(1).width = 40;
   resumen.getColumn(2).width = 22;
 
@@ -657,14 +644,12 @@ export async function renderReportExcel(params: {
   metodologia.getColumn(3).width = 60;
 
   // --- Hoja "Plan de Obra" — plan de obra (Gespro) + dotación real (Buk)
-  // + flujo de dotación estimada (altas−bajas del modelo de curva por
-  // obra similar) — pedido explícito del usuario. Formato "tidy" (1 fila
-  // por obra/mes) para poder filtrar/pivotear directo en Excel.
+  // + Plan de Dotación del usuario (SharePoint, ver plan_dotacion — Fase 2,
+  // 24-sep-2026). Formato "tidy" (1 fila por obra/mes) para poder
+  // filtrar/pivotear directo en Excel.
   const ORIGEN_LABEL: Record<string, string> = {
-    manual: "Manual",
-    buk_real: "Buk (real)",
-    modelo_estimado: "Estimado (modelo)",
-    sin_dato_referencia: "Sin obra de referencia",
+    plan: "Plan (usuario)",
+    sin_plan: "Sin plan",
   };
   if (planObraDotacion && planObraDotacion.length > 0) {
     const planObra = workbook.addWorksheet("Plan de Obra");
@@ -709,10 +694,7 @@ export async function renderReportExcel(params: {
         fila.origenVariacion ? ORIGEN_LABEL[fila.origenVariacion] : "Sin dato",
       ]);
       row.font = { name: FUENTE_MARCA };
-      if (fila.origenVariacion === "modelo_estimado") {
-        row.getCell(11).fill = FILL_PROYECTADO;
-        row.getCell(12).fill = FILL_PROYECTADO;
-      } else if (fila.origenVariacion === "sin_dato_referencia") {
+      if (fila.origenVariacion === "sin_plan") {
         row.getCell(11).fill = FILL_SIN_DATO;
         row.getCell(12).fill = FILL_SIN_DATO;
       }
@@ -728,7 +710,7 @@ export async function renderReportExcel(params: {
 
     const notaPlanObra = planObra.addRow([]);
     planObra.addRow([
-      "Amarillo = dotación estimada por el modelo (curva de obras similares). Gris = el modelo no tenía ninguna obra de referencia con dato real ese mes — el valor es un placeholder (0 acumulado), no una estimación real.",
+      "Gris = la obra no tiene ninguna variación cargada en el Plan de Dotación para ese mes — la dotación se mantiene plana (última real), no se inventa una curva.",
     ]).font = {
       name: FUENTE_MARCA,
       italic: true,
@@ -738,374 +720,13 @@ export async function renderReportExcel(params: {
     void notaPlanObra;
   }
 
-  // --- Hoja "Proyección Headcount" — mismo dato de "Plan de Obra" (arriba),
-  // pero PIVOTEADO al layout ancho del Excel maestro original de Finanzas
-  // (hoja "Headcount Plan de Obra": 1 fila por obra, 1 columna por mes
-  // calendario, valor = variación neta altas−bajas de ese mes) — pedido
-  // explícito del usuario 24-ago-2026: "en el excel quiero una hoja de
-  // proyección de dotación muy parecida a la que tenía en el excel que se
-  // llamaba proyección headcount". No es una consulta nueva a la BD: usa
-  // exactamente los mismos `planObraDotacion` de la hoja "Plan de Obra",
-  // solo reorganizados — ambas hojas nunca pueden desincronizarse entre sí.
-  if (planObraDotacion && planObraDotacion.length > 0) {
-    renderProyeccionHeadcount(
-      workbook,
-      planObraDotacion,
-      generadoEn,
-      oficinaCentralPorPeriodo,
-      saldoInicialPorObra,
-    );
-  }
+  // La hoja "Proyección Headcount" (carga manual re-subida) y su hoja
+  // técnica `_fcn_baseline` se retiraron en la Fase 3 (24-sep-2026): la
+  // dotación futura ahora viene del Plan de Dotación en SharePoint (ver
+  // plan-dotacion/), que reemplaza por completo ese flujo de ida y vuelta.
+  // La hoja "Plan de Obra" (arriba) sigue cubriendo el mismo detalle por
+  // obra/mes, en formato tidy.
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
-}
-
-const MESES_CORTOS = [
-  "ene",
-  "feb",
-  "mar",
-  "abr",
-  "may",
-  "jun",
-  "jul",
-  "ago",
-  "sep",
-  "oct",
-  "nov",
-  "dic",
-];
-
-/** "YYYY-MM-01" → "may-26" — por string, nunca `new Date(str)` (ver periodo.ts: en un timezone detrás de UTC corre el mes). */
-function etiquetaPeriodoCorta(periodo: string): string {
-  const [anio, mes] = periodo.slice(0, 7).split("-").map(Number);
-  return `${MESES_CORTOS[mes - 1]}-${String(anio).slice(2)}`;
-}
-
-/** Días entre 2 fechas "YYYY-MM-DD" — parseo manual vía `Date.UTC` (nunca `new Date(str)` directo, mismo motivo de periodo.ts). */
-function diasEntre(fechaA: string, fechaB: string): number {
-  const [ay, am, ad] = fechaA.slice(0, 10).split("-").map(Number);
-  const [by, bm, bd] = fechaB.slice(0, 10).split("-").map(Number);
-  const msA = Date.UTC(ay, am - 1, ad);
-  const msB = Date.UTC(by, bm - 1, bd);
-  return Math.round((msA - msB) / 86_400_000);
-}
-
-/**
- * Distancia (en días, siempre ≥0) entre HOY y el próximo hito relevante de
- * la obra — pedido explícito del usuario 24-ago-2026: "ordena las obras en
- * función a la fecha de obra más próxima" (antes: ascendente por
- * `inicioObra` crudo, dejaba obras iniciadas hace mucho arriba aunque ya
- * estuvieran cerca de cerrar). Si la obra todavía no empieza, el hito es
- * su `inicioObra`; si ya está en curso, su `finObra` (o `inicioObra` si no
- * hay fecha de cierre cargada). Sin ninguna fecha, va al final.
- */
-function proximidadAHoy(
-  obra: { inicioObra: string | null; finObra: string | null },
-  hoy: string,
-): number {
-  const inicio = obra.inicioObra ?? "";
-  const fin = obra.finObra ?? "";
-  const yaEmpezo = inicio !== "" && inicio <= hoy;
-  const hito = yaEmpezo ? fin || inicio : inicio;
-  if (!hito) return Number.POSITIVE_INFINITY;
-  return Math.abs(diasEntre(hito, hoy));
-}
-
-/**
- * Excluye una obra de "Proyección Headcount" cuando (a) su plazo de
- * Gespro ya venció (`finObra < hoy`) Y (b) nunca tuvo NINGÚN dato real
- * propio (ni `buk_real` ni `manual`) en toda su historia — pedido
- * explícito del usuario 24-ago-2026: "sin Lira 1 y Lira 2, si no está en
- * Buk y se acabó el plazo en el Gespro, se elimina". Antes esas obras
- * aparecían como filas completamente en blanco (su rango de fechas cae
- * fuera de la ventana visible del Excel) — confuso, sin ninguna
- * explicación visual de por qué no tienen dato.
- *
- * Nunca esconde una obra con AL MENOS un dato real, aunque su plazo ya
- * haya vencido — un dato real siempre se muestra.
- */
-function debeExcluirseSinDato(
-  obra: { finObra: string | null },
-  tuvoAlgunDatoReal: boolean,
-  hoy: string,
-): boolean {
-  const plazoVencido = obra.finObra != null && obra.finObra < hoy;
-  return plazoVencido && !tuvoAlgunDatoReal;
-}
-
-/**
- * Hoja "Proyección Headcount" — pivotea `planObraDotacion` (tidy, 1 fila
- * por obra/mes) al layout ANCHO del Excel maestro original ("Headcount
- * Plan de Obra"): 1 fila por obra, 1 columna por mes calendario, valor =
- * variación neta (altas−bajas) de esa obra ese mes, + fila "Total" al
- * final sumando la variación neta de todas las obras por mes.
- */
-function renderProyeccionHeadcount(
-  workbook: ExcelJS.Workbook,
-  planObraDotacion: PlanObraDotacionFila[],
-  generadoEn: Date,
-  oficinaCentralPorPeriodo?: Map<string, number>,
-  saldoInicialPorObra?: Map<string, number>,
-): void {
-  const periodos = [...new Set(planObraDotacion.map((f) => f.periodo))].sort();
-  if (periodos.length === 0) return;
-
-  const obrasPorId = new Map<
-    string,
-    Pick<
-      PlanObraDotacionFila,
-      | "obraNombre"
-      | "comuna"
-      | "tipo"
-      | "cliente"
-      | "unidades"
-      | "inicioObra"
-      | "finObra"
-      | "durObraMeses"
-    >
-  >();
-  const celdaPorObraYPeriodo = new Map<
-    string,
-    { variacionNeta: number | null; origenVariacion: string | null }
-  >();
-  // true si la obra tuvo AL MENOS un mes con dato real propio (buk_real o
-  // manual) en TODA su historia — no solo en el rango visible del Excel,
-  // ver `debeExcluirseSinDato`.
-  const tuvoDatoRealPorObra = new Map<string, boolean>();
-  for (const fila of planObraDotacion) {
-    if (!obrasPorId.has(fila.obraId)) {
-      obrasPorId.set(fila.obraId, {
-        obraNombre: fila.obraNombre,
-        comuna: fila.comuna,
-        tipo: fila.tipo,
-        cliente: fila.cliente,
-        unidades: fila.unidades,
-        inicioObra: fila.inicioObra,
-        finObra: fila.finObra,
-        durObraMeses: fila.durObraMeses,
-      });
-    }
-    celdaPorObraYPeriodo.set(`${fila.obraId}::${fila.periodo}`, {
-      variacionNeta: fila.variacionNeta,
-      origenVariacion: fila.origenVariacion,
-    });
-    const yaTeniaDatoReal = tuvoDatoRealPorObra.get(fila.obraId) ?? false;
-    tuvoDatoRealPorObra.set(
-      fila.obraId,
-      yaTeniaDatoReal ||
-        fila.origenVariacion === "buk_real" ||
-        fila.origenVariacion === "manual",
-    );
-  }
-
-  const hoyStr = generadoEn.toISOString().slice(0, 10);
-  const obrasOrdenadas = [...obrasPorId.entries()]
-    .filter(
-      ([obraId, obra]) =>
-        !debeExcluirseSinDato(
-          obra,
-          tuvoDatoRealPorObra.get(obraId) ?? false,
-          hoyStr,
-        ),
-    )
-    .sort(
-      ([, a], [, b]) => proximidadAHoy(a, hoyStr) - proximidadAHoy(b, hoyStr),
-    );
-
-  const headcount = workbook.addWorksheet("Proyección Headcount");
-  // "Obra ID" (columna 1, oculta) y "Saldo Inicial (Buk)" (última columna
-  // fija) — pedido explícito del usuario 25-ago-2026 para la carga manual
-  // vía re-subida de este mismo archivo: "Obra ID" es la clave estable de
-  // matching (el nombre de obra es frágil — ya causó un bug real de 98
-  // personas mal clasificadas por naming, ver `match-obra.ts`); "Saldo
-  // Inicial (Buk)" es la referencia visual del nivel real mientras el
-  // usuario edita (nunca participa en ningún cálculo del modelo). Excel
-  // preserva columnas ocultas al guardar — el re-subido puede leerla
-  // igual que las demás.
-  const COLUMNAS_FIJAS = [
-    "Obra ID",
-    "Obra",
-    "Comuna",
-    "Tipo",
-    "Cliente",
-    "Unidades",
-    "Inicio Obra",
-    "Fin Obra",
-    "Duración (meses)",
-    "Saldo Inicial (Buk)",
-  ];
-  const headerRow = headcount.addRow([
-    ...COLUMNAS_FIJAS,
-    ...periodos.map(etiquetaPeriodoCorta),
-  ]);
-  headerRow.eachCell((cell) => {
-    cell.font = {
-      name: FUENTE_MARCA,
-      bold: true,
-      color: { argb: "FFFFFFFF" },
-    };
-    cell.fill = FILL_HEADER;
-  });
-
-  const sumaPorPeriodo = new Map<string, number>(periodos.map((p) => [p, 0]));
-  // Valor exacto que esta corrida escribió en cada celda — keyed por
-  // "obraId::periodo", volcado en la hoja técnica `_fcn_baseline` (ver
-  // `escribirHojaBaseline` más abajo). Es lo que le permite al parser de
-  // re-subida (`parse-headcount-upload.ts`) distinguir "el usuario editó
-  // esta celda" de "esto lo escribió el export" — antes de esto, CUALQUIER
-  // celda con dato (incluidas las del modelo o de Buk) se interpretaba
-  // como editada al re-subir, fosilizando toda la grilla como `manual`
-  // (bug real, ver Auto-Blindaje 21-sep-2026).
-  const baseline: { obraId: string; periodo: string; valor: number }[] = [];
-
-  for (const [obraId, obra] of obrasOrdenadas) {
-    const row = headcount.addRow([
-      obraId,
-      obra.obraNombre,
-      obra.comuna ?? "",
-      obra.tipo ?? "",
-      obra.cliente ?? "",
-      obra.unidades ?? "",
-      obra.inicioObra ?? "",
-      obra.finObra ?? "",
-      obra.durObraMeses ?? "",
-      saldoInicialPorObra?.get(obraId) ?? "",
-      ...periodos.map((periodo) => {
-        const celda = celdaPorObraYPeriodo.get(`${obraId}::${periodo}`);
-        if (!celda || celda.variacionNeta == null) return "";
-        sumaPorPeriodo.set(
-          periodo,
-          (sumaPorPeriodo.get(periodo) ?? 0) + celda.variacionNeta,
-        );
-        baseline.push({ obraId, periodo, valor: celda.variacionNeta });
-        return celda.variacionNeta;
-      }),
-    ]);
-    row.font = { name: FUENTE_MARCA };
-    periodos.forEach((periodo, i) => {
-      const celda = celdaPorObraYPeriodo.get(`${obraId}::${periodo}`);
-      const cell = row.getCell(COLUMNAS_FIJAS.length + 1 + i);
-      if (celda?.origenVariacion === "modelo_estimado") {
-        cell.fill = FILL_PROYECTADO;
-      } else if (celda?.origenVariacion === "sin_dato_referencia") {
-        cell.fill = FILL_SIN_DATO;
-      }
-    });
-  }
-
-  // Fila "Oficina Central" — pedido explícito del usuario 25-ago-2026:
-  // la hoja antes solo cubría dotación de obra (RG), dejando fuera el
-  // personal de Oficina Central — el "Total" no reconciliaba con la
-  // dotación total real de la compañía (ver `dotacion-total.ts`).
-  // Incluye RP contractual real Y RG sin obra asignada (corrección
-  // 25-ago-2026, 5ta vuelta: antes solo sumaba RP — ver
-  // `getOficinaCentralHeadcountPorPeriodo`, vía `private_role` de Buk).
-  // Variación neta = valor absoluto de este mes − valor absoluto del mes
-  // anterior; requiere que el caller haya incluido 1 mes antes del primer
-  // período visible (ver comentario en `renderReportExcel`) — sin ese mes
-  // extra, la primera columna queda en blanco (nunca inventa un salto
-  // artificial).
-  if (oficinaCentralPorPeriodo && oficinaCentralPorPeriodo.size > 0) {
-    const variacionOficinaCentralPorPeriodo = periodos.map((periodo) => {
-      const periodoAnterior = sumarMesesAPeriodo(periodo, -1);
-      const actual = oficinaCentralPorPeriodo.get(periodo);
-      const anterior = oficinaCentralPorPeriodo.get(periodoAnterior);
-      if (actual == null || anterior == null) return null;
-      return actual - anterior;
-    });
-
-    const filaOficinaCentral = headcount.addRow([
-      "",
-      "Oficina Central",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      ...variacionOficinaCentralPorPeriodo.map((v) => v ?? ""),
-    ]);
-    filaOficinaCentral.font = { name: FUENTE_MARCA, italic: true };
-
-    variacionOficinaCentralPorPeriodo.forEach((v, i) => {
-      if (v == null) return;
-      const periodo = periodos[i];
-      sumaPorPeriodo.set(periodo, (sumaPorPeriodo.get(periodo) ?? 0) + v);
-    });
-  }
-
-  const totalRow = headcount.addRow([
-    "",
-    "Total",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    ...periodos.map((periodo) => sumaPorPeriodo.get(periodo) ?? 0),
-  ]);
-  totalRow.eachCell((cell, colNumber) => {
-    cell.font = { name: FUENTE_MARCA, bold: true };
-    if (colNumber > COLUMNAS_FIJAS.length) {
-      cell.border = { top: { style: "thin" } };
-    }
-  });
-
-  headcount.getColumn(1).hidden = true; // "Obra ID" — solo para el re-subido, ver comentario arriba.
-  headcount.getColumn(2).width = 28; // Obra
-  headcount.getColumn(3).width = 16; // Comuna
-  headcount.getColumn(4).width = 10; // Tipo
-  headcount.getColumn(5).width = 12; // Cliente
-  headcount.getColumn(7).width = 12; // Inicio Obra
-  headcount.getColumn(8).width = 12; // Fin Obra
-  headcount.getColumn(10).width = 16; // Saldo Inicial (Buk)
-  for (let i = 0; i < periodos.length; i++) {
-    headcount.getColumn(COLUMNAS_FIJAS.length + 1 + i).width = 8;
-  }
-  headcount.views = [
-    { state: "frozen", xSplit: COLUMNAS_FIJAS.length, ySplit: 1 },
-  ];
-
-  headcount.addRow([]);
-  headcount.addRow([
-    "Variación neta (altas−bajas) por obra y mes. Amarillo = estimado por el modelo (curva de obras similares); gris = sin obra de referencia (placeholder). 'Oficina Central' = RP contractual real + RG sin obra asignada (dato real de Buk cuando el mes no está cerrado en Finanzas), no usa el modelo de similitud por obra. 'Saldo Inicial (Buk)' = nivel real más reciente de Buk por obra, solo de referencia. Para carga manual: edita los meses que necesites y vuelve a subir este mismo archivo en /dotacion — la columna 'Obra ID' (oculta) identifica cada obra, no la borres ni la edites. Fila 'Total' = variación neta de toda la compañía ese mes — mismo dato que alimenta la Dotación del flujo de caja (ver hoja 'Detalle'). Este archivo lleva además una hoja técnica interna (no la borres) que le permite al sistema saber exactamente qué celdas editaste al volver a subirlo.",
-  ]).font = {
-    name: FUENTE_MARCA,
-    italic: true,
-    size: 9,
-    color: { argb: "FF94A3B8" },
-  };
-
-  escribirHojaBaseline(workbook, baseline, generadoEn);
-}
-
-/**
- * Hoja técnica `_fcn_baseline`, oculta con `state: "veryHidden"` (a
- * diferencia de `hidden`, no aparece en el menú "Mostrar" de Excel — el
- * usuario no puede desocultarla y "arreglarla" por error). Guarda el valor
- * EXACTO que esta corrida escribió en cada celda de "Proyección
- * Headcount", keyed por obraId+periodo. Es la fuente de verdad que usa
- * `parse-headcount-upload.ts` al re-subir para distinguir "el usuario
- * cambió este número" de "esto lo puso el export" — antes de esto no
- * había forma de saberlo, y CUALQUIER celda con dato (incluidas las del
- * modelo o de Buk) se marcaba como editada, fosilizando toda la grilla
- * como `origen='manual'` en el próximo refresh (bug real, ver
- * Auto-Blindaje 21-sep-2026).
- */
-function escribirHojaBaseline(
-  workbook: ExcelJS.Workbook,
-  baseline: { obraId: string; periodo: string; valor: number }[],
-  generadoEn: Date,
-): void {
-  const hoja = workbook.addWorksheet(NOMBRE_HOJA_BASELINE);
-  hoja.addRow([MARCA_BASELINE, VERSION_BASELINE, generadoEn.toISOString()]);
-  hoja.addRow(["obraId", "periodo", "valor"]);
-  for (const b of baseline) hoja.addRow([b.obraId, b.periodo, b.valor]);
-  hoja.state = "veryHidden";
 }

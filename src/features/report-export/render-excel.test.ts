@@ -11,7 +11,7 @@ const KPIS: ResumenKpis = {
   totalProximosTresMeses: 300_000_000,
   totalProximosDoceMeses: 1_200_000_000,
   mesPico: { periodo: "2026-12-01", monto: 150_000_000 },
-  obrasConEstimacion: 3,
+  obrasSinPlan: 3,
   mesesProyectadosEnRango: 5,
   dotacionMesActual: 850,
   dotacionMesActualEsReal: true,
@@ -272,7 +272,8 @@ describe("renderReportExcel", () => {
     expect(celdaRemunJulio.result).toBe(104_000_000);
   });
 
-  it("con planObraDotacion, genera la hoja 'Proyección Headcount' pivoteada (obras en fila, meses en columna)", async () => {
+
+  it("con planObraDotacion, genera la hoja 'Plan de Obra' con origen 'plan'/'sin_plan' (Fase 2, reemplaza al modelo estadístico)", async () => {
     const PLAN_OBRA_DOTACION: PlanObraDotacionFila[] = [
       {
         obraId: "obra-1",
@@ -288,7 +289,7 @@ describe("renderReportExcel", () => {
         dotacionReal: 50,
         dotacionProyectada: 50,
         variacionNeta: 50,
-        origenVariacion: "buk_real",
+        origenVariacion: "plan",
       },
       {
         obraId: "obra-1",
@@ -302,38 +303,14 @@ describe("renderReportExcel", () => {
         durObraMeses: 12,
         periodo: "2026-07-01",
         dotacionReal: null,
-        dotacionProyectada: 65,
-        variacionNeta: 15,
-        origenVariacion: "modelo_estimado",
-      },
-      {
-        obraId: "obra-2",
-        obraNombre: "Obra Beta",
-        comuna: "Maipú",
-        tipo: "Retail",
-        cliente: "Terceros",
-        unidades: 80,
-        inicioObra: "2026-07-01",
-        finObra: "2027-07-01",
-        durObraMeses: 12,
-        periodo: "2026-07-01",
-        dotacionReal: null,
         dotacionProyectada: null,
         variacionNeta: null,
-        origenVariacion: "sin_dato_referencia",
+        origenVariacion: "sin_plan",
       },
     ];
 
     const buffer = await renderReportExcel({
-      serie: [
-        {
-          periodo: "2026-07-01",
-          concepto: "total_nomina",
-          monto: 100_000_000,
-          esReal: true,
-          metodoCalculo: null,
-        },
-      ],
+      serie: [],
       kpis: KPIS,
       ufPorPeriodo: new Map(),
       periodoDesde: "2026-06-01",
@@ -343,531 +320,111 @@ describe("renderReportExcel", () => {
     });
 
     const wb = await leerWorkbook(buffer);
-    const headcount = wb.getWorksheet("Proyección Headcount");
-    expect(headcount).toBeDefined();
+    const planObra = wb.getWorksheet("Plan de Obra");
+    expect(planObra).toBeDefined();
 
-    // Header: "Obra ID" (oculta) + 9 columnas fijas + 1 columna por
-    // período (jun-26, jul-26).
-    expect(headcount!.getRow(1).getCell(1).value).toBe("Obra ID");
-    expect(headcount!.getRow(1).getCell(2).value).toBe("Obra");
-    expect(headcount!.getRow(1).getCell(11).value).toBe("jun-26");
-    expect(headcount!.getRow(1).getCell(12).value).toBe("jul-26");
+    const header = planObra!.getRow(1).values as unknown[];
+    expect(header).toContain("Origen Variación");
 
-    // Obra Alfa: jun-26=50 (real), jul-26=15 (estimado).
-    const filaAlfa = headcount!.getRow(2);
-    expect(filaAlfa.getCell(1).value).toBe("obra-1");
-    expect(filaAlfa.getCell(2).value).toBe("Obra Alfa");
-    expect(filaAlfa.getCell(11).value).toBe(50);
-    expect(filaAlfa.getCell(12).value).toBe(15);
+    const filaJunio = planObra!.getRow(2).values as unknown[];
+    expect(filaJunio).toContain("Plan (usuario)");
 
-    // Obra Beta: sin fila para jun-26 (todavía no arrancaba) → celda vacía;
-    // jul-26 sin dato de referencia → celda vacía también (variacionNeta null).
-    const filaBeta = headcount!.getRow(3);
-    expect(filaBeta.getCell(2).value).toBe("Obra Beta");
-    expect(filaBeta.getCell(11).value).toBeFalsy();
-    expect(filaBeta.getCell(12).value).toBeFalsy();
-
-    // Fila Total: jun-26 = 50 (solo Alfa), jul-26 = 15 (solo Alfa, Beta es null).
-    const filaTotal = headcount!.getRow(4);
-    expect(filaTotal.getCell(2).value).toBe("Total");
-    expect(filaTotal.getCell(11).value).toBe(50);
-    expect(filaTotal.getCell(12).value).toBe(15);
+    const filaJulio = planObra!.getRow(3).values as unknown[];
+    expect(filaJulio).toContain("Sin plan");
   });
 
-  it("con oficinaCentralPorPeriodo, agrega la fila 'Oficina Central' e la incluye en el Total", async () => {
+  it("sin planObraDotacion, NO genera la hoja 'Plan de Obra'", async () => {
+    const buffer = await renderReportExcel({
+      serie: [],
+      kpis: KPIS,
+      ufPorPeriodo: new Map(),
+      periodoDesde: "2026-06-01",
+      periodoHasta: "2026-07-01",
+      generadoEn: new Date(2026, 7, 4),
+    });
+
+    const wb = await leerWorkbook(buffer);
+    expect(wb.getWorksheet("Plan de Obra")).toBeUndefined();
+  });
+
+  it("ya no genera la hoja 'Proyección Headcount' ni la hoja técnica '_fcn_baseline' (retiradas en la Fase 3, 24-sep-2026 — reemplazadas por el Plan de Dotación en SharePoint)", async () => {
     const PLAN_OBRA_DOTACION: PlanObraDotacionFila[] = [
       {
         obraId: "obra-1",
         obraNombre: "Obra Alfa",
-        comuna: "Ñuñoa",
-        tipo: "DS19",
-        cliente: "Maestra",
-        unidades: 120,
+        comuna: null,
+        tipo: null,
+        cliente: null,
+        unidades: null,
         inicioObra: "2026-06-01",
-        finObra: "2027-06-01",
+        finObra: null,
         durObraMeses: 12,
         periodo: "2026-06-01",
-        dotacionReal: 0,
-        dotacionProyectada: 0,
-        variacionNeta: 0,
-        origenVariacion: "buk_real",
-      },
-      {
-        obraId: "obra-1",
-        obraNombre: "Obra Alfa",
-        comuna: "Ñuñoa",
-        tipo: "DS19",
-        cliente: "Maestra",
-        unidades: 120,
-        inicioObra: "2026-06-01",
-        finObra: "2027-06-01",
-        durObraMeses: 12,
-        periodo: "2026-07-01",
         dotacionReal: 50,
         dotacionProyectada: 50,
         variacionNeta: 50,
-        origenVariacion: "buk_real",
+        origenVariacion: "plan",
       },
     ];
-    // Oficina Central (RP + RG sin obra): may-26=100, jun-26=105 (Δ=+5,
-    // mes anterior al primero visible, no se muestra pero se usa para
-    // calcular la Δ de jun-26), jul-26=98 (Δ=-7).
-    const OFICINA_CENTRAL: Map<string, number> = new Map([
-      ["2026-05-01", 100],
-      ["2026-06-01", 105],
-      ["2026-07-01", 98],
-    ]);
 
     const buffer = await renderReportExcel({
-      serie: [
-        {
-          periodo: "2026-07-01",
-          concepto: "total_nomina",
-          monto: 100_000_000,
-          esReal: true,
-          metodoCalculo: null,
-        },
-      ],
+      serie: [],
       kpis: KPIS,
       ufPorPeriodo: new Map(),
       periodoDesde: "2026-06-01",
       periodoHasta: "2026-07-01",
       generadoEn: new Date(2026, 7, 4),
       planObraDotacion: PLAN_OBRA_DOTACION,
-      oficinaCentralPorPeriodo: OFICINA_CENTRAL,
-    });
-
-    const wb = await leerWorkbook(buffer);
-    const headcount = wb.getWorksheet("Proyección Headcount")!;
-
-    // Fila 2 = Obra Alfa, fila 3 = Oficina Central, fila 4 = Total.
-    const filaOficinaCentral = headcount.getRow(3);
-    expect(filaOficinaCentral.getCell(2).value).toBe("Oficina Central");
-    expect(filaOficinaCentral.getCell(11).value).toBe(5); // jun-26: 105-100
-    expect(filaOficinaCentral.getCell(12).value).toBe(-7); // jul-26: 98-105
-
-    const filaTotal = headcount.getRow(4);
-    expect(filaTotal.getCell(2).value).toBe("Total");
-    // jun-26: Obra Alfa no tiene fila ese mes (0) + Oficina Central (5) = 5.
-    expect(filaTotal.getCell(11).value).toBe(5);
-    // jul-26: Obra Alfa (50) + Oficina Central (-7) = 43.
-    expect(filaTotal.getCell(12).value).toBe(43);
-  });
-
-  it("sin oficinaCentralPorPeriodo, NO agrega la fila 'Oficina Central' (comportamiento previo intacto)", async () => {
-    const PLAN_OBRA_DOTACION: PlanObraDotacionFila[] = [
-      {
-        obraId: "obra-1",
-        obraNombre: "Obra Alfa",
-        comuna: "Ñuñoa",
-        tipo: "DS19",
-        cliente: "Maestra",
-        unidades: 120,
-        inicioObra: "2026-06-01",
-        finObra: "2027-06-01",
-        durObraMeses: 12,
-        periodo: "2026-07-01",
-        dotacionReal: 50,
-        dotacionProyectada: 50,
-        variacionNeta: 50,
-        origenVariacion: "buk_real",
-      },
-    ];
-
-    const buffer = await renderReportExcel({
-      serie: [
-        {
-          periodo: "2026-07-01",
-          concepto: "total_nomina",
-          monto: 100_000_000,
-          esReal: true,
-          metodoCalculo: null,
-        },
-      ],
-      kpis: KPIS,
-      ufPorPeriodo: new Map(),
-      periodoDesde: "2026-06-01",
-      periodoHasta: "2026-07-01",
-      generadoEn: new Date(2026, 7, 4),
-      planObraDotacion: PLAN_OBRA_DOTACION,
-    });
-
-    const wb = await leerWorkbook(buffer);
-    const headcount = wb.getWorksheet("Proyección Headcount")!;
-    // Fila 2 = Obra Alfa, fila 3 = Total directamente (sin fila extra).
-    expect(headcount.getRow(3).getCell(2).value).toBe("Total");
-  });
-
-  it("con saldoInicialPorObra, agrega 'Obra ID' (oculta) y 'Saldo Inicial (Buk)' — sin el mapa, la columna queda vacía sin romper nada", async () => {
-    const PLAN_OBRA_DOTACION: PlanObraDotacionFila[] = [
-      {
-        obraId: "obra-1",
-        obraNombre: "Obra Alfa",
-        comuna: "Ñuñoa",
-        tipo: "DS19",
-        cliente: "Maestra",
-        unidades: 120,
-        inicioObra: "2026-06-01",
-        finObra: "2027-06-01",
-        durObraMeses: 12,
-        periodo: "2026-07-01",
-        dotacionReal: 50,
-        dotacionProyectada: 50,
-        variacionNeta: 50,
-        origenVariacion: "buk_real",
-      },
-      {
-        obraId: "obra-2",
-        obraNombre: "Obra Beta",
-        comuna: "Maipú",
-        tipo: "Retail",
-        cliente: "Terceros",
-        unidades: 80,
-        inicioObra: "2026-07-01",
-        finObra: "2027-07-01",
-        durObraMeses: 12,
-        periodo: "2026-07-01",
-        dotacionReal: null,
-        dotacionProyectada: null,
-        variacionNeta: null,
-        origenVariacion: "sin_dato_referencia",
-      },
-    ];
-
-    const buffer = await renderReportExcel({
-      serie: [
-        {
-          periodo: "2026-07-01",
-          concepto: "total_nomina",
-          monto: 100_000_000,
-          esReal: true,
-          metodoCalculo: null,
-        },
-      ],
-      kpis: KPIS,
-      ufPorPeriodo: new Map(),
-      periodoDesde: "2026-07-01",
-      periodoHasta: "2026-07-01",
-      generadoEn: new Date(2026, 7, 4),
-      planObraDotacion: PLAN_OBRA_DOTACION,
-      saldoInicialPorObra: new Map([["obra-1", 142]]), // obra-2 sin snapshot propio
-    });
-
-    const wb = await leerWorkbook(buffer);
-    const headcount = wb.getWorksheet("Proyección Headcount")!;
-
-    expect(headcount.getRow(1).getCell(1).value).toBe("Obra ID");
-    expect(headcount.getRow(1).getCell(10).value).toBe("Saldo Inicial (Buk)");
-    expect(headcount.getColumn(1).hidden).toBe(true);
-
-    const filaAlfa = headcount.getRow(2);
-    expect(filaAlfa.getCell(1).value).toBe("obra-1");
-    expect(filaAlfa.getCell(10).value).toBe(142);
-
-    const filaBeta = headcount.getRow(3);
-    expect(filaBeta.getCell(1).value).toBe("obra-2");
-    expect(filaBeta.getCell(10).value).toBeFalsy(); // sin snapshot propio, nunca inventa un 0
-  });
-
-  it("ordena las obras de 'Proyección Headcount' por proximidad a HOY (próximo hito: inicio si no ha empezado, fin si ya está en curso) — no por fecha de inicio ascendente", async () => {
-    const hoy = new Date(2026, 7, 24); // 24-ago-2026
-
-    const PLAN_OBRA_DOTACION: PlanObraDotacionFila[] = [
-      // Empezó hace mucho (2020) y sigue en curso, cierra muy lejos (2035)
-      // — el orden VIEJO (ascendente por inicio) la pondría PRIMERA; por
-      // proximidad a hoy debe quedar AL FINAL.
-      {
-        obraId: "vieja",
-        obraNombre: "Obra Vieja",
-        comuna: null,
-        tipo: "DS19",
-        cliente: "Maestra",
-        unidades: 100,
-        inicioObra: "2020-01-01",
-        finObra: "2035-01-01",
-        durObraMeses: 180,
-        periodo: "2026-08-01",
-        dotacionReal: 200,
-        dotacionProyectada: 200,
-        variacionNeta: 5,
-        origenVariacion: "buk_real",
-      },
-      // Ya en curso, cierra el mes que viene — debe quedar PRIMERA.
-      {
-        obraId: "cierra-pronto",
-        obraNombre: "Obra Cierra Pronto",
-        comuna: null,
-        tipo: "DS19",
-        cliente: "Maestra",
-        unidades: 50,
-        inicioObra: "2025-01-01",
-        finObra: "2026-09-01",
-        durObraMeses: 20,
-        periodo: "2026-08-01",
-        dotacionReal: 80,
-        dotacionProyectada: 80,
-        variacionNeta: -10,
-        origenVariacion: "buk_real",
-      },
-      // Todavía no empieza, arranca en ~1 mes — debe quedar SEGUNDA (más
-      // lejos que "cierra pronto", más cerca que "vieja").
-      {
-        obraId: "futura",
-        obraNombre: "Obra Futura Cercana",
-        comuna: null,
-        tipo: "DS19",
-        cliente: "Maestra",
-        unidades: 60,
-        inicioObra: "2026-10-01",
-        finObra: "2028-10-01",
-        durObraMeses: 24,
-        periodo: "2026-08-01",
-        dotacionReal: null,
-        dotacionProyectada: null,
-        variacionNeta: null,
-        origenVariacion: "sin_dato_referencia",
-      },
-    ];
-
-    const buffer = await renderReportExcel({
-      serie: [
-        {
-          periodo: "2026-08-01",
-          concepto: "total_nomina",
-          monto: 100_000_000,
-          esReal: true,
-          metodoCalculo: null,
-        },
-      ],
-      kpis: KPIS,
-      ufPorPeriodo: new Map(),
-      periodoDesde: "2026-08-01",
-      periodoHasta: "2026-08-01",
-      generadoEn: hoy,
-      planObraDotacion: PLAN_OBRA_DOTACION,
-    });
-
-    const wb = await leerWorkbook(buffer);
-    const headcount = wb.getWorksheet("Proyección Headcount")!;
-    expect(headcount.getRow(2).getCell(2).value).toBe("Obra Cierra Pronto");
-    expect(headcount.getRow(3).getCell(2).value).toBe("Obra Futura Cercana");
-    expect(headcount.getRow(4).getCell(2).value).toBe("Obra Vieja");
-  });
-
-  it("'Proyección Headcount' excluye una obra con plazo vencido y SIN ningún dato real (ej. Lira 1/2), pero nunca esconde una con al menos un dato real", async () => {
-    const hoy = new Date(2026, 7, 24); // 24-ago-2026
-
-    const PLAN_OBRA_DOTACION: PlanObraDotacionFila[] = [
-      // Plazo vencido (finObra en el pasado) y JAMÁS tuvo dato real
-      // (siempre sin_dato_referencia) — debe excluirse por completo.
-      {
-        obraId: "lira-1",
-        obraNombre: "Lira 1",
-        comuna: "San Joaquín",
-        tipo: "DS49",
-        cliente: "Terceros",
-        unidades: 262,
-        inicioObra: "2025-02-01",
-        finObra: "2026-05-27",
-        durObraMeses: 16,
-        periodo: "2026-05-01",
-        dotacionReal: null,
-        dotacionProyectada: null,
-        variacionNeta: null,
-        origenVariacion: "sin_dato_referencia",
-      },
-      // Plazo vencido TAMBIÉN, pero SÍ tuvo un dato real (buk_real) en
-      // algún mes de su historia — nunca debe esconderse un dato real.
-      {
-        obraId: "con-dato-real",
-        obraNombre: "Obra Con Dato Real",
-        comuna: null,
-        tipo: "DS19",
-        cliente: "Maestra",
-        unidades: 100,
-        inicioObra: "2025-01-01",
-        finObra: "2026-01-01",
-        durObraMeses: 12,
-        periodo: "2025-06-01",
-        dotacionReal: 50,
-        dotacionProyectada: 50,
-        variacionNeta: 50,
-        origenVariacion: "buk_real",
-      },
-      // Obra normal, en curso, para confirmar que la exclusión no afecta
-      // al resto.
-      {
-        obraId: "en-curso",
-        obraNombre: "Obra En Curso",
-        comuna: null,
-        tipo: "DS19",
-        cliente: "Maestra",
-        unidades: 100,
-        inicioObra: "2026-06-01",
-        finObra: "2027-06-01",
-        durObraMeses: 12,
-        periodo: "2026-08-01",
-        dotacionReal: 30,
-        dotacionProyectada: 30,
-        variacionNeta: 5,
-        origenVariacion: "modelo_estimado",
-      },
-    ];
-
-    const buffer = await renderReportExcel({
-      serie: [
-        {
-          periodo: "2026-08-01",
-          concepto: "total_nomina",
-          monto: 100_000_000,
-          esReal: true,
-          metodoCalculo: null,
-        },
-      ],
-      kpis: KPIS,
-      ufPorPeriodo: new Map(),
-      periodoDesde: "2025-06-01",
-      periodoHasta: "2026-08-01",
-      generadoEn: hoy,
-      planObraDotacion: PLAN_OBRA_DOTACION,
-    });
-
-    const wb = await leerWorkbook(buffer);
-    const headcount = wb.getWorksheet("Proyección Headcount")!;
-    const nombresFilas: unknown[] = [];
-    headcount.eachRow((row) => nombresFilas.push(row.getCell(2).value));
-
-    expect(nombresFilas).not.toContain("Lira 1");
-    expect(nombresFilas).toContain("Obra Con Dato Real");
-    expect(nombresFilas).toContain("Obra En Curso");
-  });
-
-  it("sin planObraDotacion, NO genera la hoja 'Proyección Headcount'", async () => {
-    const buffer = await renderReportExcel({
-      serie: [
-        {
-          periodo: "2026-07-01",
-          concepto: "total_nomina",
-          monto: 100_000_000,
-          esReal: true,
-          metodoCalculo: null,
-        },
-      ],
-      kpis: KPIS,
-      ufPorPeriodo: new Map(),
-      periodoDesde: "2026-07-01",
-      periodoHasta: "2026-07-01",
-      generadoEn: new Date(2026, 7, 4),
     });
 
     const wb = await leerWorkbook(buffer);
     expect(wb.getWorksheet("Proyección Headcount")).toBeUndefined();
+    expect(wb.getWorksheet("_fcn_baseline")).toBeUndefined();
   });
 
-  it("con planObraDotacion, escribe la hoja técnica '_fcn_baseline' (veryHidden) con exactamente el mismo valor de cada celda visible — contrato compartido con parse-headcount-upload.ts", async () => {
-    const PLAN_OBRA_DOTACION: PlanObraDotacionFila[] = [
-      {
-        obraId: "obra-1",
-        obraNombre: "Obra Alfa",
-        comuna: "Ñuñoa",
-        tipo: "DS19",
-        cliente: "Maestra",
-        unidades: 120,
-        inicioObra: "2026-06-01",
-        finObra: "2027-06-01",
-        durObraMeses: 12,
-        periodo: "2026-06-01",
-        dotacionReal: 50,
-        dotacionProyectada: 50,
-        variacionNeta: 50,
-        origenVariacion: "buk_real",
-      },
-      {
-        obraId: "obra-1",
-        obraNombre: "Obra Alfa",
-        comuna: "Ñuñoa",
-        tipo: "DS19",
-        cliente: "Maestra",
-        unidades: 120,
-        inicioObra: "2026-06-01",
-        finObra: "2027-06-01",
-        durObraMeses: 12,
-        periodo: "2026-07-01",
-        dotacionReal: null,
-        dotacionProyectada: 65,
-        variacionNeta: 15,
-        origenVariacion: "modelo_estimado",
-      },
-    ];
-
+  it("lista en 'Resumen' las obras vencidas con dotación y sin plan de cierre (mismas alertas que /dotacion)", async () => {
     const buffer = await renderReportExcel({
-      serie: [
-        {
-          periodo: "2026-07-01",
-          concepto: "total_nomina",
-          monto: 100_000_000,
-          esReal: true,
-          metodoCalculo: null,
-        },
-      ],
+      serie: [],
       kpis: KPIS,
       ufPorPeriodo: new Map(),
       periodoDesde: "2026-06-01",
       periodoHasta: "2026-07-01",
       generadoEn: new Date(2026, 7, 4),
-      planObraDotacion: PLAN_OBRA_DOTACION,
-    });
-
-    const wb = await leerWorkbook(buffer);
-    const baselineSheet = wb.getWorksheet("_fcn_baseline");
-    expect(baselineSheet).toBeDefined();
-    expect(baselineSheet!.state).toBe("veryHidden");
-    expect(baselineSheet!.getRow(1).getCell(1).value).toBe("FCN_BASELINE");
-    expect(baselineSheet!.getRow(1).getCell(2).value).toBe(1);
-
-    const baselinePorClave = new Map<string, number>();
-    for (let r = 3; r <= baselineSheet!.rowCount; r++) {
-      const row = baselineSheet!.getRow(r);
-      const obraId = row.getCell(1).value as string;
-      const periodo = row.getCell(2).value as string;
-      const valor = row.getCell(3).value as number;
-      baselinePorClave.set(`${obraId}::${periodo}`, valor);
-    }
-
-    // Cada celda numérica visible de la grilla ("Proyección Headcount")
-    // debe tener su entrada exacta en el baseline — es lo que impide que
-    // export y parser se desincronicen (ver Auto-Blindaje 21-sep-2026).
-    const headcount = wb.getWorksheet("Proyección Headcount")!;
-    expect(baselinePorClave.get("obra-1::2026-06-01")).toBe(50);
-    expect(headcount.getRow(2).getCell(11).value).toBe(
-      baselinePorClave.get("obra-1::2026-06-01"),
-    );
-    expect(baselinePorClave.get("obra-1::2026-07-01")).toBe(15);
-    expect(headcount.getRow(2).getCell(12).value).toBe(
-      baselinePorClave.get("obra-1::2026-07-01"),
-    );
-    expect(baselinePorClave.size).toBe(2);
-  });
-
-  it("sin planObraDotacion, NO escribe la hoja '_fcn_baseline'", async () => {
-    const buffer = await renderReportExcel({
-      serie: [
+      alertasCierre: [
         {
-          periodo: "2026-07-01",
-          concepto: "total_nomina",
-          monto: 100_000_000,
-          esReal: true,
-          metodoCalculo: null,
+          obraId: "obra-1",
+          obraNombre: "Obra Cerrada",
+          finObra: "2026-05-31",
+          dotacionActual: 12,
         },
       ],
-      kpis: KPIS,
-      ufPorPeriodo: new Map(),
-      periodoDesde: "2026-07-01",
-      periodoHasta: "2026-07-01",
-      generadoEn: new Date(2026, 7, 4),
     });
 
     const wb = await leerWorkbook(buffer);
-    expect(wb.getWorksheet("_fcn_baseline")).toBeUndefined();
+    const valores: unknown[] = [];
+    wb.getWorksheet("Resumen")!.eachRow((row) =>
+      valores.push(row.getCell(1).value, row.getCell(3).value),
+    );
+    expect(valores).toContain("Obra Cerrada");
+    expect(valores).toContain(12);
+  });
+
+  it("no agrega la sección de alertas si no hay obras vencidas sin plan", async () => {
+    const buffer = await renderReportExcel({
+      serie: [],
+      kpis: KPIS,
+      ufPorPeriodo: new Map(),
+      periodoDesde: "2026-06-01",
+      periodoHasta: "2026-07-01",
+      generadoEn: new Date(2026, 7, 4),
+      alertasCierre: [],
+    });
+
+    const wb = await leerWorkbook(buffer);
+    const textos: string[] = [];
+    wb.getWorksheet("Resumen")!.eachRow((row) =>
+      textos.push(String(row.getCell(1).value ?? "")),
+    );
+    expect(textos.some((t) => t.startsWith("Alerta:"))).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getDotacionTotalPorPeriodo } from "@/features/headcount/services/dotacion-total";
+import { detectarObrasSinPlan } from "@/features/plan-dotacion/services/resolver-dotacion";
 
 export interface CashFlowSeriePunto {
   periodo: string;
@@ -138,7 +139,8 @@ export interface ResumenKpis {
   totalProximosDoceMeses: number;
   /** Mes de mayor requerimiento hacia adelante — para anticipar picos (aguinaldos, finiquitos masivos, etc.) */
   mesPico: { periodo: string; monto: number } | null;
-  obrasConEstimacion: number;
+  /** Obras vigentes (sin fecha de término vencida) sin ninguna fila cargada en el Plan de Dotación del usuario — ver plan-dotacion/. */
+  obrasSinPlan: number;
   mesesProyectadosEnRango: number;
   /** Dotación TOTAL de la compañía del mes actual (no solo por obra) — ver dotacion-total.ts. `null` si no hay dato para ese mes todavía. */
   dotacionMesActual: number | null;
@@ -207,17 +209,31 @@ export async function getResumenKpis(
     (esReal) => !esReal,
   ).length;
 
-  // BUG REAL corregido: esto contaba FILAS (una por obra POR MES — un
-  // rango de 24 meses en 12 obras estimadas ya son 250+ filas), no obras
-  // DISTINTAS — el KPI mostraba "254 obras con dotación estimada" cuando
-  // en total la empresa tiene 33 obras. Contar `obra_id` único, no filas.
-  const { data: filasEstimadas } = await supabase
-    .from("headcount_by_obra")
+  // Obras vigentes sin ningún plan cargado (Fase 2, 24-sep-2026) —
+  // reemplaza el KPI "obras con dotación estimada por el modelo", que
+  // contaba filas de `headcount_by_obra.origen='modelo_estimado'` (ese
+  // modelo se retiró: la dotación futura ahora viene del Plan de Dotación
+  // del usuario en SharePoint).
+  const { data: obrasParaKpi } = await supabase
+    .from("obras")
+    .select("id, fin_obra");
+  const { data: planParaKpi } = await supabase
+    .from("plan_dotacion")
     .select("obra_id")
-    .eq("origen", "modelo_estimado");
-  const obrasConEstimacion = new Set(
-    (filasEstimadas ?? []).map((f) => f.obra_id),
-  ).size;
+    .eq("unidad", "obra");
+  const obrasSinPlan = detectarObrasSinPlan({
+    obras: (obrasParaKpi ?? []).map((o) => ({
+      id: o.id as string,
+      nombre: "",
+      finObra: o.fin_obra as string | null,
+    })),
+    variaciones: (planParaKpi ?? []).map((p) => ({
+      obraId: p.obra_id as string,
+      periodo: "",
+      variacionNeta: 0,
+    })),
+    hoyStr: mesActualStr,
+  }).length;
 
   // Dotación TOTAL de la compañía (no solo la de obras estimadas) — la
   // misma fuente que alimenta la fila "Dotación (N°)" de la tabla de
@@ -235,7 +251,7 @@ export async function getResumenKpis(
     totalProximosTresMeses,
     totalProximosDoceMeses,
     mesPico,
-    obrasConEstimacion,
+    obrasSinPlan,
     mesesProyectadosEnRango,
     dotacionMesActual: dotacionActual?.total ?? null,
     dotacionMesActualEsReal: dotacionActual?.esReal ?? false,

@@ -11,12 +11,9 @@ import {
 import {
   getDotacionTotalPorPeriodo,
   getDotacionPorConceptoYPeriodo,
-  getOficinaCentralHeadcountPorPeriodo,
 } from "@/features/headcount/services/dotacion-total";
-import {
-  getPlanObraConDotacion,
-  getSaldoInicialPorObra,
-} from "@/features/headcount/services/plan-obra-dotacion";
+import { getPlanObraConDotacion } from "@/features/headcount/services/plan-obra-dotacion";
+import { getAlertasObrasCerradasSinPlan } from "@/features/plan-dotacion/services/alertas-cierre";
 import { renderReportHtml } from "./render";
 import { renderReportExcel } from "./render-excel";
 
@@ -77,22 +74,7 @@ export async function exportReportAsHtml(
       periodoDesde,
       periodoHasta,
     );
-    // Solo para la fila "Oficina Central" de la hoja "Proyección
-    // Headcount" — 1 mes ANTES de `periodoDesde` para poder calcular la
-    // variación neta de la primera columna visible (ver render-excel.ts).
-    const unMesAntesDePeriodoDesde = new Date(
-      periodoDesde.getFullYear(),
-      periodoDesde.getMonth() - 1,
-      1,
-    );
-    const oficinaCentralPorPeriodo = await getOficinaCentralHeadcountPorPeriodo(
-      unMesAntesDePeriodoDesde,
-      periodoHasta,
-    );
-    // Solo para la columna "Saldo Inicial (Buk)" de la hoja "Proyección
-    // Headcount" — referencia visual para la carga manual (ver
-    // render-excel.ts), nunca participa en ningún cálculo.
-    const saldoInicialPorObra = await getSaldoInicialPorObra();
+    const alertasCierre = await getAlertasObrasCerradasSinPlan();
 
     // El Excel trae MÁS histórico que la app en vivo/el HTML — pedido
     // explícito del usuario ("el histórico dejalo agrupado en el excel,
@@ -153,8 +135,7 @@ export async function exportReportAsHtml(
       columnasAgrupadasHastaPeriodo: periodoDesdeStr,
       generadoEn,
       planObraDotacion,
-      oficinaCentralPorPeriodo,
-      saldoInicialPorObra,
+      alertasCierre,
       aguinaldoAnticipoPorPeriodo,
     });
 
