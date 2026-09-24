@@ -124,9 +124,19 @@ export async function generarPlantillaPlanDotacion(params: {
   });
   planSheet.getColumn(1).hidden = true;
 
-  const obrasVigentes = obras.filter(
-    (o) => !o.finObra || o.finObra >= generadoEn.toISOString().slice(0, 10),
-  );
+  // Orden top-down por Dotación real (Buk, hoy) — pedido explícito del
+  // usuario 24-sep-2026: las obras con más gente arriba, las sin dato
+  // (obra muy nueva, sin snapshot Buk todavía) al final.
+  const obrasVigentes = obras
+    .filter((o) => !o.finObra || o.finObra >= generadoEn.toISOString().slice(0, 10))
+    .sort((a, b) => {
+      const da = dotacionRealPorObra.get(a.id);
+      const db = dotacionRealPorObra.get(b.id);
+      if (da == null && db == null) return 0;
+      if (da == null) return 1;
+      if (db == null) return -1;
+      return db - da;
+    });
 
   for (const obra of obrasVigentes) {
     const fila: (string | number)[] = [
