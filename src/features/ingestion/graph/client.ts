@@ -31,9 +31,18 @@ function esperar(ms: number): Promise<void> {
  * `Retry-After` si Microsoft lo manda. Antes solo se reintentaba 409 — un
  * solo hipo del lado de Microsoft tiraba abajo toda la sync del mes sin
  * darle una segunda oportunidad.
+ *
+ * Un solo reintento (bug real corregido el mismo día): con 3 reintentos
+ * (1s+3s+8s=12s) y Graph con una degradación SOSTENIDA (no un hipo
+ * puntual), cada una de las decenas de llamadas de un refresh completo
+ * (búsqueda + descarga, por mes, por sync) podía sumar hasta 12s extra —
+ * varios minutos en total sobre un refresh que ya tarda por el volumen de
+ * llamadas secuenciales. Un solo reintento corto sigue cubriendo el caso
+ * real que motivó el fix (hipo puntual) sin agravar una degradación
+ * sostenida.
  */
 const CODIGOS_REINTENTABLES = new Set([429, 500, 502, 503, 504]);
-const REINTENTOS_TRANSITORIOS = [1000, 3000, 8000]; // ms — backoff creciente
+const REINTENTOS_TRANSITORIOS = [1500]; // ms
 
 async function graphFetch(
   accessToken: string,

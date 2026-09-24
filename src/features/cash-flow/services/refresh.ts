@@ -760,7 +760,23 @@ export async function refreshCashFlowReport(
   const mesActual = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
   for (const mes of meses) {
     if (mes > mesActual) continue;
-    const pagosResult = await syncPagosMensuales(mes);
+    const esMesActual = mes.getTime() === mesActual.getTime();
+    // Las 3 syncs son independientes entre sí — carpetas de SharePoint
+    // distintas, tablas/conceptos distintos — así que corren en paralelo
+    // (fix real 24-sep-2026, hallazgo /temple: un refresh de 15 meses
+    // tardaba 5-6+ min, dominado por estas llamadas secuenciales a Graph;
+    // el fix de N+1 de la misma auditoría solo atacó las queries a la
+    // BD del loop de cálculo, más abajo, que era una fracción menor del
+    // tiempo total). NO se paralelizan los MESES entre sí, para no
+    // disparar 429 (throttling) de Microsoft con demasiadas requests
+    // concurrentes.
+    const [pagosResult, cotizacionResult, beneficiariosResult] =
+      await Promise.all([
+        syncPagosMensuales(mes),
+        syncCotizacionPrevired(mes),
+        syncBeneficiariosAnticipo(mes),
+      ]);
+
     documentosIngeridos += pagosResult.archivosProcesados.length;
     // El mes CALENDARIO ACTUAL (ej. agosto recién empezando) es normal que
     // todavía no tenga ningún archivo real — Pagos Mensuales se sube a
@@ -771,8 +787,7 @@ export async function refreshCashFlowReport(
     // real (ej. Graph, permisos) o si es un mes YA PASADO que debería
     // tener archivo y no lo tiene.
     const esMesActualSinArchivosAun =
-      mes.getTime() === mesActual.getTime() &&
-      pagosResult.archivosProcesados.length === 0;
+      esMesActual && pagosResult.archivosProcesados.length === 0;
     if (pagosResult.estado === "error" && !esMesActualSinArchivosAun) {
       errores.push({
         fuente: `Pagos Mensuales ${pagosResult.periodo}`,
@@ -784,11 +799,9 @@ export async function refreshCashFlowReport(
     // criterio de tolerancia que Pagos Mensuales: el mes calendario en
     // curso normalmente todavía no tiene el comprobante subido (Previred
     // se paga a mediados del mes siguiente), no es un error.
-    const cotizacionResult = await syncCotizacionPrevired(mes);
     documentosIngeridos += cotizacionResult.comprobantesProcesados;
     const esMesActualSinComprobantesAun =
-      mes.getTime() === mesActual.getTime() &&
-      cotizacionResult.comprobantesProcesados === 0;
+      esMesActual && cotizacionResult.comprobantesProcesados === 0;
     if (cotizacionResult.estado === "error" && !esMesActualSinComprobantesAun) {
       errores.push({
         fuente: `Cotización Previred ${cotizacionResult.periodo}`,
@@ -800,11 +813,9 @@ export async function refreshCashFlowReport(
     // los archivos de transferencia bancaria — pedido explícito del
     // usuario 24-ago-2026, ver sync-beneficiarios-anticipo.ts. Mismo
     // criterio de tolerancia que Pagos Mensuales/Cotización.
-    const beneficiariosResult = await syncBeneficiariosAnticipo(mes);
     documentosIngeridos += beneficiariosResult.archivosProcesados;
     const esMesActualSinBeneficiariosAun =
-      mes.getTime() === mesActual.getTime() &&
-      beneficiariosResult.archivosProcesados === 0;
+      esMesActual && beneficiariosResult.archivosProcesados === 0;
     if (
       beneficiariosResult.estado === "error" &&
       !esMesActualSinBeneficiariosAun
