@@ -88,6 +88,17 @@ export interface CashFlowInputs {
   beneficiosAnticipoRg: CashFlowConceptoCalculado;
   beneficiosAnticipoRp: CashFlowConceptoCalculado;
   /**
+   * Eventos del Plan de Dotación, ya en pesos (bono rol general de ene/jul
+   * reajustado en UF, bono de término de obra, etc. — ver plan_eventos).
+   * Solo se suman cuando el concepto es PROYECTADO: un mes real ya trae el
+   * pago adentro. Los de Remuneración NO entran a la base del Anticipo
+   * (mismo criterio del Excel tradicional del usuario: `Remun×24% −
+   * bono×24%`), pero SÍ a Reliquidación y Cotización, que se calculan
+   * sobre la Remuneración con el bono incluido. Por defecto 0.
+   */
+  eventosRemuneracion?: number;
+  eventosAnticipo?: number;
+  /**
    * % real de Anticipo/Remuneración, promedio de los últimos meses reales
    * (ver `pctSobreRemuneracionAprendido` en `refresh.ts`) — auto-
    * aprendizaje pedido explícito del usuario 24-ago-2026: "los % fijos
@@ -151,14 +162,22 @@ export function calcularMesCashFlow(
   // resto del motor (Anticipo, Reliquidación, Cotización, Total Nómina)
   // usa este monto ya inflado, así que Beneficios queda incluido en todo
   // sin tocar ninguna otra fórmula.
+  const eventosRemuneracion = remuneracionBase.esReal
+    ? 0
+    : (inputs.eventosRemuneracion ?? 0);
   const remuneracion: CashFlowConceptoCalculado = {
     monto:
       remuneracionBase.monto +
       inputs.beneficiosRg.monto +
-      inputs.beneficiosRp.monto,
+      inputs.beneficiosRp.monto +
+      eventosRemuneracion,
     esReal: remuneracionBase.esReal,
-    metodoCalculo: remuneracionBase.metodoCalculo,
+    metodoCalculo:
+      eventosRemuneracion !== 0
+        ? `${remuneracionBase.metodoCalculo}_mas_eventos`
+        : remuneracionBase.metodoCalculo,
   };
+  const eventosAnticipo = inputs.eventosAnticipo ?? 0;
 
   // Aguinaldos (Fiestas Patrias/Navidad) — se pagan CON el Anticipo, no
   // con la Remuneración (ver CashFlowInputs.beneficiosAnticipoRg/Rp). Solo
@@ -177,14 +196,17 @@ export function calcularMesCashFlow(
       : {
           monto:
             calcularAnticipoProyectado(
-              remuneracion.monto,
+              remuneracion.monto - eventosRemuneracion,
               inputs.anticipoPctAprendido ?? undefined,
-            ) + beneficiosAnticipoTotal,
+            ) +
+            beneficiosAnticipoTotal +
+            eventosAnticipo,
           esReal: false,
-          metodoCalculo:
+          metodoCalculo: `${
             inputs.anticipoPctAprendido != null
               ? "formula_pct_aprendido_anticipo_remuneracion"
-              : "formula_24pct_remuneracion",
+              : "formula_24pct_remuneracion"
+          }${eventosAnticipo !== 0 ? "_mas_eventos" : ""}`,
         };
 
   const reliquidacion: CashFlowConceptoCalculado =

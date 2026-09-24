@@ -35,6 +35,16 @@ const MESES_LARGOS = [
   "noviembre",
   "diciembre",
 ];
+/**
+ * Bono rol general: +70M digitados a mano en la Remuneración de ene y jul
+ * del Excel tradicional (celdas CY8 y DK8). Se reajusta en UF (aclaración
+ * del usuario, 24-sep-2026): los 70M se pasan a UF con la UF del 1° del
+ * mes del Excel (ago-26), y el refresh los vuelve a pesos con la UF del
+ * mes de pago.
+ */
+const BONO_ROL_GENERAL_CLP = 70_000_000;
+const BONO_ROL_GENERAL_FECHA_UF = "2026-08-01";
+
 /** Primer mes del plan: los anteriores ya son reales (Buk manda). */
 const PRIMER_PERIODO = "2026-09-01";
 const MESES_PLANTILLA = 15;
@@ -164,6 +174,7 @@ async function main() {
           concepto: "remuneracion",
           modo: "monto_total",
           monto,
+          moneda: "clp",
           obraNombre: obra.nombre,
           poblacion: null,
           descripcion: "Bono de término de obra (desde Excel tradicional)",
@@ -171,6 +182,30 @@ async function main() {
       }
     }
   }
+
+  const { data: ufRef } = await supabase
+    .from("uf_series")
+    .select("valor_uf")
+    .eq("fecha", BONO_ROL_GENERAL_FECHA_UF)
+    .single();
+  if (!ufRef) throw new Error(`Sin UF para ${BONO_ROL_GENERAL_FECHA_UF}.`);
+  const bonoRolGeneralUf =
+    Math.round((BONO_ROL_GENERAL_CLP / Number(ufRef.valor_uf)) * 100) / 100;
+  for (const periodo of periodos) {
+    const mes = Number(periodo.slice(5, 7));
+    if (mes !== 1 && mes !== 7) continue;
+    eventos.push({
+      periodo,
+      concepto: "remuneracion",
+      modo: "monto_total",
+      monto: bonoRolGeneralUf,
+      moneda: "uf",
+      obraNombre: null,
+      poblacion: "rg",
+      descripcion: `Bono rol general (70.000.000 a UF ${BONO_ROL_GENERAL_FECHA_UF.slice(0, 7)}, se reajusta con la UF del mes de pago)`,
+    });
+  }
+  console.log(`Bono rol general: ${bonoRolGeneralUf} UF (UF ${ufRef.valor_uf} al ${BONO_ROL_GENERAL_FECHA_UF})`);
 
   const hoyStr = new Date().toISOString().slice(0, 10);
   const obrasPlantilla = obras.map((o) => ({
@@ -205,6 +240,9 @@ async function main() {
   console.log(`Filas de plan: ${parse.filas.length} | eventos: ${parse.eventos.length}`);
   console.log("Variación neta total por mes (obras + Oficina Central):");
   for (const p of periodos) console.log(`  ${p.slice(0, 7)}: ${totalPorPeriodo.get(p) ?? "(sin plan)"}`);
+  console.log("Eventos:");
+  for (const e of parse.eventos)
+    console.log(`  ${e.periodo.slice(0, 7)} ${e.concepto} ${e.monto} ${e.moneda.toUpperCase()} — ${e.descripcion ?? ""}`);
   if (sinMatch.length) console.log("SIN MATCH en obras (no se cargaron):", sinMatch);
   if (vencidasConPlan.length)
     console.log("Obras con fin vencido (no salen en la plantilla):", vencidasConPlan.map((o) => o.nombre));

@@ -36,7 +36,7 @@ export async function descargarPlantillaPlanDotacion(): Promise<DescargarPlantil
     const { data: eventoRows } = await supabase
       .from("plan_eventos")
       .select(
-        "periodo, concepto, modo, monto, obra_id, poblacion, descripcion",
+        "periodo, concepto, modo, monto, moneda, obra_id, poblacion, descripcion",
       );
 
     const obraNombrePorId = new Map(
@@ -54,6 +54,7 @@ export async function descargarPlantillaPlanDotacion(): Promise<DescargarPlantil
       concepto: e.concepto as "remuneracion" | "anticipo",
       modo: e.modo as "monto_total" | "por_persona",
       monto: Number(e.monto),
+      moneda: e.moneda as "clp" | "uf",
       obraNombre: e.obra_id ? (obraNombrePorId.get(e.obra_id) ?? null) : null,
       poblacion: e.poblacion as "rg" | "rp" | null,
       descripcion: e.descripcion as string | null,

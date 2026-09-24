@@ -134,6 +134,7 @@ export async function syncPlanDotacion(): Promise<SyncPlanDotacionResult> {
             concepto: e.concepto,
             modo: e.modo,
             monto: e.monto,
+            moneda: e.moneda,
             obra_id: e.obraId,
             poblacion: e.poblacion,
             descripcion: e.descripcion,

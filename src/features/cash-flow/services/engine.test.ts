@@ -409,4 +409,50 @@ describe("calcularMesCashFlow", () => {
     expect(result.totalNomina).toBeGreaterThan(result.remuneracion.monto);
     expect(Number.isFinite(result.totalNomina)).toBe(true);
   });
+
+  it("evento de Remuneración proyectada (ej. bono rol general) suma a Remuneración, Reliquidación y Cotización, pero NO a la base del Anticipo", () => {
+    const result = calcularMesCashFlow({
+      ...BASE,
+      costoPromedioPorCabezaMesAnterior: 1_000_000,
+      dotacionActual: 100, // remuneracionBase = 100.000.000
+      eventosRemuneracion: 70_000_000,
+    });
+
+    expect(result.remuneracion.monto).toBe(170_000_000);
+    expect(result.remuneracion.metodoCalculo).toBe(
+      "costo_por_cabeza_x_dotacion_mas_eventos",
+    );
+    expect(result.anticipo.monto).toBe(Math.round(100_000_000 * 0.24));
+    expect(result.reliquidacion.monto).toBe(Math.round(170_000_000 * 0.01));
+    expect(result.cotizacion.monto).toBe(
+      Math.round((24_000_000 + 170_000_000 + 1_700_000) * 0.3),
+    );
+  });
+
+  it("evento de Remuneración no se suma cuando la Remuneración es real (ya viene pagado adentro)", () => {
+    const result = calcularMesCashFlow({
+      ...BASE,
+      remuneracionReal: 150_000_000,
+      eventosRemuneracion: 70_000_000,
+    });
+
+    expect(result.remuneracion.monto).toBe(150_000_000);
+    expect(result.remuneracion.metodoCalculo).toBe("ingesta_real");
+  });
+
+  it("evento de Anticipo suma al Anticipo proyectado y no al real", () => {
+    const base = calcularMesCashFlow(BASE);
+    const proyectado = calcularMesCashFlow({
+      ...BASE,
+      eventosAnticipo: 5_000_000,
+    });
+    expect(proyectado.anticipo.monto).toBe(base.anticipo.monto + 5_000_000);
+
+    const real = calcularMesCashFlow({
+      ...BASE,
+      anticipoReal: 40_000_000,
+      eventosAnticipo: 5_000_000,
+    });
+    expect(real.anticipo.monto).toBe(40_000_000);
+  });
 });

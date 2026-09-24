@@ -54,6 +54,7 @@ export interface EventoExistentePlantilla {
   concepto: "remuneracion" | "anticipo";
   modo: "monto_total" | "por_persona";
   monto: number;
+  moneda: "clp" | "uf";
   obraNombre: string | null;
   poblacion: "rg" | "rp" | null;
   descripcion: string | null;
@@ -97,6 +98,7 @@ export async function generarPlantillaPlanDotacion(params: {
     'La columna "Dotación real (Buk, hoy)" es solo informativa — no la edites, no participa en ningún cálculo.',
     'La fila "Oficina Central" es para la dotación fuera de obra (bodega, taller central, administración).',
     'Completa la hoja "Eventos" para extraordinarios: bono de término de obra, montos puntuales que no siguen la fórmula normal. "Modo" = "monto_total" (un monto fijo ese mes) o "por_persona" (el monto se multiplica por la dotación proyectada de la obra/población).',
+    '"Moneda" = "CLP" (pesos, por defecto si la dejas vacía) o "UF": un monto en UF se convierte a pesos con la UF del mes de pago (real, o proyectada desde la última UF real). Úsala para pagos que se reajustan en UF, como el bono rol general de enero y julio.',
     "Guarda el archivo y súbelo a la carpeta de SharePoint 'Flujo de Caja/Plan Dotación' (reemplaza el anterior). El sistema siempre toma el archivo más reciente de esa carpeta, sin importar el nombre exacto.",
     'Al correr "Actualizar reporte" el sistema vuelve a leer este archivo completo — lo que borres acá se borra también en el sistema.',
   ];
@@ -166,6 +168,7 @@ export async function generarPlantillaPlanDotacion(params: {
     "Concepto",
     "Modo",
     "Monto",
+    "Moneda",
     "Obra",
     "Población",
     "Descripción",
@@ -180,11 +183,13 @@ export async function generarPlantillaPlanDotacion(params: {
       evento.concepto,
       evento.modo,
       evento.monto,
+      evento.moneda.toUpperCase(),
       evento.obraNombre ?? "",
       evento.poblacion ?? "",
       evento.descripcion ?? "",
     ]);
     row.font = { name: FUENTE };
+    row.getCell(4).numFmt = evento.moneda === "uf" ? "#,##0.00" : "#,##0";
   }
   // Fila de ejemplo si no hay ningún evento cargado todavía — para que el
   // usuario vea el formato esperado sin adivinar.
@@ -194,6 +199,7 @@ export async function generarPlantillaPlanDotacion(params: {
       "remuneracion",
       "monto_total",
       80_000_000,
+      "CLP",
       "Nombre de la obra (o vacío si aplica a toda la compañía)",
       "",
       "Ejemplo: bono de término de negociación — BORRA esta fila antes de subir",
@@ -204,9 +210,10 @@ export async function generarPlantillaPlanDotacion(params: {
   eventosSheet.getColumn(2).width = 14;
   eventosSheet.getColumn(3).width = 14;
   eventosSheet.getColumn(4).width = 16;
-  eventosSheet.getColumn(5).width = 30;
-  eventosSheet.getColumn(6).width = 12;
-  eventosSheet.getColumn(7).width = 40;
+  eventosSheet.getColumn(5).width = 10;
+  eventosSheet.getColumn(6).width = 30;
+  eventosSheet.getColumn(7).width = 12;
+  eventosSheet.getColumn(8).width = 40;
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);

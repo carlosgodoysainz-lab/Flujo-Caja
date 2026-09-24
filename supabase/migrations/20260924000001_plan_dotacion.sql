@@ -60,6 +60,10 @@ CREATE TABLE IF NOT EXISTS plan_eventos (
   concepto TEXT NOT NULL CHECK (concepto IN ('remuneracion', 'anticipo')),
   modo TEXT NOT NULL CHECK (modo IN ('monto_total', 'por_persona')),
   monto NUMERIC(14, 2) NOT NULL,
+  -- 'uf' = el monto esta en UF y se convierte a pesos con la UF del mes
+  -- de pago (real, o proyectada desde la ultima real) -- ej. el bono rol
+  -- general de ene/jul, que se reajusta en UF.
+  moneda TEXT NOT NULL DEFAULT 'clp' CHECK (moneda IN ('clp', 'uf')),
   -- Solo relevante si modo='por_persona': por que poblacion/obra se
   -- multiplica el monto. obra_id NULL = aplica a toda la compania.
   obra_id UUID REFERENCES obras(id) ON DELETE CASCADE,

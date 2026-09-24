@@ -237,7 +237,15 @@ function sumaLineItemsPura(
  * nunca la proyectada. Mismo patrón de "promedio de los últimos N meses
  * reales, mirando hacia atrás mes a mes" que `proporcionAnticipoRgHistoricaPura`
  * en `dotacion-total.ts`.
+ *
+ * Enero y julio NO entran al promedio: esos meses traen el bono rol
+ * general dentro de la Remuneración real (+~110M medido en ene-26 y
+ * jul-26), que `payroll_line_items` no separa. Si entraran, el bono se
+ * repartiría en el costo por cabeza de TODOS los meses proyectados y
+ * además se sumaría de nuevo como evento del Plan de Dotación en ene/jul.
  */
+const MESES_BONO_ROL_GENERAL = [0, 6]; // getMonth(): enero, julio
+
 function costoBasePorCabezaPura(
   payrollCache: PayrollLineItemsCache,
   dotacionPorPeriodo: Map<string, DotacionTotalPunto>,
@@ -259,7 +267,12 @@ function costoBasePorCabezaPura(
       "remuneracion_rp",
     ]);
     const dotacion = dotacionPorPeriodo.get(periodoStr);
-    if (remuneracion != null && dotacion?.esReal && dotacion.total > 0) {
+    if (
+      !MESES_BONO_ROL_GENERAL.includes(cursor.getMonth()) &&
+      remuneracion != null &&
+      dotacion?.esReal &&
+      dotacion.total > 0
+    ) {
       razones.push(remuneracion / dotacion.total);
     }
     mesesAtras++;
@@ -702,6 +715,10 @@ export async function refreshCashFlowReport(
   // (bono de término de obra, montos puntuales) que el usuario carga en la
   // hoja "Eventos" de su Plan de Dotación en SharePoint (ver plan_eventos,
   // sync-plan-dotacion.ts). Tabla chica, se carga entera de una vez.
+  // Los eventos en UF (ej. bono rol general de ene/jul, que se reajusta en
+  // UF — pedido explícito del usuario 24-sep-2026) se pasan a pesos con la
+  // UF del mes de pago: real si ya existe, si no proyectada desde la última
+  // UF real (ver `getUfPorPeriodo`). `monto` queda siempre en pesos.
   interface PlanEventoRow {
     concepto: "remuneracion" | "anticipo";
     modo: "monto_total" | "por_persona";
@@ -712,14 +729,33 @@ export async function refreshCashFlowReport(
   {
     const { data: eventosRows } = await supabase
       .from("plan_eventos")
-      .select("periodo, concepto, modo, monto, poblacion");
+      .select("periodo, concepto, modo, monto, moneda, poblacion");
+    const ufPorPeriodoEventos = await getUfPorPeriodo([
+      ...new Set(
+        (eventosRows ?? [])
+          .filter((f) => f.moneda === "uf")
+          .map((f) => f.periodo as string),
+      ),
+    ]);
     for (const fila of eventosRows ?? []) {
       const periodo = fila.periodo as string;
+      let monto = Number(fila.monto);
+      if (fila.moneda === "uf") {
+        const uf = ufPorPeriodoEventos.get(periodo);
+        if (!uf) {
+          errores.push({
+            fuente: "Plan de Dotación (Eventos)",
+            mensaje: `Sin valor UF para ${periodo.slice(0, 7)} — el evento en UF de ese mes no se sumó.`,
+          });
+          continue;
+        }
+        monto *= uf;
+      }
       if (!eventosPorPeriodo.has(periodo)) eventosPorPeriodo.set(periodo, []);
       eventosPorPeriodo.get(periodo)!.push({
         concepto: fila.concepto,
         modo: fila.modo,
-        monto: Number(fila.monto),
+        monto,
         poblacion: fila.poblacion,
       });
     }
@@ -831,6 +867,26 @@ export async function refreshCashFlowReport(
         beneficiosCalculado.anticipoRp.monto,
     );
 
+    // Eventos del Plan de Dotación del mes, en pesos (ver plan_eventos).
+    // Se pasan al motor, que los suma solo si el concepto es proyectado y
+    // ANTES de Reliquidación/Cotización (un bono imponible también paga
+    // cotización). "por_persona" usa la dotación TOTAL de la compañía (o su
+    // split RG/RP) — simplificación conocida: hoy no hay dotación
+    // proyectada POR OBRA disponible en este loop.
+    const montoEventosPorConcepto = { remuneracion: 0, anticipo: 0 };
+    for (const evento of eventosPorPeriodo.get(periodoStr) ?? []) {
+      const dotacionPersona =
+        evento.poblacion === "rg"
+          ? dotacionRgMes
+          : evento.poblacion === "rp"
+            ? dotacionRpMes
+            : (dotacionActual ?? 0);
+      montoEventosPorConcepto[evento.concepto] +=
+        evento.modo === "monto_total"
+          ? evento.monto
+          : evento.monto * dotacionPersona;
+    }
+
     const calculado = calcularMesCashFlow({
       remuneracionReal,
       reliquidacionReal,
@@ -847,6 +903,8 @@ export async function refreshCashFlowReport(
       beneficiosRp: beneficiosCalculado.rp,
       beneficiosAnticipoRg: beneficiosCalculado.anticipoRg,
       beneficiosAnticipoRp: beneficiosCalculado.anticipoRp,
+      eventosRemuneracion: montoEventosPorConcepto.remuneracion,
+      eventosAnticipo: montoEventosPorConcepto.anticipo,
       anticipoPctAprendido,
       // Reliquidación vuelve al 1% fijo (24-sep-2026, decisión explícita
       // del usuario, mismo criterio que Cotización más abajo): el 2,75%
@@ -877,41 +935,6 @@ export async function refreshCashFlowReport(
       cotizacion: calculado.cotizacion,
       sence: calculado.sence,
     };
-
-    // Eventos del Plan de Dotación (bono de término de obra, montos
-    // puntuales — ver plan_eventos) — SOLO se suman a Remuneración/Anticipo
-    // cuando ese concepto NO es real: un mes real ya trae el extraordinario
-    // pagado adentro, sumarlo aparte lo duplicaría (mismo criterio que el
-    // aguinaldo, ver engine.ts). "por_persona" usa la dotación TOTAL de la
-    // compañía (o su split RG/RP) — simplificación conocida: hoy no hay
-    // dotación proyectada POR OBRA disponible en este loop para el caso de
-    // un evento atado a una obra específica.
-    for (const concepto of ["remuneracion", "anticipo"] as const) {
-      if (calculadoPorConcepto[concepto].esReal) continue;
-      const eventosDelMes = eventosPorPeriodo.get(periodoStr) ?? [];
-      let montoEventos = 0;
-      for (const evento of eventosDelMes) {
-        if (evento.concepto !== concepto) continue;
-        if (evento.modo === "monto_total") {
-          montoEventos += evento.monto;
-          continue;
-        }
-        const dotacionPersona =
-          evento.poblacion === "rg"
-            ? dotacionRgMes
-            : evento.poblacion === "rp"
-              ? dotacionRpMes
-              : (dotacionActual ?? 0);
-        montoEventos += evento.monto * dotacionPersona;
-      }
-      if (montoEventos !== 0) {
-        calculadoPorConcepto[concepto] = {
-          monto: calculadoPorConcepto[concepto].monto + montoEventos,
-          esReal: false,
-          metodoCalculo: `${calculadoPorConcepto[concepto].metodoCalculo}_mas_eventos`,
-        };
-      }
-    }
 
     // Ningún método preservado (`manual_override` o
     // `ingesta_excel_historico` — ver METODOS_PRESERVADOS) se pisa en el

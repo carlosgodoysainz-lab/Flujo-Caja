@@ -66,6 +66,8 @@ export interface PlanEventoParseado {
   concepto: "remuneracion" | "anticipo";
   modo: "monto_total" | "por_persona";
   monto: number;
+  /** "uf" = `monto` en UF, se convierte con la UF del mes de pago (ver refresh.ts). */
+  moneda: "clp" | "uf";
   /** Solo si `modo === "por_persona"` y aplica a una obra específica (no a toda la compañía). */
   obraId: string | null;
   poblacion: "rg" | "rp" | null;
@@ -194,6 +196,7 @@ const COL_MES = "Mes";
 const COL_CONCEPTO = "Concepto";
 const COL_MODO = "Modo";
 const COL_MONTO = "Monto";
+const COL_MONEDA = "Moneda";
 const COL_EVENTO_OBRA = "Obra";
 const COL_POBLACION = "Población";
 const COL_DESCRIPCION = "Descripción";
@@ -267,6 +270,23 @@ function parsearHojaEventos(
       continue;
     }
 
+    // Columna opcional — vacía o ausente = pesos (archivos anteriores a la
+    // columna siguen funcionando igual).
+    const monedaRaw = col(COL_MONEDA)
+      ? String(row.getCell(col(COL_MONEDA)!).value ?? "")
+          .trim()
+          .toLowerCase()
+      : "";
+    if (monedaRaw && monedaRaw !== "uf" && monedaRaw !== "clp") {
+      errores.push({
+        hoja: "Eventos",
+        fila: rowNumber,
+        motivo: `Moneda "${monedaRaw}" debe ser "CLP" o "UF" (vacío = CLP).`,
+      });
+      continue;
+    }
+    const moneda: "clp" | "uf" = monedaRaw === "uf" ? "uf" : "clp";
+
     const modoRaw = col(COL_MODO)
       ? String(row.getCell(col(COL_MODO)!).value ?? "")
           .trim()
@@ -314,6 +334,7 @@ function parsearHojaEventos(
       concepto: concepto.data,
       modo,
       monto: monto.data,
+      moneda,
       obraId,
       poblacion,
       descripcion,

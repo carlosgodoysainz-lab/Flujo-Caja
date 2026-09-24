@@ -124,6 +124,7 @@ describe("parsePlanDotacion", () => {
         concepto: "remuneracion",
         modo: "monto_total",
         monto: 80_000_000,
+        moneda: "clp",
         obraId: "obra-2",
         poblacion: null,
         descripcion: "Bono término negociación",
@@ -169,6 +170,7 @@ describe("parsePlanDotacion", () => {
         concepto: "anticipo",
         modo: "por_persona",
         monto: 50000,
+        moneda: "clp",
         obraId: null,
         poblacion: "rg",
         descripcion: "Aguinaldo extra",
@@ -183,5 +185,35 @@ describe("parsePlanDotacion", () => {
     const result = await parsePlanDotacion(buffer, OBRAS);
     expect(result.filas).toEqual([]);
     expect(result.advertencias.length).toBeGreaterThan(0);
+  });
+
+  it("lee la columna Moneda: UF queda en UF, vacía o ausente es CLP", async () => {
+    const buffer = await construirWorkbook({
+      eventos: [
+        ["Mes", "Concepto", "Modo", "Monto", "Moneda", "Obra", "Población"],
+        ["ene-27", "remuneracion", "monto_total", 1713.82, "UF", "", "rg"],
+        ["abr-27", "remuneracion", "monto_total", 80_000_000, "", "Jorge Edwards", ""],
+      ],
+    });
+    const result = await parsePlanDotacion(buffer, OBRAS);
+
+    expect(result.errores).toEqual([]);
+    expect(result.eventos.map((e) => [e.periodo, e.monto, e.moneda])).toEqual([
+      ["2027-01-01", 1713.82, "uf"],
+      ["2027-04-01", 80_000_000, "clp"],
+    ]);
+  });
+
+  it("reporta error si la Moneda no es CLP ni UF", async () => {
+    const buffer = await construirWorkbook({
+      eventos: [
+        ["Mes", "Concepto", "Monto", "Moneda"],
+        ["ene-27", "remuneracion", 100, "USD"],
+      ],
+    });
+    const result = await parsePlanDotacion(buffer, OBRAS);
+
+    expect(result.eventos).toEqual([]);
+    expect(result.errores[0].motivo).toContain("Moneda");
   });
 });
