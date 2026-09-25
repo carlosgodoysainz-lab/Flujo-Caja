@@ -69,10 +69,20 @@ export async function exportReportAsHtml(
       periodoHasta,
     );
     // Solo para la hoja "Plan de Obra" del Excel — pedido explícito del
-    // usuario, no aplica al HTML.
+    // usuario, no aplica al HTML. Se corta en el último mes que tiene el
+    // reporte (24-sep-2026: `periodoHasta` podía pedir 1 mes más de los que
+    // hay en `cash_flow_monthly`, y la hoja horizontal traía una columna
+    // 2027-09 que "Detalle" no tenía, con el total de ago-27 repetido).
+    const ultimoPeriodoSerie = serie
+      .map((p) => p.periodo)
+      .sort()
+      .at(-1);
+    const hastaPlanObra = ultimoPeriodoSerie
+      ? new Date(`${ultimoPeriodoSerie.slice(0, 10)}T00:00:00`)
+      : periodoHasta;
     const planObraDotacion = await getPlanObraConDotacion(
       periodoDesde,
-      periodoHasta,
+      hastaPlanObra < periodoHasta ? hastaPlanObra : periodoHasta,
     );
     const alertasCierre = await getAlertasObrasCerradasSinPlan();
 

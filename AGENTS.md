@@ -223,3 +223,21 @@ _Planifica primero. Construye con confianza._
 - **Fix**: se retiro el modelo estadistico completo (`forecast-model/`, `estimarDotacionFaltante`, la carga manual por re-subida de "Proyeccion Headcount") y se reemplazo por un "Plan de Dotacion" que el usuario mantiene el mismo, obra por obra y mes a mes, en un archivo propio de SharePoint (`Flujo de Caja/Plan Dotacion/Plan Dotacion Obras.xlsx`, hojas "Plan" y "Eventos" — ver `src/features/plan-dotacion/`). El sistema solo LEE ese archivo (`sync-plan-dotacion.ts`) y encadena la variacion sobre el ultimo real de Buk (`plan-obra-dotacion.ts`, `dotacion-total.ts`) — nunca inventa una curva.
 - **No repetir**: si la dotacion proyectada de una obra/compania se ve "rara", el diagnostico NO es "ajustar el modelo" — es "el usuario no cargo (o cargo mal) su Plan de Dotacion para esa obra/mes". No se vuelve a escribir un modelo de curva/similitud para proyectar dotacion.
 - **Sub-hallazgo (mismo dia, ver commit `4698497`)**: al anclar una obra "sin dato real reciente en Buk" a dotacion 0, dar tolerancia de varios meses (no 1) antes de asumir que la obra cerro — un snapshot mensual que reescribe TODAS las obras de una vez puede simplemente no traer fila para una obra activa sin movimiento ese mes puntual.
+
+### 2026-09-24: Snapshots de Buk — nunca sumar 2 fotos del mismo mes
+
+- **Error**: la hoja "Plan de Obra" mostraba en ago-2026 obras con 1.167 / 1.229 / 1.315 personas (obras de 200-300 unidades, total compania 935). `buk_dotacion_snapshots` tiene VARIAS `snapshot_date` por mes (cron mensual + cada "Actualizar reporte" en vivo — ago-2026 tuvo 8 fechas) y `plan-obra-dotacion.ts` sumaba todas las filas del mes.
+- **Fix** (commit `797861f`): sumar `activos` por fecha EXACTA y quedarse con la fecha mas reciente de cada mes. Mismo bug ya corregido el 17-ago en `dotacion-total.ts`, nunca replicado al archivo por obra.
+- **No repetir**: TODA lectura nueva de `buk_dotacion_snapshots` agrupa primero por `snapshot_date` exacta y despues elige 1 fecha por mes. Chequeo rapido: Σ obras de un mes nunca puede superar el total de la compania ese mes.
+
+### 2026-09-24: Conteo de beneficiarios de Anticipo — excluir los archivos de aguinaldo
+
+- **Error**: Anticipo RG de sep-2026 con 1.492 personas (dotacion total 916). En meses con aguinaldo la carpeta `anticipo <mes> <año>` trae ademas "Rol General aguinaldo/" y "Rol Privado aguinaldo/" con archivos "Anticipo Aguinaldo" de las MISMAS personas — `sync-beneficiarios-anticipo.ts` los sumaba (22 archivos vs 5-9 normales). Ademas inflaba la razon anticipo/dotacion que proyecta el N° futuro.
+- **Fix** (commit `a1957cd`): se excluye cualquier archivo con "aguinaldo" en el nombre o la ruta, SOLO del conteo de personas (el $ viene de otra fuente y sigue incluyendo el aguinaldo, que se paga con el anticipo).
+- **No repetir**: el N° de Anticipo nunca puede superar la dotacion del mes; si pasa, revisar `archivos_contados` en `payroll_beneficiarios_reales` (un mes normal cuenta 5-9 archivos). Diciembre (aguinaldo de Navidad) y cualquier "adicional"/"rechazo" nuevo son los sospechosos.
+
+### 2026-09-24: Plan de Obra por obra debe usar el MISMO criterio que el total
+
+- **Error**: la hoja "Plan de Obra (Horizontal)" dejaba en blanco las 8 obras nuevas con plan pero sin real en Buk, y descartaba meses de plan fuera de la ventana Gespro (DS19 con plan desde dic-26 e inicio Gespro jun-27; bajas de Jorge Edwards despues de su fin Gespro). `dotacion-total.ts` si sumaba todo ese plan → Σ obras quedaba 1.097 bajo el total en ago-27.
+- **Fix** (commit `c8aa6a5`): obra con plan y sin real parte de 0 en el periodo real mas reciente; el recorrido cubre la duracion Gespro Y todo mes con plan. Filas de conciliacion al pie de la hoja horizontal (Total obras / Dotacion total / Diferencia sin obra asignada) — commit `a1957cd`.
+- **No repetir**: cualquier cambio en como `dotacion-total.ts` encadena el plan se replica en `plan-obra-dotacion.ts` (y viceversa). La fila "Diferencia" debe quedar estable (~200-250: sin obra asignada + plan de Oficina Central); si crece mes a mes, las dos vistas se desalinearon.
