@@ -28,46 +28,52 @@ los skills en `{{path:skills}}/` y los agentes en `{{path:agents}}/`. Son
 literales — usalas tal cual.
 
 ### "Quiero construir algo nuevo"
+
 → `/plan` (activa La Herreria: `{{path:skills}}/la-herreria/SKILL.md`)
 
 ### "Necesito agregar una feature"
 
-| Necesita | Comando |
-|----------|---------|
-| Auth | `/add-login` |
-| Pagos | `/add-payments` (decision Polar vs Stripe) |
-| Emails | `/add-emails` (Resend + React Email) |
-| PWA/Mobile | `/add-mobile` (push, iOS compatible) |
-| UI Kit / Component Showcase | `/add-ui-kit` (FRESH o REDESIGN) |
-| Patrones BD (Supabase) | Leer skill `supabase` |
-| Patrones BD (InsForge) | Leer skill `insforge` |
-| InsForge setup | `/add-insforge` |
-| Landing copy-first | `/landing` |
-| Landing cinematica | `/website-3d` |
-| Feature IA | Leer `{{path:config_dir}}/ai_templates/_index.md` |
-| Imagenes | Leer skill `image-generation` |
-| Visuales marketing | `/video-visuals` |
+| Necesita                    | Comando                                           |
+| --------------------------- | ------------------------------------------------- |
+| Auth                        | `/add-login`                                      |
+| Pagos                       | `/add-payments` (decision Polar vs Stripe)        |
+| Emails                      | `/add-emails` (Resend + React Email)              |
+| PWA/Mobile                  | `/add-mobile` (push, iOS compatible)              |
+| UI Kit / Component Showcase | `/add-ui-kit` (FRESH o REDESIGN)                  |
+| Patrones BD (Supabase)      | Leer skill `supabase`                             |
+| Patrones BD (InsForge)      | Leer skill `insforge`                             |
+| InsForge setup              | `/add-insforge`                                   |
+| Landing copy-first          | `/landing`                                        |
+| Landing cinematica          | `/website-3d`                                     |
+| Feature IA                  | Leer `{{path:config_dir}}/ai_templates/_index.md` |
+| Imagenes                    | Leer skill `image-generation`                     |
+| Visuales marketing          | `/video-visuals`                                  |
 
 ### "Quiero mejorar lo que tengo"
 
-| Necesita | Comando |
-|----------|---------|
-| Review de diseno | `/critique` |
-| Polish visual | `/polish` |
-| Alinear design system | `/normalize` |
-| Performance/A11y/SEO | `/web-audit` |
-| Rediseno completo | `/redesign` |
+| Necesita                     | Comando                                                                 |
+| ---------------------------- | ----------------------------------------------------------------------- |
+| Review de diseno             | `/critique`                                                             |
+| Polish visual                | `/polish`                                                               |
+| Alinear design system        | `/normalize`                                                            |
+| Performance/A11y/SEO         | `/web-audit`                                                            |
+| Rediseno completo            | `/redesign`                                                             |
 | **Auditar TODO el proyecto** | **`/temple`** (Seguridad + Datos/RLS + Cache + Web → 1 reporte + score) |
-| **Buscar vulnerabilidades** | **`/adversarial-review`** (4 agentes atacantes + Codex) |
+| **Buscar vulnerabilidades**  | **`/adversarial-review`** (4 agentes atacantes + Codex)                 |
 
 ### "Estrategia/negocio"
+
 → `/crisol` (pipeline completo: 7 estrategias + dashboard ejecutivo + veredicto go/no-go)
 → Individual: `/brujula`, `/precio`, `/estrella`, `/rivales`, `/roi`, `/metas`, `/lanzamiento`
 
 ### "Personalizar proyecto" → `/forge-init` (despues de /plan)
+
 ### "Activar skill inactivo" → `/forge-activate`
+
 ### "Despachar" → `/despachar`
+
 ### "Retomar trabajo" → `/avivar` (lee `{{path:config_dir}}/memory/`)
+
 ### "Optimizar un skill" → `/autoresearch`
 
 ---
@@ -94,15 +100,15 @@ IDEA → /plan → Blueprint (10 skills) → aprobacion → /crisol (opcional) �
 
 ## Golden Path
 
-| Capa | Tecnologia |
-|------|------------|
-| Framework | Next.js 16 + React 19 + TypeScript |
-| Estilos | Tailwind CSS 3.4 + shadcn/ui |
-| Backend | Supabase o InsForge (Auth + PostgreSQL + RLS) |
-| AI Engine | Vercel AI SDK v5 + OpenRouter |
-| Validacion | Zod |
-| Estado | Zustand |
-| Testing | Playwright MCP |
+| Capa       | Tecnologia                                    |
+| ---------- | --------------------------------------------- |
+| Framework  | Next.js 16 + React 19 + TypeScript            |
+| Estilos    | Tailwind CSS 3.4 + shadcn/ui                  |
+| Backend    | Supabase o InsForge (Auth + PostgreSQL + RLS) |
+| AI Engine  | Vercel AI SDK v5 + OpenRouter                 |
+| Validacion | Zod                                           |
+| Estado     | Zustand                                       |
+| Testing    | Playwright MCP                                |
 
 ## Arquitectura
 
@@ -189,7 +195,7 @@ Para detalles de MCPs, hooks, agentes, comandos completos, testing patterns, y s
 
 ---
 
-*Planifica primero. Construye con confianza.*
+_Planifica primero. Construye con confianza._
 
 ---
 
@@ -241,3 +247,9 @@ Para detalles de MCPs, hooks, agentes, comandos completos, testing patterns, y s
 - **Error**: sep-2026 tenia aguinaldo pagado, pero el Anticipo del reporte era casi igual al de agosto ($192,5M vs $188M; en sep-2025 el salto fue de $173M a $246M). El archivo `solicitud requerimientos anticipo - aguinaldo <mes>.xlsx` trae columnas `Anticipo` y `Aguinaldo`; `solicitud-requerimiento-parser.ts` solo leia `Anticipo`, asi que el aguinaldo se perdia y las filas con monto solo en `Aguinaldo` caian como error (documento en estado parcial).
 - **Fix**: el parser suma `Anticipo` + `Aguinaldo` cuando existe esa columna (el aguinaldo se paga con el anticipo). Test con la estructura real.
 - **No repetir**: en cada mes con aguinaldo (septiembre, diciembre) comparar el Anticipo real contra el mes anterior; si el salto no aparece, revisar las columnas del archivo. Un documento en estado `parcial` en `payroll_source_documents` nunca se ignora: es una fila o columna que no se esta leyendo.
+
+### 2026-09-29: Controles de cordura y pre-vuelo antes del modelo
+
+- **Problema**: el mismo dia aparecieron 4 fallas silenciosas (aguinaldo ignorado, personas de Anticipo duplicadas, suma por obra sobre el total, caida de Buk) que solo detecto el usuario mirando cifras.
+- **Solucion**: `src/features/controles/` — 6 controles puros (`lib/controles.ts`) que corren (a) en el panel de `/reporte` y (b) como PRE-VUELO dentro de Actualizar reporte, despues de la ingesta y ANTES de calcular el modelo (`services/preflight.ts`, llamado desde `refresh.ts`). El pre-vuelo solo ejecuta correcciones seguras (releer Buk, reingerir documentos parciales); lo demas queda como alerta y marca el refresh como PARCIAL.
+- **No repetir**: cada bug de datos nuevo debe terminar como un control nuevo en `controles.ts` con su test (el caso real como fixture). Nunca corregir en ejecucion inventando cifras: si un dato de origen esta mal, se avisa.

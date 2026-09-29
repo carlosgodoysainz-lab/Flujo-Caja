@@ -19,6 +19,8 @@ import {
 import { runBukSnapshot } from "@/features/headcount/buk-sync/sync";
 import { syncPlanDotacion } from "@/features/plan-dotacion/services/sync-plan-dotacion";
 import { calcularBeneficiosDelMes, eventosPromedio6Meses } from "./beneficios";
+import { ejecutarPreflight } from "@/features/controles/services/preflight";
+import type { ResultadoControl } from "@/features/controles/lib/controles";
 
 /**
  * Métodos de cálculo que NUNCA se pisan en un refresh — ya sea porque un
@@ -79,6 +81,11 @@ export interface RefreshReportResult {
   /** Filas del Plan de Dotación (obras + Oficina Central) leídas en este refresh — ver plan-dotacion/. */
   filasPlanDotacion: number;
   errores: { fuente: string; mensaje: string }[];
+  /** Pre-vuelo (controles de cordura + correcciones) que corrió ANTES de calcular el modelo — ver controles/. */
+  controles?: {
+    correcciones: string[];
+    resultados: ResultadoControl[];
+  };
 }
 
 const CONCEPTOS_CALCULADOS = [
@@ -686,6 +693,33 @@ export async function refreshCashFlowReport(
     }
   }
 
+  // PRE-VUELO (29-sep-2026, pedido del usuario: "corrija antes de ejecutar
+  // el modelo"): con toda la ingesta ya hecha y ANTES de calcular nada, se
+  // corren los controles de cordura y se ejecutan las correcciones seguras
+  // (releer Buk, reingerir documentos parciales). Lo que no se puede
+  // corregir sin inventar datos queda como alerta visible (estado PARCIAL).
+  const preflight = await ejecutarPreflight({
+    repullBuk: async () => {
+      await runBukSnapshot();
+    },
+    reingerirMes: async (periodo) => {
+      const [anio, mesNum] = periodo.split("-").map(Number);
+      const mes = new Date(anio, mesNum - 1, 1);
+      await Promise.all([
+        syncPagosMensuales(mes),
+        syncBeneficiariosAnticipo(mes),
+      ]);
+    },
+  });
+  for (const control of preflight.despues) {
+    if (control.estado === "alerta") {
+      errores.push({
+        fuente: `Control: ${control.nombre}`,
+        mensaje: control.detalle,
+      });
+    }
+  }
+
   // Dotación total (variable "Q" del modelo de Remuneración) para todo el
   // rango de una sola pasada — incluye 1 mes antes de periodoDesde porque
   // el primer mes del rango necesita la dotación de SU mes anterior.
@@ -1254,5 +1288,9 @@ export async function refreshCashFlowReport(
     mesesRecalculados,
     filasPlanDotacion,
     errores,
+    controles: {
+      correcciones: preflight.correcciones,
+      resultados: preflight.despues,
+    },
   };
 }

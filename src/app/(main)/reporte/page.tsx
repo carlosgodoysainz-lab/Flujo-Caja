@@ -1,4 +1,6 @@
+import { Suspense } from "react";
 import { auth, signOut } from "@/lib/auth";
+import { ControlesPanel } from "@/features/controles/components/controles-panel";
 import {
   getCashFlowSeries,
   getResumenKpis,
@@ -78,6 +80,18 @@ export default async function ReportePage() {
             periodoHasta={hasta.toISOString().slice(0, 10)}
           />
         </div>
+
+        {/* Suspense: los controles leen bastante de la base; no deben
+            retrasar el resto de la página. */}
+        <Suspense
+          fallback={
+            <p className="text-sm text-slate-500" role="status">
+              Ejecutando controles de cordura…
+            </p>
+          }
+        >
+          <ControlesPanel />
+        </Suspense>
 
         <AlertPanel />
 

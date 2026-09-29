@@ -62,6 +62,18 @@ export function RefreshReportButton({
             {result.documentosIngeridos} documentos ingeridos,{" "}
             {result.filasPlanDotacion} fila(s) del Plan de Dotación
           </p>
+          {result.controles && result.controles.correcciones.length > 0 && (
+            <div className="mt-2 text-slate-700">
+              <p className="font-medium">
+                Corregido antes de calcular el modelo:
+              </p>
+              <ul className="list-disc pl-5">
+                {result.controles.correcciones.map((c, i) => (
+                  <li key={i}>{c}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           {result.errores.length > 0 && (
             <ul className="mt-2 list-disc pl-5 text-[var(--err)]">
               {result.errores.map((e, i) => (
