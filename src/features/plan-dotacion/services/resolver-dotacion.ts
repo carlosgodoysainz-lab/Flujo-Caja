@@ -38,6 +38,12 @@ export interface ObraParaAlerta {
   nombre: string;
   /** YYYY-MM-DD */
   finObra: string | null;
+  /**
+   * YYYY-MM-DD. `null` = la fila de Gespro no tiene fecha de inicio (ej. una
+   * fila de totales que se coló como "obra") — no es un proyecto, no se
+   * avisa. `undefined` = el llamador no lo informó (se trata como obra).
+   */
+  inicioObra?: string | null;
 }
 
 export interface AlertaObraCerrada {
@@ -108,6 +114,9 @@ export function detectarObrasSinPlan(params: {
       .map((v) => v.obraId),
   );
   return obras.filter(
-    (o) => (!o.finObra || o.finObra >= hoyStr) && !obraIdsConPlan.has(o.id),
+    (o) =>
+      o.inicioObra !== null &&
+      (!o.finObra || o.finObra >= hoyStr) &&
+      !obraIdsConPlan.has(o.id),
   );
 }

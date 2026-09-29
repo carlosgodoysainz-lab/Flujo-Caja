@@ -216,7 +216,7 @@ export async function getResumenKpis(
   // del usuario en SharePoint).
   const { data: obrasParaKpi } = await supabase
     .from("obras")
-    .select("id, fin_obra");
+    .select("id, fin_obra, inicio_obra");
   const { data: planParaKpi } = await supabase
     .from("plan_dotacion")
     .select("obra_id")
@@ -226,6 +226,7 @@ export async function getResumenKpis(
       id: o.id as string,
       nombre: "",
       finObra: o.fin_obra as string | null,
+      inicioObra: o.inicio_obra as string | null,
     })),
     variaciones: (planParaKpi ?? []).map((p) => ({
       obraId: p.obra_id as string,

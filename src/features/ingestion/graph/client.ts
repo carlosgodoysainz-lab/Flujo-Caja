@@ -295,7 +295,14 @@ export async function ensureDriveId(
  */
 export function pickLatestMatch(
   hits: GraphSearchHit[],
-  opts: { folderIncludes?: string; nameExtension?: string },
+  opts: {
+    folderIncludes?: string;
+    nameExtension?: string;
+    /** El nombre del archivo debe contener este texto (sin distinguir mayúsculas). */
+    nameIncludes?: string;
+    /** Descarta archivos cuyo nombre empiece con alguno de estos prefijos. */
+    nameExcludesPrefix?: string[];
+  },
 ): GraphSearchHit | null {
   const rutaDe = (hit: GraphSearchHit): string => {
     if (hit.parentReference?.path) return hit.parentReference.path;
@@ -316,6 +323,20 @@ export function pickLatestMatch(
     if (
       opts.nameExtension &&
       !hit.name.toLowerCase().endsWith(opts.nameExtension.toLowerCase())
+    ) {
+      return false;
+    }
+    const nombreLower = hit.name.toLowerCase();
+    if (
+      opts.nameIncludes &&
+      !nombreLower.includes(opts.nameIncludes.toLowerCase())
+    ) {
+      return false;
+    }
+    if (
+      opts.nameExcludesPrefix?.some((p) =>
+        nombreLower.startsWith(p.toLowerCase()),
+      )
     ) {
       return false;
     }

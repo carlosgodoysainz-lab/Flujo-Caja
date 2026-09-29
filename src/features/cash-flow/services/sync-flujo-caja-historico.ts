@@ -63,9 +63,17 @@ export async function syncFlujoCajaHistorico(): Promise<SyncFlujoCajaHistoricoRe
     const hits = await searchFiles(session.graphAccessToken, "Flujo Caja", {
       maxResultados: 200,
     });
+    // BUG REAL corregido 24-sep-2026 ("No se encontró la hoja Detalle"): el
+    // archivo del Plan de Dotación vive en "Flujo de Caja/Plan Dotación/" y
+    // es el .xlsx más reciente de esa carpeta, así que se elegía como si
+    // fuera el Excel maestro. El maestro siempre se llama "Flujo_Caja..." /
+    // "Flujo Caja...": se exige "flujo" en el nombre y se descartan las
+    // exportaciones de esta misma app ("flujo-caja-nomina-...").
     const encontrado = pickLatestMatch(hits, {
       folderIncludes: "Flujo de Caja",
       nameExtension: ".xlsx",
+      nameIncludes: "flujo",
+      nameExcludesPrefix: ["flujo-caja-nomina"],
     });
 
     if (!encontrado) {

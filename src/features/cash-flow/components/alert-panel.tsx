@@ -10,7 +10,7 @@ export async function AlertPanel() {
   const supabase = createServiceClient();
   const { data: obras } = await supabase
     .from("obras")
-    .select("id, nombre, fin_obra");
+    .select("id, nombre, fin_obra, inicio_obra");
   const { data: planRows } = await supabase
     .from("plan_dotacion")
     .select("obra_id")
@@ -22,6 +22,7 @@ export async function AlertPanel() {
       id: o.id as string,
       nombre: o.nombre as string,
       finObra: o.fin_obra as string | null,
+      inicioObra: o.inicio_obra as string | null,
     })),
     variaciones: (planRows ?? []).map((p) => ({
       obraId: p.obra_id as string,

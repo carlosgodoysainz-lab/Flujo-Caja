@@ -121,6 +121,11 @@ export async function parseGesproWorkbook(
     // Fin de la tabla: sin nombre de proyecto, no hay más datos.
     if (!nombre) continue;
 
+    // La hoja trae una fila de totales al pie ("Total"): no es un proyecto.
+    // Se guardaba como obra sin fechas y aparecía en el aviso "sin Plan de
+    // Dotación" (visto 24-sep-2026).
+    if (/^total(es)?$/i.test(nombre)) continue;
+
     const raw = {
       codigoGespro: toTrimmedString(row.getCell(col("Cod")).value),
       nombre,

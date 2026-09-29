@@ -100,6 +100,23 @@ describe("detectarObrasSinPlan", () => {
     expect(sinPlan.map((o) => o.id)).toEqual(["obra-2"]);
   });
 
+  it("no lista filas sin fecha de inicio (ej. una fila 'Total' de Gespro)", () => {
+    const sinPlan = detectarObrasSinPlan({
+      obras: [
+        { id: "total", nombre: "Total", finObra: null, inicioObra: null },
+        {
+          id: "obra-1",
+          nombre: "Obra real",
+          finObra: "2028-01-01",
+          inicioObra: "2026-10-01",
+        },
+      ],
+      variaciones: [],
+      hoyStr: "2026-09-24",
+    });
+    expect(sinPlan.map((o) => o.id)).toEqual(["obra-1"]);
+  });
+
   it("no lista obras ya vencidas (esas las cubre detectarObrasCerradasSinPlan)", () => {
     const sinPlan = detectarObrasSinPlan({
       obras: [{ id: "obra-1", nombre: "Vencida", finObra: "2026-01-01" }],

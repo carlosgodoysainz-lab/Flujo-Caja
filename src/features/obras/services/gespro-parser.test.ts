@@ -126,6 +126,33 @@ describe("parseGesproWorkbook", () => {
     expect(result.errores).toHaveLength(0);
   });
 
+  it("ignora la fila de totales 'Total' (no es un proyecto)", async () => {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Plan de Obras");
+    sheet.addRow([]);
+    sheet.addRow([
+      "Cod",
+      null,
+      "Proyecto",
+      "Comuna",
+      "Tipo",
+      "Cliente",
+      "un",
+      "VV",
+      "Inicio Ventas",
+      "Inicio Obra",
+      "Dur. Obra",
+      "Fin Obra",
+    ]);
+    sheet.addRow(["P111", null, "Obra Real", "Ñuñoa", "Retail", "Maestra", 80]);
+    sheet.addRow([null, null, "Total", null, null, null, 1234]);
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    const result = await parseGesproWorkbook(buffer);
+    expect(result.obras.map((o) => o.nombre)).toEqual(["Obra Real"]);
+    expect(result.errores).toHaveLength(0);
+  });
+
   it("lanza error claro si la hoja 'Plan de Obras' no existe", async () => {
     const workbook = new ExcelJS.Workbook();
     workbook.addWorksheet("Otra Hoja");

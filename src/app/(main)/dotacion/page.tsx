@@ -57,6 +57,7 @@ export default async function DotacionPage() {
     id: o.id as string,
     nombre: o.nombre as string,
     finObra: o.fin_obra as string | null,
+    inicioObra: o.inicio_obra as string | null,
   }));
   const dotacionRealPorObra = await getSaldoInicialPorObra();
   const alertasCierre = detectarObrasCerradasSinPlan({
