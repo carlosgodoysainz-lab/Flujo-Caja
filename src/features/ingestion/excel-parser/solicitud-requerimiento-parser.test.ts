@@ -148,4 +148,70 @@ describe("parseSolicitudRequerimiento", () => {
     );
     expect(remuneraciones.length).toBeGreaterThan(0);
   });
+
+  it("suma la columna Aguinaldo a la de Anticipo (archivo 'anticipo - aguinaldo')", async () => {
+    const workbook = new ExcelJS.Workbook();
+    const hoja = workbook.addWorksheet("anticipo - aguinaldo RG");
+    hoja.addRow(["Resumen Anticipo - Aguinaldo Septiembre 2026"]);
+    hoja.addRow([
+      "N° Soc.",
+      "Sociedad",
+      "RUT",
+      "N° Division",
+      "Division",
+      "Fecha Solicitud",
+      "Fecha Pago",
+      "Concepto de pago",
+      "Anticipo",
+      "Aguinaldo",
+    ]);
+    const concepto = "Anticipo - Aguinaldo Septiembre 2026";
+    hoja.addRow([
+      7,
+      "MAESTRA CONSTRUCCION S.A.",
+      "1",
+      88,
+      "Obra A",
+      "",
+      "",
+      concepto,
+      10_000_000,
+      2_500_000,
+    ]);
+    // Fila con monto solo en Aguinaldo: antes caía como error.
+    hoja.addRow([
+      7,
+      "MAESTRA CONSTRUCCION S.A.",
+      "1",
+      89,
+      "Obra B",
+      "",
+      "",
+      concepto,
+      null,
+      1_000_000,
+    ]);
+    // Fila solo con Anticipo (sin aguinaldo): no cambia.
+    hoja.addRow([
+      7,
+      "MAESTRA CONSTRUCCION S.A.",
+      "1",
+      90,
+      "Obra C",
+      "",
+      "",
+      concepto,
+      4_000_000,
+      null,
+    ]);
+    hoja.addRow(["", "", "", "", "", "", "", "Total", 14_000_000, 3_500_000]);
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    const result = await parseSolicitudRequerimiento(buffer, null);
+
+    expect(result.errores).toHaveLength(0);
+    expect(result.lineItems.map((li) => li.monto)).toEqual([
+      12_500_000, 1_000_000, 4_000_000,
+    ]);
+  });
 });

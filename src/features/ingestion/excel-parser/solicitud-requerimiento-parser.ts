@@ -168,6 +168,14 @@ export async function parseSolicitudRequerimiento(
     const colConcepto = col("Concepto de pago");
     const colMonto =
       columnByHeader.get("Monto") ?? columnByHeader.get("Anticipo")!;
+    // BUG REAL corregido 29-sep-2026 (visto en vivo: sep-2026 con aguinaldo
+    // pagado, pero el Anticipo del reporte casi igual al de agosto): en los
+    // meses con aguinaldo el archivo "solicitud requerimientos anticipo -
+    // aguinaldo <mes>.xlsx" trae DOS columnas de monto, "Anticipo" y
+    // "Aguinaldo". Solo se leía "Anticipo": el aguinaldo se perdía, y las
+    // filas con monto solo en "Aguinaldo" caían como error (estado parcial).
+    // El aguinaldo se paga con el anticipo, así que se suman.
+    const colAguinaldo = columnByHeader.get("Aguinaldo");
     const colFechaPago = columnByHeader.get("Fecha Pago");
     // El nombre de hoja manda por sobre el nombre de archivo cuando ambos
     // están presentes (el archivo de Anticipo trae RG y RP en 2 hojas del
@@ -192,7 +200,15 @@ export async function parseSolicitudRequerimiento(
         continue;
 
       const montoRaw = resolveCellValue(row.getCell(colMonto));
-      const monto = typeof montoRaw === "number" ? montoRaw : null;
+      const aguinaldoRaw = colAguinaldo
+        ? resolveCellValue(row.getCell(colAguinaldo))
+        : null;
+      const montoBase = typeof montoRaw === "number" ? montoRaw : null;
+      const aguinaldo = typeof aguinaldoRaw === "number" ? aguinaldoRaw : null;
+      const monto =
+        montoBase == null && aguinaldo == null
+          ? null
+          : (montoBase ?? 0) + (aguinaldo ?? 0);
 
       const concepto = clasificarConcepto(conceptoTexto, rgRpDeEstaHoja);
       const periodo =
