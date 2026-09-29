@@ -100,6 +100,22 @@ describe("controlDocumentosParciales", () => {
     expect(r.detalle).toContain("aguinaldo");
   });
 
+  it("incluye en el detalle el motivo guardado del documento parcial", () => {
+    const r = controlDocumentosParciales(
+      con({
+        documentos: [
+          {
+            periodo: "2026-09-01",
+            nombreArchivo: "remuneracion RG.xlsx",
+            estado: "parcial",
+            notas: "hoja X fila 7: concepto: Invalid input",
+          },
+        ],
+      }),
+    );
+    expect(r.detalle).toContain("fila 7");
+  });
+
   it("ok si todos están completos", () => {
     const r = controlDocumentosParciales(
       con({

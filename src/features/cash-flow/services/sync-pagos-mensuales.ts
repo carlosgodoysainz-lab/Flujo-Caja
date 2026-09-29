@@ -220,6 +220,12 @@ export async function syncPagosMensuales(
           web_url: grupo.archivo.webUrl,
           filas_procesadas: grupo.lineItems.length,
           estado: grupo.errores.length > 0 ? "parcial" : "ok",
+          // Por qué quedó parcial: antes se perdía y no había forma de
+          // saber qué fila fallaba (29-sep-2026).
+          notas:
+            grupo.errores.length > 0
+              ? grupo.errores.slice(0, 5).join(" | ").slice(0, 900)
+              : null,
           ingested_by: session.user?.id ?? null,
         })
         .select("id")

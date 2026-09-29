@@ -199,6 +199,13 @@ export async function parseSolicitudRequerimiento(
       )
         continue;
 
+      // La hoja "cuota mortuoria" viaja en el mismo libro del anticipo pero
+      // NO es parte del Anticipo: las hojas RG + RP de ago-2026 suman
+      // exactamente los $188.070.000 del Excel de Finanzas sin ella. Antes
+      // caía como error de clasificación y dejaba el documento en estado
+      // parcial para siempre (29-sep-2026).
+      if (/cuota mortuoria/i.test(conceptoTexto)) continue;
+
       const montoRaw = resolveCellValue(row.getCell(colMonto));
       const aguinaldoRaw = colAguinaldo
         ? resolveCellValue(row.getCell(colAguinaldo))

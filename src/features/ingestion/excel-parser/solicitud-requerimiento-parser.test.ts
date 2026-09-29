@@ -149,6 +149,55 @@ describe("parseSolicitudRequerimiento", () => {
     expect(remuneraciones.length).toBeGreaterThan(0);
   });
 
+  it("ignora la hoja 'cuota mortuoria' del archivo de anticipo (no es Anticipo ni error)", async () => {
+    const workbook = new ExcelJS.Workbook();
+    const cabecera = [
+      "N° Soc.",
+      "Sociedad",
+      "RUT",
+      "N° Division",
+      "Division",
+      "Fecha Solicitud",
+      "Fecha Pago",
+      "Concepto de pago",
+      "Anticipo",
+    ];
+    const rg = workbook.addWorksheet("anticipo RG");
+    rg.addRow(["Resumen Anticipo Agosto 2026"]);
+    rg.addRow(cabecera);
+    rg.addRow([
+      7,
+      "MAESTRA CONSTRUCCION S.A.",
+      "1",
+      88,
+      "Obra A",
+      "",
+      "",
+      "Anticipos Agosto 2026",
+      10_000_000,
+    ]);
+    const mortuoria = workbook.addWorksheet("cuota mortuoria RG");
+    mortuoria.addRow(["Resumen cuota mortuoria Agosto 2026"]);
+    mortuoria.addRow(cabecera);
+    mortuoria.addRow([
+      7,
+      "MAESTRA CONSTRUCCION S.A.",
+      "1",
+      88,
+      "Obra A",
+      "",
+      "",
+      "Cuota Mortuoria Agosto 2026",
+      1_140_000,
+    ]);
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    const result = await parseSolicitudRequerimiento(buffer, null);
+
+    expect(result.errores).toHaveLength(0);
+    expect(result.lineItems.map((li) => li.monto)).toEqual([10_000_000]);
+  });
+
   it("suma la columna Aguinaldo a la de Anticipo (archivo 'anticipo - aguinaldo')", async () => {
     const workbook = new ExcelJS.Workbook();
     const hoja = workbook.addWorksheet("anticipo - aguinaldo RG");

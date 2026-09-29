@@ -36,7 +36,13 @@ export interface DatosControles {
   /** Σ dotación proyectada de todas las obras por período (hoja Plan de Obra). */
   sumaObrasPorPeriodo: Record<string, number>;
   /** Documentos de Pagos Mensuales de los últimos meses. */
-  documentos: { periodo: string; nombreArchivo: string; estado: string }[];
+  documentos: {
+    periodo: string;
+    nombreArchivo: string;
+    estado: string;
+    /** Por qué quedó parcial (primeras filas con error), si el sync lo guardó. */
+    notas?: string | null;
+  }[];
   /** Anticipo $ por mes (real ingerido; ordenado o no). */
   anticipoMensual: { periodo: string; monto: number; esReal: boolean }[];
   /** Las dos últimas lecturas de Buk (total de activos). */
@@ -155,13 +161,19 @@ export function controlDocumentosParciales(
       detalle: `${d.documentos.length} documento(s) recientes, todos leídos completos.`,
     };
   }
-  const nombres = malos.slice(0, 3).map((x) => x.nombreArchivo);
+  const lineas = malos
+    .slice(0, 3)
+    .map((x) =>
+      x.notas
+        ? `${x.nombreArchivo} (${x.notas.slice(0, 220)})`
+        : x.nombreArchivo,
+    );
   const resto = malos.length > 3 ? ` y ${malos.length - 3} más` : "";
   return {
     id: "documentos_parciales",
     nombre,
     estado: "alerta",
-    detalle: `${malos.length} documento(s) con filas o columnas sin leer: ${nombres.join(", ")}${resto}`,
+    detalle: `${malos.length} documento(s) con filas o columnas sin leer: ${lineas.join("; ")}${resto}`,
   };
 }
 

@@ -62,7 +62,7 @@ export async function reunirDatosControles(
       .gte("periodo", desdeBeneficiarios),
     supabase
       .from("payroll_source_documents")
-      .select("periodo, nombre_archivo, estado")
+      .select("periodo, nombre_archivo, estado, notas")
       .gte("periodo", desdeDocumentos),
     supabase
       .from("cash_flow_monthly")
@@ -117,8 +117,16 @@ export async function reunirDatosControles(
       (ingeridoPorPeriodo.get(l.periodo) ?? 0) + Number(l.monto),
     );
   }
+  // Solo el mes en curso y el anterior: son los que el modelo aún no
+  // recalculó dentro de un refresh. Los meses más antiguos vienen del Excel
+  // histórico de Finanzas (autoritativo) y NO se pisan con los archivos de
+  // SharePoint, que para 2025 no traen todo (falsa alarma vista el 29-sep:
+  // sep-25 y dic-25 aparecían con +11% y +1% en vez de +42% y +40%).
+  const desdeSobrescribir = sumarMesesAPeriodo(periodoHoy, -1);
   for (const [periodo, monto] of ingeridoPorPeriodo) {
-    if (periodo <= periodoHoy) anticipo.set(periodo, { monto, esReal: true });
+    if (periodo >= desdeSobrescribir && periodo <= periodoHoy) {
+      anticipo.set(periodo, { monto, esReal: true });
+    }
   }
 
   // Últimas dos lecturas de Buk: primero las fechas, después la suma de
@@ -169,6 +177,7 @@ export async function reunirDatosControles(
       periodo: d.periodo,
       nombreArchivo: d.nombre_archivo,
       estado: d.estado,
+      notas: d.notas,
     })),
     anticipoMensual: [...anticipo].map(([periodo, v]) => ({ periodo, ...v })),
     buk: { anterior: anteriorLectura, ultima: ultimaLectura },
