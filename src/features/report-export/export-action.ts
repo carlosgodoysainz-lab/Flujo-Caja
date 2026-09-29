@@ -43,6 +43,14 @@ export async function exportReportAsHtml(
   periodoHasta: Date,
 ): Promise<ExportReportResult> {
   const session = await auth();
+  // Defensa en profundidad (auditoría 24-sep-2026): una Server Action es un
+  // endpoint POST invocable; no se confía solo en el proxy.
+  if (!session?.user?.id) {
+    return {
+      estado: "error",
+      errores: ["Sesión no válida — vuelve a iniciar sesión."],
+    };
+  }
   const supabase = createServiceClient();
 
   try {

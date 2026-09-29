@@ -1,5 +1,6 @@
 "use server";
 
+import { auth } from "@/lib/auth";
 import { createServiceClient } from "@/lib/supabase/service";
 import { generarPlantillaPlanDotacion } from "./generar-plantilla";
 import { getSaldoInicialPorObra } from "@/features/headcount/services/plan-obra-dotacion";
@@ -21,6 +22,14 @@ const MESES_ADELANTE = 15;
  * `plan_dotacion`) y los eventos existentes.
  */
 export async function descargarPlantillaPlanDotacion(): Promise<DescargarPlantillaResult> {
+  // Auditoría 24-sep-2026: esta acción no validaba sesión propia.
+  const session = await auth();
+  if (!session?.user?.id) {
+    return {
+      estado: "error",
+      errores: ["Sesión no válida — vuelve a iniciar sesión."],
+    };
+  }
   const supabase = createServiceClient();
 
   try {

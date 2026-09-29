@@ -28,52 +28,46 @@ los skills en `{{path:skills}}/` y los agentes en `{{path:agents}}/`. Son
 literales — usalas tal cual.
 
 ### "Quiero construir algo nuevo"
-
 → `/plan` (activa La Herreria: `{{path:skills}}/la-herreria/SKILL.md`)
 
 ### "Necesito agregar una feature"
 
-| Necesita                    | Comando                                           |
-| --------------------------- | ------------------------------------------------- |
-| Auth                        | `/add-login`                                      |
-| Pagos                       | `/add-payments` (decision Polar vs Stripe)        |
-| Emails                      | `/add-emails` (Resend + React Email)              |
-| PWA/Mobile                  | `/add-mobile` (push, iOS compatible)              |
-| UI Kit / Component Showcase | `/add-ui-kit` (FRESH o REDESIGN)                  |
-| Patrones BD (Supabase)      | Leer skill `supabase`                             |
-| Patrones BD (InsForge)      | Leer skill `insforge`                             |
-| InsForge setup              | `/add-insforge`                                   |
-| Landing copy-first          | `/landing`                                        |
-| Landing cinematica          | `/website-3d`                                     |
-| Feature IA                  | Leer `{{path:config_dir}}/ai_templates/_index.md` |
-| Imagenes                    | Leer skill `image-generation`                     |
-| Visuales marketing          | `/video-visuals`                                  |
+| Necesita | Comando |
+|----------|---------|
+| Auth | `/add-login` |
+| Pagos | `/add-payments` (decision Polar vs Stripe) |
+| Emails | `/add-emails` (Resend + React Email) |
+| PWA/Mobile | `/add-mobile` (push, iOS compatible) |
+| UI Kit / Component Showcase | `/add-ui-kit` (FRESH o REDESIGN) |
+| Patrones BD (Supabase) | Leer skill `supabase` |
+| Patrones BD (InsForge) | Leer skill `insforge` |
+| InsForge setup | `/add-insforge` |
+| Landing copy-first | `/landing` |
+| Landing cinematica | `/website-3d` |
+| Feature IA | Leer `{{path:config_dir}}/ai_templates/_index.md` |
+| Imagenes | Leer skill `image-generation` |
+| Visuales marketing | `/video-visuals` |
 
 ### "Quiero mejorar lo que tengo"
 
-| Necesita                     | Comando                                                                 |
-| ---------------------------- | ----------------------------------------------------------------------- |
-| Review de diseno             | `/critique`                                                             |
-| Polish visual                | `/polish`                                                               |
-| Alinear design system        | `/normalize`                                                            |
-| Performance/A11y/SEO         | `/web-audit`                                                            |
-| Rediseno completo            | `/redesign`                                                             |
+| Necesita | Comando |
+|----------|---------|
+| Review de diseno | `/critique` |
+| Polish visual | `/polish` |
+| Alinear design system | `/normalize` |
+| Performance/A11y/SEO | `/web-audit` |
+| Rediseno completo | `/redesign` |
 | **Auditar TODO el proyecto** | **`/temple`** (Seguridad + Datos/RLS + Cache + Web → 1 reporte + score) |
-| **Buscar vulnerabilidades**  | **`/adversarial-review`** (4 agentes atacantes + Codex)                 |
+| **Buscar vulnerabilidades** | **`/adversarial-review`** (4 agentes atacantes + Codex) |
 
 ### "Estrategia/negocio"
-
 → `/crisol` (pipeline completo: 7 estrategias + dashboard ejecutivo + veredicto go/no-go)
 → Individual: `/brujula`, `/precio`, `/estrella`, `/rivales`, `/roi`, `/metas`, `/lanzamiento`
 
 ### "Personalizar proyecto" → `/forge-init` (despues de /plan)
-
 ### "Activar skill inactivo" → `/forge-activate`
-
 ### "Despachar" → `/despachar`
-
 ### "Retomar trabajo" → `/avivar` (lee `{{path:config_dir}}/memory/`)
-
 ### "Optimizar un skill" → `/autoresearch`
 
 ---
@@ -100,15 +94,15 @@ IDEA → /plan → Blueprint (10 skills) → aprobacion → /crisol (opcional) �
 
 ## Golden Path
 
-| Capa       | Tecnologia                                    |
-| ---------- | --------------------------------------------- |
-| Framework  | Next.js 16 + React 19 + TypeScript            |
-| Estilos    | Tailwind CSS 3.4 + shadcn/ui                  |
-| Backend    | Supabase o InsForge (Auth + PostgreSQL + RLS) |
-| AI Engine  | Vercel AI SDK v5 + OpenRouter                 |
-| Validacion | Zod                                           |
-| Estado     | Zustand                                       |
-| Testing    | Playwright MCP                                |
+| Capa | Tecnologia |
+|------|------------|
+| Framework | Next.js 16 + React 19 + TypeScript |
+| Estilos | Tailwind CSS 3.4 + shadcn/ui |
+| Backend | Supabase o InsForge (Auth + PostgreSQL + RLS) |
+| AI Engine | Vercel AI SDK v5 + OpenRouter |
+| Validacion | Zod |
+| Estado | Zustand |
+| Testing | Playwright MCP |
 
 ## Arquitectura
 
@@ -195,7 +189,7 @@ Para detalles de MCPs, hooks, agentes, comandos completos, testing patterns, y s
 
 ---
 
-_Planifica primero. Construye con confianza._
+*Planifica primero. Construye con confianza.*
 
 ---
 

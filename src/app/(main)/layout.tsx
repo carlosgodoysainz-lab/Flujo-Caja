@@ -22,6 +22,7 @@ export default function MainLayout({
         Saltar al contenido principal
       </a>
       <nav
+        aria-label="Principal"
         className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 px-6 py-3"
         style={{ backgroundColor: "var(--navy)" }}
       >

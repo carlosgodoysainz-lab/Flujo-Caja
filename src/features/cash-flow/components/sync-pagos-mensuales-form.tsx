@@ -52,7 +52,11 @@ export function SyncPagosMensualesForm() {
       </form>
 
       {result && (
-        <div className="rounded-md border border-slate-200 p-3 text-sm">
+        <div
+          role={result.estado === "error" ? "alert" : "status"}
+          aria-live="polite"
+          className="rounded-md border border-slate-200 p-3 text-sm"
+        >
           <p className={ESTADO_LABEL[result.estado].className}>
             <strong>{ESTADO_LABEL[result.estado].text}</strong> — período{" "}
             {result.periodo}

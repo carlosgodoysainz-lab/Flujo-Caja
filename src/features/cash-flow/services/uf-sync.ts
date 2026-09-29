@@ -1,5 +1,6 @@
 "use server";
 
+import { auth } from "@/lib/auth";
 import { createServiceClient } from "@/lib/supabase/service";
 
 interface MindicadorPunto {
@@ -22,6 +23,15 @@ export async function syncUfSeries(
   puntosGuardados: number;
   errores: string[];
 }> {
+  // Auditoría 24-sep-2026: acción exportada sin validación de sesión propia.
+  const session = await auth();
+  if (!session?.user?.id) {
+    return {
+      estado: "error",
+      puntosGuardados: 0,
+      errores: ["Sesión no válida — vuelve a iniciar sesión."],
+    };
+  }
   const supabase = createServiceClient();
   const errores: string[] = [];
   let puntosGuardados = 0;
